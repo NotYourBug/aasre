@@ -1,0 +1,102 @@
+"""Tests for structured REPL shell execution."""
+
+from __future__ import annotations
+
+import subprocess
+from typing import NoReturn
+
+import pytest
+
+from tools.interactive_shell.shell.execution import (
+    ShellExecutionResult,
+    execute_shell_command,
+)
+from tools.interactive_shell.shell.parsing import parse_shell_command
+
+
+def test_execute_shell_command_reports_timeout_argv_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise(*_args: object, **_kwargs: object) -> NoReturn:  # pragma: no cover
+        raise subprocess.TimeoutExpired(
+            cmd=["sleep", "999"],
+            timeout=1,
+            output="partial out\n",
+            stderr="partial err\n",
+        )
+
+    monkeypatch.setattr(
+        "tools.interactive_shell.shell.execution.subprocess.run",
+        _raise,
+    )
+
+    result = execute_shell_command(
+        command="ignored",
+        argv=["sleep", "999"],
+        use_shell=False,
+        timeout_seconds=1,
+        max_output_chars=10_000,
+    )
+
+    assert result == ShellExecutionResult(
+        command="ignored",
+        argv=["sleep", "999"],
+        stdout="partial out\n",
+        stderr="partial err\n",
+        exit_code=None,
+        timed_out=True,
+        truncated=False,
+        executed_with_shell=False,
+    )
+
+
+def test_execute_shell_command_reports_timeout_shell_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise(*_args: object, **_kwargs: object) -> NoReturn:  # pragma: no cover
+        raise subprocess.TimeoutExpired(
+            cmd="sleep 999",
+            timeout=1,
+            output="out\n",
+            stderr="err\n",
+        )
+
+    monkeypatch.setattr(
+        "tools.interactive_shell.shell.execution.subprocess.run",
+        _raise,
+    )
+
+    result = execute_shell_command(
+        command="sleep 999",
+        argv=None,
+        use_shell=True,
+        timeout_seconds=1,
+        max_output_chars=10_000,
+    )
+
+    assert result == ShellExecutionResult(
+        command="sleep 999",
+        argv=None,
+        stdout="out\n",
+        stderr="err\n",
+        exit_code=None,
+        timed_out=True,
+        truncated=False,
+        executed_with_shell=True,
+    )
+
+
+def test_execute_quoted_heredoc_through_shell() -> None:
+    command = """python3 - <<'PY'
+print("hello-heredoc")
+PY"""
+    parsed = parse_shell_command(command, is_windows=False)
+    assert parsed.use_shell is True
+
+    result = execute_shell_command(
+        command=parsed.command,
+        argv=parsed.argv,
+        use_shell=parsed.use_shell,
+        timeout_seconds=10,
+        max_output_chars=10_000,
+    )
+
+    assert result.timed_out is False
+    assert result.exit_code == 0
+    assert "hello-heredoc" in result.stdout

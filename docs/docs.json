@@ -1,0 +1,368 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "OpenSRE Documentation",
+  "modeToggle": {
+    "default": "dark",
+    "isHidden": false
+  },
+  "colors": {
+    "primary": "#000000",
+    "light": "#FFFFFF",
+    "dark": "#000000"
+  },
+  "favicon": "/favicon.ico",
+  "styles": {
+    "css": ["/sidebar.css", "/custom.css"]
+  },
+  "scripts": [
+    "/toc-actions.js",
+    "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js",
+    "/radar-chart.js"
+  ],
+  "interaction": {
+    "drilldown": false
+  },
+  "navigation": {
+    "directory": "card",
+    "tabs": [
+      {
+        "tab": "Getting Started",
+        "icon": "rocket",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "index",
+              "showcase",
+              "features"
+            ]
+          },
+          {
+            "group": "First steps",
+            "pages": [
+              "quickstart",
+              "investigation-overview",
+              "how-investigations-work",
+              "interactive-shell-commands",
+              "interactive-shell-assistant",
+              "goals"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Installation",
+        "icon": "download",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "install"
+            ]
+          },
+          {
+            "group": "Local",
+            "pages": [
+              "install-local"
+            ]
+          },
+          {
+            "group": "Enterprise",
+            "pages": [
+              "install-enterprise"
+            ]
+          },
+          {
+            "group": "Environment guides",
+            "pages": [
+              "environments/macos",
+              "environments/linux-local",
+              "environments/windows-local",
+              "environments/docker"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment-variables",
+              "configuration/remote-sync"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Deploy and APIs",
+            "pages": [
+              "deployment",
+              "headless-cli",
+              "api",
+              "python-api",
+              "hosting-the-agent"
+            ]
+          },
+          {
+            "group": "Community",
+            "pages": [
+              "faq",
+              "cloudopsbench",
+              "bi-weekly-giveaway",
+              "pr-review-flow"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "icon": "plug",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "integrations-overview",
+              "multi-instance-integrations",
+              "llm-providers",
+              {
+                "group": "Platform",
+                "expanded": false,
+                "pages": [
+                  "remote-runtime-investigation",
+                  "background-investigations",
+                  "masking",
+                  "interactive-shell-privacy",
+                  "sessions",
+                  "principal-scoped-storage",
+                  "memory",
+                  "work-management",
+                  "fleet",
+                  "cron",
+                  "closed-loop-learning"
+                ]
+              },
+              {
+                "group": "Monitoring",
+                "expanded": false,
+                "pages": [
+                  "azure-monitor",
+                  "betterstack",
+                  "coralogix",
+                  "datadog",
+                  "grafana",
+                  "grafana_annotations",
+                  "grafana-log-sink",
+                  "groundcover",
+                  "hermes",
+                  "honeycomb",
+                  "new_relic",
+                  "openobserve",
+                  "posthog",
+                  "posthog-mcp",
+                  "signoz",
+                  "splunk",
+                  "tempo",
+                  "victoria_logs",
+                  "x-mcp"
+                ]
+              },
+              {
+                "group": "Incidents",
+                "expanded": false,
+                "pages": [
+                  "alertmanager",
+                  "incident_io",
+                  "opsgenie",
+                  "pagerduty",
+                  "sentry",
+                  "sentry-mcp",
+                  "servicenow",
+                  "fix-sentry-issue"
+                ]
+              },
+              {
+                "group": "Cloud",
+                "expanded": false,
+                "pages": [
+                  "argocd",
+                  "aws",
+                  "aws_lambda",
+                  "cloudtrail_events",
+                  "ec2",
+                  "elb",
+                  "helm",
+                  "kubernetes",
+                  "yandex-cloud",
+                  "railway",
+                  "s3",
+                  "sqs_queues",
+                  "vercel"
+                ]
+              },
+              {
+                "group": "Code and CI",
+                "expanded": false,
+                "pages": [
+                  "architecture-audit-tool",
+                  "bitbucket",
+                  "github",
+                  "github-ci-fix",
+                  "github-security-fix",
+                  "github-workflow-tools",
+                  "integrations/github-actions",
+                  "gitlab",
+                  "jenkins",
+                  "pi-coding"
+                ]
+              },
+              {
+                "group": "Collaboration",
+                "expanded": false,
+                "pages": [
+                  "google-docs",
+                  "jira",
+                  "integrations/trello"
+                ]
+              },
+              {
+                "group": "Messaging",
+                "expanded": false,
+                "pages": [
+                  "messaging/index",
+                  "smtp",
+                  "messaging/buzz",
+                  "messaging/slack",
+                  "messaging/discord",
+                  "messaging/telegram",
+                  "messaging/rocketchat",
+                  "messaging/whatsapp",
+                  "messaging/twilio-sms"
+                ]
+              },
+              {
+                "group": "Databases",
+                "expanded": false,
+                "pages": [
+                  "azure-sql",
+                  "clickhouse",
+                  "elasticsearch",
+                  "mariadb",
+                  "mongodb",
+                  "mongodb-atlas",
+                  "mysql",
+                  "opensearch",
+                  "postgresql",
+                  "rds",
+                  "redis",
+                  "snowflake",
+                  "supabase"
+                ]
+              },
+              {
+                "group": "Workflows",
+                "expanded": false,
+                "pages": [
+                  "airflow",
+                  "dagster",
+                  "kafka",
+                  "openclaw",
+                  "prefect",
+                  "rabbitmq",
+                  "temporal"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.gg/opensre",
+        "icon": "discord",
+        "iconType": "brands"
+      },
+      {
+        "label": "Releases",
+        "href": "https://github.com/Tracer-Cloud/opensre/releases",
+        "icon": "box"
+      },
+      {
+        "label": "GitHub",
+        "href": "https://github.com/Tracer-Cloud/opensre",
+        "icon": "github",
+        "iconType": "brands"
+      }
+    ]
+  },
+  "contextual": {
+    "options": []
+  },
+  "footer": {
+    "socials": {
+      "website": "https://www.opensre.com",
+      "github": "https://github.com/Tracer-Cloud/opensre",
+      "linkedin": "https://linkedin.com/company/tracercloud",
+      "discord": "https://discord.gg/opensre"
+    },
+    "copyright": "\u00a9 2026 OpenSRE. All rights reserved."
+  },
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_zutpVhmQw7oUmMkbawKNdYCKQWjpfASATtf5ywB75W2",
+      "apiHost": "https://us.i.posthog.com",
+      "sessionRecording": true
+    },
+    "hotjar": {
+      "hjid": "6568352",
+      "hjsv": "6"
+    }
+  },
+  "redirects": [
+    {
+      "source": "/messaging/twilio",
+      "destination": "/messaging/twilio-sms"
+    },
+    {
+      "source": "/tracer-faq",
+      "destination": "/faq"
+    },
+    {
+      "source": "/technology/end-to-end",
+      "destination": "/"
+    },
+    {
+      "source": "/comparisons/overview",
+      "destination": "/"
+    },
+    {
+      "source": "/introduction-monitoring",
+      "destination": "/"
+    },
+    {
+      "source": "/quickstart-monitoring",
+      "destination": "/quickstart"
+    },
+    {
+      "source": "/environments/codespaces",
+      "destination": "/install"
+    },
+    {
+      "source": "/environments/overview",
+      "destination": "/install"
+    }
+  ],
+  "seo": {
+    "indexing": "all",
+    "metatags": {}
+  },
+  "logo": {
+    "light": "/images/opensre-logo-black.svg",
+    "dark": "/images/opensre-logo-white.svg"
+  }
+}

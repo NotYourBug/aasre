@@ -1,0 +1,114 @@
+"""Characterization of the action turn's outcome, field by field.
+
+``_run_action_turn`` is one long function doing three unrelated jobs: building
+the agent, running it, and turning what happened into a
+``ToolCallingTurnResult`` plus console output.
+
+These assert on complete values rather than single fields, so a refactor that
+drops or reorders part of the composed text fails here rather than in a
+customer's terminal.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from surfaces.interactive_shell.runtime.action_turn import run_action_tool_turn
+from surfaces.interactive_shell.session import Session
+from tests.core.agent.orchestration.action_execution_test_harness import (
+    ActionExecutionHarness,
+    FakeActionLLM,
+    no_tool_response,
+    tool_response,
+)
+
+
+def _console_text(harness: ActionExecutionHarness) -> str:
+    return harness.console.file.getvalue()  # type: ignore[attr-defined]
+
+
+def _outcome(result: Any) -> dict[str, Any]:
+    """Every field the caller can observe, as one comparable value."""
+    return {
+        "planned_count": result.planned_count,
+        "executed_count": result.executed_count,
+        "executed_success_count": result.executed_success_count,
+        "has_unhandled_clause": result.has_unhandled_clause,
+        "handled": result.handled,
+        "accounting_status": result.accounting_status,
+        "investigation_dispatched": result.investigation_dispatched,
+    }
+
+
+def test_a_turn_with_no_tool_calls_returns_the_agent_reply() -> None:
+    # Arrange
+    harness = ActionExecutionHarness(llm=FakeActionLLM([no_tool_response("just talking")]))
+
+    # Act
+    result = run_action_tool_turn(
+        "hello", Session(), harness.console, llm_factory=harness.llm_factory
+    )
+
+    # Assert
+    assert _outcome(result) == {
+        "planned_count": 0,
+        "executed_count": 0,
+        "executed_success_count": 0,
+        "has_unhandled_clause": False,
+        "handled": False,
+        "accounting_status": "completed",
+        "investigation_dispatched": False,
+    }
+    assert "just talking" in _console_text(harness)
+
+
+def test_final_text_that_reads_like_a_reply_becomes_the_response() -> None:
+    """A substantial closing message is streamed as the user-facing answer."""
+    # Arrange
+    report = "## Findings\n\nThe checkout service is returning 502s.\nRoot cause: bad deploy."
+    harness = ActionExecutionHarness(llm=FakeActionLLM([no_tool_response(report)]))
+
+    # Act
+    result = run_action_tool_turn(
+        "what broke?", Session(), harness.console, llm_factory=harness.llm_factory
+    )
+
+    # Assert
+    assert result.response_text == report
+
+
+def test_a_terse_closing_line_is_the_answer_when_nothing_else_ran() -> None:
+    """With no tool output there is nothing to preserve, so the text stands.
+
+    Recorded because it is the mirror of the case above and easy to break when
+    the composition order changes.
+    """
+    # Arrange
+    harness = ActionExecutionHarness(llm=FakeActionLLM([no_tool_response("done")]))
+
+    # Act
+    result = run_action_tool_turn(
+        "run it", Session(), harness.console, llm_factory=harness.llm_factory
+    )
+
+    # Assert
+    assert result.response_text == "done"
+
+
+def test_iteration_cap_is_preserved_on_turn_result() -> None:
+    harness = ActionExecutionHarness(
+        llm=FakeActionLLM([tool_response("skill_view", {"name": "missing"}) for _ in range(5)])
+    )
+
+    result = run_action_tool_turn(
+        "keep trying",
+        Session(),
+        harness.console,
+        llm_factory=harness.llm_factory,
+    )
+
+    assert result.hit_iteration_cap is True
+    assert result.response_streamed is True
+    assert "repeated tool calls produced no new result" in result.response_text
+    assert _console_text(harness).count("repeated tool calls produced no new result") == 1
+    assert harness.llm.invocations == 5
