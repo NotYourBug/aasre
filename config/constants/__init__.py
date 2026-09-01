@@ -74,6 +74,14 @@ from config.constants.datadog import (
     DATADOG_SITE_ENV,
 )
 from config.constants.environment import DEPLOYMENT_ENV_ENV
+from config.constants.feishu import (
+    ALERTPUSH_APP_ID_ENV,
+    ALERTPUSH_APP_SECRET_ENV,
+    FEISHU_ALARM_RECEIVE_ID_ENV,
+    FEISHU_ALARM_RECEIVE_ID_TYPE_ENV,
+    FEISHU_APP_ID_ENV,
+    FEISHU_APP_SECRET_ENV,
+)
 from config.constants.filestorage import (
     BLOB_READ_WRITE_TOKEN_ENV,
     DEFAULT_MAX_PARALLEL_UPLOADS,
@@ -557,6 +565,12 @@ __all__ = [
     "DATADOG_APP_KEY_ENV",
     "DATADOG_SITE_ENV",
     "DEPLOYMENT_ENV_ENV",
+    "ALERTPUSH_APP_ID_ENV",
+    "ALERTPUSH_APP_SECRET_ENV",
+    "FEISHU_ALARM_RECEIVE_ID_ENV",
+    "FEISHU_ALARM_RECEIVE_ID_TYPE_ENV",
+    "FEISHU_APP_ID_ENV",
+    "FEISHU_APP_SECRET_ENV",
     "DEFAULT_POSTHOG_TIMEOUT_SECONDS",
     "DEFAULT_POSTHOG_URL",
     "DEFAULT_SENTRY_BASE_URL",
