@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterable
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
+from gateway.core.single_message_output import SingleMessageTurnOutput
+from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
 from infrastructure.text.markdown import tighten_markdown_emphasis
+from infrastructure.text.truncation import truncate
 
 logger = logging.getLogger(__name__)
 
@@ -35,41 +37,57 @@ def _send_text(app_id: str, app_secret: str, chat_id: str, text: str) -> None:
         logger.warning("Feishu turn output send failed: %s", exc)
 
 
-class FeishuTurnOutput:
-    """Deliver turn output to a Feishu chat."""
+class _FeishuChannel:
+    """Vendor I/O for a Feishu chat message delivered as one final text."""
+
+    reopen_placeholder_on_status = False
 
     def __init__(self, *, app_id: str, app_secret: str, chat_id: str) -> None:
         self._app_id = app_id
         self._app_secret = app_secret
         self._chat_id = chat_id
+        self.destination = f"chat={chat_id}"
 
-    def print(self, message: str = "") -> None:
-        _ = message
+    def on_status(self) -> None:
+        # Feishu v1 posts no typing indicator.
+        return
 
-    def render_response_header(self, label: str) -> None:
-        _ = label
+    def open_placeholder(self, _text: str) -> str:
+        # No placeholder in v1: the final answer is the first message sent.
+        return ""
 
-    def render_error(self, message: str) -> None:
-        self.finalize(message)
+    def edit_preview(self, _message_id: str, _text: str) -> bool:
+        # No in-place edit in v1.
+        return False
 
-    def stream(
-        self,
-        *,
-        label: str,
-        chunks: Iterable[str],
-        suppress_if_starts_with: str | None = None,
-        defer_want_me_to_closer: bool = False,
-    ) -> str:
-        _ = (label, suppress_if_starts_with, defer_want_me_to_closer)
-        return "".join(str(c) for c in chunks)
-
-    def set_tool_status(self, status: str) -> None:
-        _ = status
-
-    def finish_streamed_response(self, answer: str) -> None:
-        self.finalize(answer)
-
-    def finalize(self, answer: str) -> None:
-        text = tighten_markdown_emphasis((answer or "").strip())
+    def deliver_final(self, _message_id: str, answer: str) -> str:
+        text = truncate(
+            tighten_markdown_emphasis((answer or "").strip()),
+            MAX_MESSAGE_SIZE,
+            suffix="…",
+        )
         if text:
             _send_text(self._app_id, self._app_secret, self._chat_id, text)
+        return ""
+
+
+class FeishuTurnOutput(SingleMessageTurnOutput):
+    """Deliver turn output to a Feishu chat as one text message."""
+
+    def __init__(
+        self,
+        *,
+        app_id: str,
+        app_secret: str,
+        chat_id: str,
+        edit_interval_seconds: float = 1.5,
+        tool_hooks: object | None = None,
+    ) -> None:
+        super().__init__(
+            channel=_FeishuChannel(app_id=app_id, app_secret=app_secret, chat_id=chat_id),
+            edit_interval_seconds=edit_interval_seconds,
+            tool_hooks=tool_hooks,
+        )
+
+
+__all__ = ["FeishuTurnOutput"]

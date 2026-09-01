@@ -18,6 +18,8 @@ class FeishuGatewaySettings(StrictConfigModel):
     app_secret: str
     max_concurrent_turns: int = Field(default_factory=turn_limit_for_profile, ge=1)
     startup_timeout_seconds: float = Field(default=30.0, gt=0)
+    turn_timeout_seconds: float = Field(default=240.0, gt=0)
+    status_update_interval_seconds: float = Field(default=1.5, gt=0)
 
 
 class FeishuGatewayEnv(BaseSettings):
@@ -27,6 +29,8 @@ class FeishuGatewayEnv(BaseSettings):
 
     app_id: str = ""
     app_secret: str = ""
+    gateway_turn_timeout_seconds: float = Field(default=240.0, gt=0)
+    gateway_status_update_interval_seconds: float = Field(default=1.5, gt=0)
 
 
 def load_feishu_gateway_settings() -> FeishuGatewaySettings:
@@ -36,4 +40,9 @@ def load_feishu_gateway_settings() -> FeishuGatewaySettings:
         raise GatewayConfigurationError(
             f"Feishu app credentials missing. Set {FEISHU_APP_ID_ENV} and {FEISHU_APP_SECRET_ENV}."
         )
-    return FeishuGatewaySettings(app_id=env.app_id, app_secret=env.app_secret)
+    return FeishuGatewaySettings(
+        app_id=env.app_id,
+        app_secret=env.app_secret,
+        turn_timeout_seconds=env.gateway_turn_timeout_seconds,
+        status_update_interval_seconds=env.gateway_status_update_interval_seconds,
+    )
