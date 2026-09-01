@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from integrations.feishu.alarms import FeishuAlarmCredentials, FeishuAlarmDispatcher
 from integrations.rocketchat.alarms import RocketChatAlarmDispatcher
 from integrations.rocketchat.credentials import RocketChatCredentials
 from integrations.telegram.alarms import AlarmDispatcher
@@ -66,3 +67,40 @@ def test_rocketchat_provider_passes_chat_id_as_channel_override(
     _build_dispatcher(config)
 
     assert captured == {"channel_override": "#ops"}
+
+
+def test_feishu_provider_builds_feishu_dispatcher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_load_feishu_credentials(**kwargs: object) -> FeishuAlarmCredentials:
+        return FeishuAlarmCredentials(app_id="cli_x", app_secret="s_x", receive_id="oc_x")
+
+    monkeypatch.setattr(
+        "tools.system.watch_dog.runner.load_feishu_credentials_from_env",
+        _fake_load_feishu_credentials,
+    )
+    config = WatchdogConfig(pid=1, max_cpu=80.0, provider="feishu", chat_id="oc_ops")
+
+    dispatcher = _build_dispatcher(config)
+
+    assert isinstance(dispatcher, FeishuAlarmDispatcher)
+
+
+def test_feishu_provider_passes_chat_id_as_channel_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_load_feishu_credentials(**kwargs: object) -> FeishuAlarmCredentials:
+        captured.update(kwargs)
+        return FeishuAlarmCredentials(app_id="cli_x", app_secret="s_x", receive_id="oc_x")
+
+    monkeypatch.setattr(
+        "tools.system.watch_dog.runner.load_feishu_credentials_from_env",
+        _fake_load_feishu_credentials,
+    )
+    config = WatchdogConfig(pid=1, max_cpu=80.0, provider="feishu", chat_id="oc_ops")
+
+    _build_dispatcher(config)
+
+    assert captured == {"channel_override": "oc_ops"}

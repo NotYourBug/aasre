@@ -285,3 +285,38 @@ def test_alarm_message_markdown_neutralizes_backticks_in_command() -> None:
     # close the span early and spill the rest of the field as plain text.
     assert "echo `date`" not in message
     assert "echo ˋdate" in message
+
+
+def test_alarm_message_uses_plain_text_for_feishu() -> None:
+    """Feishu ``msg_type="text"`` renders no markup — sending the
+    Telegram-flavored <b>/<code> or the Rocket.Chat **bold**/`code` would show
+    up as literal characters. The feishu provider must get the same fields
+    with no markup at all."""
+    dispatcher = _FakeDispatcher()
+
+    sample = ProcessSample(
+        pid=123,
+        name="zsh",
+        cmdline=("zsh", "-c", "sleep 1"),
+        cpu_percent=95.0,
+        rss_bytes=1024,
+        runtime_seconds=30.0,
+        alive=True,
+        started_at=1_700_000_000.0,
+    )
+    code = run_watchdog(
+        WatchdogConfig(pid=123, max_cpu=90, once=True, provider="feishu"),
+        sampler=_FakeSampler([sample]),
+        dispatcher=dispatcher,
+        _sleep=lambda _seconds: None,
+        _clock=lambda: 100.0,
+    )
+
+    assert code == ERROR
+    message = dispatcher.calls[0][1]
+    assert "🚨 OpenSRE Watchdog Alarm" in message
+    assert "host" in message
+    assert "<b>" not in message
+    assert "<code>" not in message
+    assert "**" not in message
+    assert "`" not in message

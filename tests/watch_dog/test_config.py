@@ -38,9 +38,14 @@ def test_watchdog_threshold_members_are_stable() -> None:
     assert WatchdogThreshold("max_cpu") is WatchdogThreshold.MAX_CPU
 
 
-def test_watchdog_supported_providers_is_telegram_rocketchat_and_buzz_only() -> None:
+def test_watchdog_supported_providers_members() -> None:
     """Slack/Discord alarm delivery isn't implemented; the subset must stay narrow."""
-    assert WATCHDOG_SUPPORTED_PROVIDERS == (Provider.TELEGRAM, Provider.ROCKETCHAT, Provider.BUZZ)
+    assert WATCHDOG_SUPPORTED_PROVIDERS == (
+        Provider.TELEGRAM,
+        Provider.ROCKETCHAT,
+        Provider.BUZZ,
+        Provider.FEISHU,
+    )
 
 
 def test_watchdog_config_rejects_unsupported_provider_even_bypassing_click() -> None:

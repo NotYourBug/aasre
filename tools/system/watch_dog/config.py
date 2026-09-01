@@ -19,6 +19,7 @@ WATCHDOG_SUPPORTED_PROVIDERS: tuple[Provider, ...] = (
     Provider.TELEGRAM,
     Provider.ROCKETCHAT,
     Provider.BUZZ,
+    Provider.FEISHU,
 )
 
 

@@ -42,7 +42,7 @@ class Provider(StrEnum):
     Distinct from ``integrations.messaging_security.MessagingPlatform``,
     which tracks gateway *inbound* identity, not delivery. Not every consumer
     supports every member here (e.g. Sentry digest delivery has no Discord
-    path, watchdog alarms only support Telegram/Rocket.Chat/Buzz) -- those
+    path, watchdog alarms only support Telegram/Rocket.Chat/Buzz/Feishu) -- those
     consumers define their own documented subset rather than exposing a
     choice that would silently fail.
     """
@@ -53,6 +53,7 @@ class Provider(StrEnum):
     ROCKETCHAT = "rocketchat"
     INTERACTIVE_SHELL = "interactive_shell"
     BUZZ = "buzz"
+    FEISHU = "feishu"
 
 
 def _generate_task_id() -> str:
