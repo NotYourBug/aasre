@@ -25,6 +25,7 @@ from gateway.core.lifecycle.errors import (
 from gateway.core.process.shutdown_budget import ShutdownBudget
 from gateway.transports.buzz.startup import start_buzz_worker
 from gateway.transports.discord.startup import start_discord_worker
+from gateway.transports.feishu.startup import start_feishu_worker
 from gateway.transports.names import TransportName
 from gateway.transports.registration import TransportRegistration
 from gateway.transports.slack.startup import start_slack_worker
@@ -37,6 +38,7 @@ TRANSPORTS: tuple[TransportRegistration, ...] = (
     TransportRegistration(TransportName.SLACK, start_slack_worker, "inbound connected"),
     TransportRegistration(TransportName.DISCORD, start_discord_worker, "connected via gateway"),
     TransportRegistration(TransportName.BUZZ, start_buzz_worker, "polling for messages"),
+    TransportRegistration(TransportName.FEISHU, start_feishu_worker, "connected via gateway"),
 )
 
 
