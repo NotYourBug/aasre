@@ -61,6 +61,7 @@ class MessagingPlatform(StrEnum):
     SLACK = "slack"
     DISCORD = "discord"
     BUZZ = "buzz"
+    FEISHU = "feishu"
 
 
 # ---------------------------------------------------------------------------

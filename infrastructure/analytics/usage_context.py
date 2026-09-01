@@ -35,6 +35,7 @@ class UsageSurface(StrEnum):
     TELEGRAM = "telegram"
     DISCORD = "discord"
     BUZZ = "buzz"
+    FEISHU = "feishu"
 
 
 CANONICAL_SURFACES: Final[frozenset[str]] = frozenset(member.value for member in UsageSurface)
