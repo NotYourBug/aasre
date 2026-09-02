@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 
 from config.constants.gateway import (
     CREDITS_DENIED_MESSAGE,
@@ -37,12 +39,17 @@ def handle_inbound_feishu_message(
     send_text: Callable[[str, str], None],
     handler: TurnCallback,
     logger: logging.Logger,
+    turn_cancel: threading.Event | None = None,
 ) -> None:
     """Run one inbound Feishu message through the gateway agent callback.
 
     Runs on the turn executor thread. The owning scope is resolved first, then
     the turn is serialized per conversation, bound to the storage/usage/metering
     contexts, and driven under a cooperative timeout with ``/stop`` cancellation.
+
+    ``turn_cancel`` is the Event the dispatcher already registered for this
+    conversation, so a ``/stop`` arriving before the turn started is honoured
+    rather than lost.
     """
     key = conversation_key(inbound)
     try:
@@ -57,7 +64,12 @@ def handle_inbound_feishu_message(
         return
 
     with conversation_locks.hold(key):
-        decision = enforce_inbound_feishu_message_security(text=inbound.text)
+        decision = enforce_inbound_feishu_message_security(
+            user_id=inbound.open_id,
+            chat_id=inbound.chat_id,
+            text=inbound.text,
+            env_allowed_open_ids=settings.allowed_open_ids,
+        )
 
         def _send(text: str) -> None:
             send_text(inbound.chat_id, text)
@@ -90,7 +102,7 @@ def handle_inbound_feishu_message(
             chat_id=inbound.chat_id,
             edit_interval_seconds=settings.status_update_interval_seconds,
         )
-        terminal = TerminalOutcomeArbiter()
+        terminal = TerminalOutcomeArbiter(turn_cancel)
         output.turn_cancel = terminal.cancel_event
 
         def _on_turn_timeout() -> None:
@@ -124,43 +136,55 @@ def handle_inbound_feishu_message(
                 except Exception:
                     logger.debug("[feishu-gateway] credits-denied finalize failed", exc_info=True)
 
-        with active_cancels.track(key, terminal.cancel_event, on_user_stop=_on_user_stop):
-            if terminal.cancel_event.is_set():
+        if turn_cancel is None:
+            registration: AbstractContextManager[None] = active_cancels.track(
+                key,
+                terminal.cancel_event,
+                on_user_stop=_on_user_stop,
+            )
+        else:
+            active_cancels.bind_user_stop(key, turn_cancel, _on_user_stop)
+            registration = nullcontext()
+
+        # A /stop that landed between dispatch registration and here only set
+        # the Event; nothing has run yet, so answer it instead of the agent.
+        if terminal.cancel_event.is_set():
+            if terminal.claim():
+                try:
+                    output.finalize(USER_STOP_MESSAGE)
+                except Exception:
+                    logger.debug("[feishu-gateway] user-stop finalize failed", exc_info=True)
+            return
+
+        with terminal.timeout_after(settings.turn_timeout_seconds, _on_turn_timeout):
+            try:
+                with (
+                    registration,
+                    bound_storage_scope(scope),
+                    bound_usage_context(
+                        surface=UsageSurface.FEISHU,
+                        session_id=session.session_id,
+                        user_id=inbound.open_id or None,
+                    ),
+                    bound_turn_metering(
+                        organization_id=scope.principal.id,
+                        reason="feishu_turn",
+                        on_denied=_on_credit_denied,
+                    ),
+                ):
+                    handler(inbound.text, session, output, logger)
+            except Exception:
+                logger.exception(
+                    "[feishu-gateway] turn ERRORED chat=%s session=%s",
+                    inbound.chat_id,
+                    session.session_id[:8],
+                )
                 if terminal.claim():
                     try:
-                        output.finalize(USER_STOP_MESSAGE)
+                        output.render_error(TURN_ERROR_MESSAGE)
                     except Exception:
-                        logger.debug("[feishu-gateway] user-stop finalize failed", exc_info=True)
-                return
-
-            with terminal.timeout_after(settings.turn_timeout_seconds, _on_turn_timeout):
-                try:
-                    with (
-                        bound_storage_scope(scope),
-                        bound_usage_context(
-                            surface=UsageSurface.FEISHU,
-                            session_id=session.session_id,
-                            user_id=inbound.open_id or None,
-                        ),
-                        bound_turn_metering(
-                            organization_id=scope.principal.id,
-                            reason="feishu_turn",
-                            on_denied=_on_credit_denied,
-                        ),
-                    ):
-                        handler(inbound.text, session, output, logger)
-                except Exception:
-                    logger.exception(
-                        "[feishu-gateway] turn ERRORED chat=%s session=%s",
-                        inbound.chat_id,
-                        session.session_id[:8],
-                    )
-                    if terminal.claim():
-                        try:
-                            output.render_error(TURN_ERROR_MESSAGE)
-                        except Exception:
-                            logger.debug("[feishu-gateway] error finalize failed", exc_info=True)
-                    raise
+                        logger.debug("[feishu-gateway] error finalize failed", exc_info=True)
+                raise
 
         if terminal.claim():
             logger.info(
