@@ -9,7 +9,10 @@ from concurrent.futures import ThreadPoolExecutor
 from config.constants.gateway import DEFAULT_STOP_TIMEOUT_SECONDS
 from gateway.core.storage.session.binding_store import BindingStore, open_binding_store
 from gateway.transports.feishu.settings import FeishuGatewaySettings
-from gateway.transports.feishu.worker import run_feishu_gateway_thread
+from gateway.transports.feishu.worker import (
+    _verify_feishu_credentials,
+    run_feishu_gateway_thread,
+)
 from infrastructure.turn_host.turn_callback import TurnCallback
 
 
@@ -53,7 +56,14 @@ def start_feishu_gateway_background(
     logger: logging.Logger,
     handler: TurnCallback,
 ) -> FeishuGatewayBackground:
-    """Connect to Feishu and dispatch inbound messages until stopped."""
+    """Connect to Feishu and dispatch inbound messages until stopped.
+
+    Credentials are verified synchronously before the worker thread starts, so
+    a bad ``FEISHU_APP_ID``/``FEISHU_APP_SECRET`` surfaces as
+    ``ObtainAccessTokenException`` here rather than being swallowed by the
+    daemon thread's error handler.
+    """
+    _verify_feishu_credentials(settings.app_id, settings.app_secret)
     bindings = open_binding_store()
     executor = ThreadPoolExecutor(
         max_workers=settings.max_concurrent_turns,

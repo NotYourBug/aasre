@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from lark_oapi.core.exception import ObtainAccessTokenException
+
 from gateway.core.lifecycle.errors import GatewayTransportFailedError
 from gateway.transports.feishu.background import (
     FeishuGatewayBackground,
@@ -27,11 +29,14 @@ def start_feishu_worker(
     Feishu like Telegram/Slack/Discord (start returns only a live worker).
     """
     settings = load_feishu_gateway_settings()
-    worker = start_feishu_gateway_background(
-        settings=settings,
-        logger=logger,
-        handler=handler,
-    )
+    try:
+        worker = start_feishu_gateway_background(
+            settings=settings,
+            logger=logger,
+            handler=handler,
+        )
+    except ObtainAccessTokenException as exc:
+        raise GatewayTransportFailedError("Feishu credential verification failed") from exc
     if not worker.wait_until_ready(timeout=settings.startup_timeout_seconds):
         logger.warning(
             "Feishu gateway did not become ready within %.0fs",

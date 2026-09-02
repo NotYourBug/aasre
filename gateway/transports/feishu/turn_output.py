@@ -33,8 +33,9 @@ def _send_text(app_id: str, app_secret: str, chat_id: str, text: str) -> None:
     )
     try:
         client.im.v1.message.create(request)
-    except Exception as exc:
-        logger.warning("Feishu turn output send failed: %s", exc)
+    except Exception:
+        logger.exception("Feishu turn output send failed")
+        raise
 
 
 class _FeishuChannel:

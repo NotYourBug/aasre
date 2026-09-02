@@ -6,11 +6,13 @@ import asyncio
 import json
 import logging
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
+from lark_oapi.core.token import TokenManager
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws import Client
 
@@ -29,6 +31,74 @@ from infrastructure.turn_host.turn_callback import TurnCallback
 _PLATFORM_FEISHU = "feishu"
 
 
+def _verify_feishu_credentials(app_id: str, app_secret: str) -> None:
+    """Fetch the tenant access token, raising ``ObtainAccessTokenException`` on bad creds.
+
+    Uses the same REST ``lark.Client`` builder as :func:`turn_output._send_text`
+    so verification exercises the exact credential path turns use.
+    """
+    client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
+    TokenManager.get_self_tenant_token(client.config)
+
+
+def _dispatch_turn(
+    inbound: FeishuInboundMessage,
+    *,
+    settings: FeishuGatewaySettings,
+    session_resolver: SessionResolver,
+    active_cancels: ActiveTurnRegistry,
+    conversation_locks: ConversationLockRegistry,
+    send_text: Callable[[str, str], None],
+    handler: TurnCallback,
+    logger: logging.Logger,
+    executor: ThreadPoolExecutor,
+    loop: asyncio.AbstractEventLoop,
+    turn_slots: threading.BoundedSemaphore,
+) -> None:
+    """Register the cancel Event and submit the turn to the executor.
+
+    The Event is registered *before* ``run_in_executor`` so a ``/stop`` arriving
+    after dispatch but before the turn body acquires the conversation lock still
+    finds it. Bounded by ``turn_slots`` so the WS loop never queues unboundedly;
+    a full slot drops the turn (logged) rather than blocking the loop thread.
+    """
+    key = conversation_key(inbound)
+    turn_cancel = threading.Event()
+    active_cancels.register(key, turn_cancel)
+
+    if not turn_slots.acquire(blocking=False):
+        logger.warning(
+            "[feishu-gateway] turn dropped: concurrency limit reached chat=%s",
+            inbound.chat_id,
+        )
+        active_cancels.unregister(key, turn_cancel)
+        return
+
+    dispatch = partial(
+        handle_inbound_feishu_message,
+        inbound,
+        settings=settings,
+        session_resolver=session_resolver,
+        active_cancels=active_cancels,
+        conversation_locks=conversation_locks,
+        send_text=send_text,
+        handler=handler,
+        logger=logger,
+        turn_cancel=turn_cancel,
+    )
+
+    def _on_turn_done(future: asyncio.Future[None]) -> None:
+        turn_slots.release()
+        active_cancels.unregister(key, turn_cancel)
+        try:
+            future.result()
+        except Exception:
+            logger.error("[feishu-gateway] turn dispatch failed", exc_info=True)
+
+    future = loop.run_in_executor(executor, dispatch)
+    future.add_done_callback(_on_turn_done)
+
+
 def run_feishu_gateway_thread(
     *,
     settings: FeishuGatewaySettings,
@@ -44,21 +114,17 @@ def run_feishu_gateway_thread(
     ``Client.start()`` blocks and runs its own asyncio loop, so it must be called
     from this background thread (never wrapped in ``asyncio.run``). There is no
     first-connect callback, so "ready" means the loop is up and connecting; the
-    event is set immediately before ``start()``. A credential failure raises
-    ``ObtainAccessTokenException`` out of ``start()`` and is logged here.
+    event is set immediately before ``start()``. Credentials were verified in the
+    caller before this thread started, so a credential failure out of ``start()``
+    is a runtime error logged here.
     """
     session_resolver = SessionResolver(bindings, platform=_PLATFORM_FEISHU)
     active_cancels = ActiveTurnRegistry()
     conversation_locks = ConversationLockRegistry()
+    turn_slots = threading.BoundedSemaphore(settings.max_concurrent_turns)
 
     def send_text(chat_id: str, text: str) -> None:
         _send_text(settings.app_id, settings.app_secret, chat_id, text)
-
-    def _consume_turn_future(future: asyncio.Future[None]) -> None:
-        try:
-            future.result()
-        except Exception:
-            logger.error("[feishu-gateway] turn dispatch failed", exc_info=True)
 
     def on_message(data: P2ImMessageReceiveV1) -> None:
         try:
@@ -78,12 +144,25 @@ def run_feishu_gateway_thread(
         message = event.message
         if message is None:
             return
+        if message.message_type != "text":
+            logger.debug(
+                "[feishu-gateway] dropping non-text message type=%s chat=%s",
+                message.message_type,
+                message.chat_id or "",
+            )
+            return
         chat_id = message.chat_id or ""
         message_id = message.message_id or ""
         text = str(json.loads(message.content or "{}").get("text", "") or "")
         sender_id = sender.sender_id
         open_id = (sender_id.open_id or "") if sender_id is not None else ""
-        if not chat_id or not open_id:
+        if not chat_id or not open_id or not text:
+            logger.debug(
+                "[feishu-gateway] dropping incomplete message chat=%s open_id=%s text=%s",
+                chat_id,
+                open_id,
+                bool(text),
+            )
             return
 
         inbound = FeishuInboundMessage(
@@ -97,8 +176,7 @@ def run_feishu_gateway_thread(
                 send_text(chat_id, NO_ACTIVE_TURN_MESSAGE)
             return
 
-        dispatch = partial(
-            handle_inbound_feishu_message,
+        _dispatch_turn(
             inbound,
             settings=settings,
             session_resolver=session_resolver,
@@ -107,9 +185,10 @@ def run_feishu_gateway_thread(
             send_text=send_text,
             handler=handler,
             logger=logger,
+            executor=executor,
+            loop=asyncio.get_running_loop(),
+            turn_slots=turn_slots,
         )
-        future = asyncio.get_running_loop().run_in_executor(executor, dispatch)
-        future.add_done_callback(_consume_turn_future)
 
     dispatcher_handler = (
         EventDispatcherHandler.builder(encrypt_key="", verification_token="")
