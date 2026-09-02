@@ -17,3 +17,11 @@ def test_loads_credentials(monkeypatch):
     settings = load_feishu_gateway_settings()
     assert settings.app_id == "cli_test"
     assert settings.app_secret == "s_test"
+
+
+def test_loads_allowed_open_ids_from_env(monkeypatch):
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "s_test")
+    monkeypatch.setenv("FEISHU_ALLOWED_OPEN_IDS", "ou_alice, ou_bob ,ou_carol")
+    settings = load_feishu_gateway_settings()
+    assert settings.allowed_open_ids == ["ou_alice", "ou_bob", "ou_carol"]
