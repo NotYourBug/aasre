@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from config.constants.feishu import FEISHU_APP_ID_ENV, FEISHU_APP_SECRET_ENV
+from config.constants.feishu import (
+    FEISHU_ALLOWED_OPEN_IDS_ENV,
+    FEISHU_APP_ID_ENV,
+    FEISHU_APP_SECRET_ENV,
+)
 from config.strict_config import StrictConfigModel
 from gateway.core.lifecycle.errors import GatewayConfigurationError
 from infrastructure.turn_host.concurrency import turn_limit_for_profile
+
+logger = logging.getLogger(__name__)
 
 
 class FeishuGatewaySettings(StrictConfigModel):
@@ -52,6 +59,12 @@ def load_feishu_gateway_settings() -> FeishuGatewaySettings:
     if not env.app_id or not env.app_secret:
         raise GatewayConfigurationError(
             f"Feishu app credentials missing. Set {FEISHU_APP_ID_ENV} and {FEISHU_APP_SECRET_ENV}."
+        )
+    if not env.allowed_open_ids:
+        logger.warning(
+            "Feishu allowed open_ids are not configured: inbound is deny-all until a "
+            "user pairs via /pair or you set %s (comma-separated open_ids).",
+            FEISHU_ALLOWED_OPEN_IDS_ENV,
         )
     return FeishuGatewaySettings(
         app_id=env.app_id,
