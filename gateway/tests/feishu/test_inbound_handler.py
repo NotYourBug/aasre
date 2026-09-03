@@ -31,7 +31,7 @@ from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.tests.billing.turn_metering_harness import metered_callback
 from gateway.transports.feishu import inbound_handler
 from gateway.transports.feishu.events import FeishuInboundMessage
-from gateway.transports.feishu.inbound_handler import handle_inbound_feishu_message
+from gateway.transports.feishu.inbound_handler import _run_turn
 from gateway.transports.feishu.inbound_security import FeishuInboundDecision
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
@@ -106,7 +106,7 @@ def _run(
 
     monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", fake_send)
 
-    handle_inbound_feishu_message(
+    _run_turn(
         inbound,
         settings=settings,
         session_resolver=resolver,  # type: ignore[arg-type]
@@ -198,7 +198,7 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
 
     def _thread() -> None:
         try:
-            handle_inbound_feishu_message(
+            _run_turn(
                 _inbound("hello"),
                 settings=_settings(turn_timeout_seconds=0.05),
                 session_resolver=resolver,  # type: ignore[arg-type]
@@ -298,7 +298,7 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
 
     def _thread() -> None:
         try:
-            handle_inbound_feishu_message(
+            _run_turn(
                 inbound,
                 settings=_settings(),
                 session_resolver=resolver,  # type: ignore[arg-type]

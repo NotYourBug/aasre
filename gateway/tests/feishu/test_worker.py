@@ -40,7 +40,7 @@ def test_dispatch_registers_cancel_before_handler_runs() -> None:
         loop = asyncio.get_running_loop()
         executor = ThreadPoolExecutor(max_workers=1)
         try:
-            with patch("gateway.transports.feishu.worker.handle_inbound_feishu_message", spy):
+            with patch("gateway.transports.feishu.worker.handle_inbound_turn", spy):
                 _dispatch_turn(
                     inbound,
                     settings=FeishuGatewaySettings(

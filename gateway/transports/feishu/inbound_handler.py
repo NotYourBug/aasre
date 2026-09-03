@@ -29,7 +29,7 @@ from infrastructure.analytics.usage_context import UsageSurface, bound_usage_con
 from infrastructure.turn_host.turn_callback import TurnCallback
 
 
-def handle_inbound_feishu_message(
+def _run_turn(
     inbound: FeishuInboundMessage,
     *,
     settings: FeishuGatewaySettings,
@@ -194,4 +194,4 @@ def handle_inbound_feishu_message(
             )
 
 
-__all__ = ["handle_inbound_feishu_message"]
+__all__ = ["_run_turn"]

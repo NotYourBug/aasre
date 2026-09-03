@@ -22,7 +22,7 @@ from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.core.storage import SessionResolver
 from gateway.core.storage.session.binding_store import BindingStore
 from gateway.transports.feishu.events import FeishuInboundMessage
-from gateway.transports.feishu.inbound_handler import handle_inbound_feishu_message
+from gateway.transports.feishu.inbound_handler import _run_turn as handle_inbound_turn
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import _send_text
@@ -74,8 +74,8 @@ def _dispatch_turn(
         active_cancels.unregister(key, turn_cancel)
         return
 
-    dispatch = partial(
-        handle_inbound_feishu_message,
+    _run_turn = partial(
+        handle_inbound_turn,
         inbound,
         settings=settings,
         session_resolver=session_resolver,
@@ -95,7 +95,7 @@ def _dispatch_turn(
         except Exception:
             logger.error("[feishu-gateway] turn dispatch failed", exc_info=True)
 
-    future = loop.run_in_executor(executor, dispatch)
+    future = loop.run_in_executor(executor, _run_turn)
     future.add_done_callback(_on_turn_done)
 
 
