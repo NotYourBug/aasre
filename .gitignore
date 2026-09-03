@@ -135,6 +135,9 @@ interactive_shell/ui/output/**/__pycache__/
 !surfaces/interactive_shell/ui/output/
 !surfaces/interactive_shell/ui/output/**
 surfaces/interactive_shell/ui/output/**/__pycache__/
+!surfaces/shared/terminal/output/
+!surfaces/shared/terminal/output/**
+surfaces/shared/terminal/output/**/__pycache__/
 .cloudopsbench-results/
 .bench-results/
 tests/benchmarks/cloudopsbench/benchmark/

@@ -583,12 +583,12 @@ jobs:
       - name: Validate pytest marker
         if: steps.changes.outputs.source == 'true' || github.event_name == 'push'
         env:
-          # Fork PRs do not receive repository secrets; skip live_llm contracts
+          # Forks and fork PRs lack the target-provider secrets; skip live_llm contracts
           # (see interactive-shell-live.yml). Index a JSON string array so the
           # value is always a marker string — never a bare boolean from
           # ``a && 'x' || 'y'`` (boolean false → ``-m false`` → xdist
           # ``N workers [0 items]``, which can still exit 0).
-          PYTEST_MARKER_EXPR: ${{ fromJSON('["not synthetic", "not (synthetic or live_llm)"]')[github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true] }}
+          PYTEST_MARKER_EXPR: ${{ fromJSON('["not synthetic", "not (synthetic or live_llm)"]')[github.repository != 'Tracer-Cloud/opensre' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true)] }}
         run: |
           echo "PYTEST_MARKER_EXPR=${PYTEST_MARKER_EXPR}"
           case "${PYTEST_MARKER_EXPR}" in
@@ -610,7 +610,7 @@ jobs:
             '--cov=config --cov=core --cov=infrastructure.deployment.ec2
             --cov=integrations --cov=infrastructure --cov=surfaces --cov=tools
             --cov=gateway --cov-report=' || '' }}
-          PYTEST_MARKER_EXPR: ${{ fromJSON('["not synthetic", "not (synthetic or live_llm)"]')[github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true] }}
+          PYTEST_MARKER_EXPR: ${{ fromJSON('["not synthetic", "not (synthetic or live_llm)"]')[github.repository != 'Tracer-Cloud/opensre' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true)] }}
         # Keep ``run: >`` (folded) so ``matrix.pytest_paths`` stays one argv list.
         # A ``run: |`` + ``\`` rewrite can drop/split those paths and yield
         # ``N workers [0 items]`` even when the marker is correct.
