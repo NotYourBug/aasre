@@ -99,6 +99,31 @@ def _dispatch_turn(
     future.add_done_callback(_on_turn_done)
 
 
+class _ReadyOnConnectClient(Client):
+    """lark WS client that signals readiness only once the socket connects.
+
+    ``lark_oapi.ws.Client`` has no first-connect callback (``on_reconnected``
+    fires on reconnect only), so setting ``ready_event`` before ``start()``
+    could report a dead worker as connected if the initial handshake failed.
+    Overriding ``_connect`` sets the event only after the socket is established;
+    an auth/config failure raises ``ClientException`` and never signals ready,
+    so startup fails closed instead.
+    """
+
+    def __init__(
+        self,
+        *args: object,
+        ready_event: threading.Event,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._ready_event = ready_event
+
+    async def _connect(self) -> None:
+        await super()._connect()
+        self._ready_event.set()
+
+
 def run_feishu_gateway_thread(
     *,
     settings: FeishuGatewaySettings,
@@ -195,13 +220,13 @@ def run_feishu_gateway_thread(
         .register_p2_im_message_receive_v1(on_message)
         .build()
     )
-    client = Client(
+    client = _ReadyOnConnectClient(
         settings.app_id,
         settings.app_secret,
         log_level=lark.LogLevel.INFO,
         event_handler=dispatcher_handler,
+        ready_event=ready_event,
     )
-    ready_event.set()
     try:
         client.start()
     except Exception:
