@@ -15,3 +15,4 @@ class TransportName(StrEnum):
     SLACK = "slack"
     DISCORD = "discord"
     BUZZ = "buzz"
+    FEISHU = "feishu"

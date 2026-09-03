@@ -19,6 +19,10 @@ from integrations.buzz import (
     load_credentials_from_env as load_buzz_credentials_from_env,
 )
 from integrations.buzz.alarms import BuzzAlarmDispatcher
+from integrations.feishu import (
+    load_credentials_from_env as load_feishu_credentials_from_env,
+)
+from integrations.feishu.alarms import FeishuAlarmDispatcher
 from integrations.rocketchat import (
     load_credentials_from_env as load_rocketchat_credentials_from_env,
 )
@@ -105,6 +109,9 @@ def _build_dispatcher(config: WatchdogConfig) -> Dispatcher:
     if config.provider == Provider.BUZZ:
         buzz_creds = load_buzz_credentials_from_env(channel_override=config.chat_id)
         return BuzzAlarmDispatcher(buzz_creds, cooldown_seconds=config.cooldown)
+    if config.provider == Provider.FEISHU:
+        feishu_creds = load_feishu_credentials_from_env(channel_override=config.chat_id)
+        return FeishuAlarmDispatcher(feishu_creds, cooldown_seconds=config.cooldown)
     creds = load_credentials_from_env(chat_id_override=config.chat_id)
     return AlarmDispatcher(creds, cooldown_seconds=config.cooldown, parse_mode="HTML")
 
@@ -196,12 +203,15 @@ def _format_alarm_message(
     """Format the alarm body for the delivering provider.
 
     Telegram renders HTML (``parse_mode="HTML"``); Rocket.Chat renders
-    Markdown and displays literal ``<b>``/``<code>`` tags as text, so each
-    provider gets its own markup around the same fields rather than sending
-    one format to both.
+    Markdown and displays literal ``<b>``/``<code>`` tags as text; Feishu's
+    ``msg_type="text"`` renders no markup at all and would show
+    ``**``/backticks as literal characters — so each provider gets its own
+    format around the same fields rather than sending one format to all.
     """
     if provider == Provider.ROCKETCHAT:
         return _format_alarm_message_markdown(sample, breach)
+    if provider == Provider.FEISHU:
+        return _format_alarm_message_plain(sample, breach)
     return _format_alarm_message_html(sample, breach)
 
 
@@ -247,6 +257,22 @@ def _format_alarm_message_markdown(sample: ProcessSample, breach: ThresholdBreac
             f"**threshold**  {_md_code(_format_threshold_breach(breach))}",
             f"**runtime**    {_md_code(_format_duration(sample.runtime_seconds))}",
             f"**started**    {_md_code(started)}",
+        ]
+    )
+
+
+def _format_alarm_message_plain(sample: ProcessSample, breach: ThresholdBreach) -> str:
+    started, command = _alarm_started_and_command(sample)
+
+    return "\n".join(
+        [
+            "🚨 OpenSRE Watchdog Alarm",
+            f"host       {socket.gethostname()}",
+            f"pid        {sample.pid}  ({sample.name or '-'})",
+            f"cmd        {command}",
+            f"threshold  {_format_threshold_breach(breach)}",
+            f"runtime    {_format_duration(sample.runtime_seconds)}",
+            f"started    {started}",
         ]
     )
 

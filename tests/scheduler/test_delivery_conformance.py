@@ -1,7 +1,7 @@
 """Which providers each delivery consumer actually supports, stated once.
 
-``Provider`` offers six members to every caller, and no caller supports all
-six. Each consumer picks a subset, and until now those subsets lived in prose:
+``Provider`` offers seven members to every caller, and no caller supports all
+seven. Each consumer picks a subset, and until now those subsets lived in prose:
 the enum docstring says consumers "define their own documented subset rather
 than exposing a choice that would silently fail".
 
@@ -43,7 +43,7 @@ DELIVERY_SPECS_COVER = frozenset({Provider.TELEGRAM, Provider.SLACK, Provider.RO
 
 #: What the watchdog's dispatcher distinguishes. Telegram is the documented
 #: fallthrough, so it has no branch of its own.
-WATCHDOG_BRANCHES = frozenset({Provider.ROCKETCHAT, Provider.BUZZ})
+WATCHDOG_BRANCHES = frozenset({Provider.ROCKETCHAT, Provider.BUZZ, Provider.FEISHU})
 
 
 def _providers_branched_on(function: object) -> frozenset[Provider]:
@@ -113,9 +113,9 @@ def test_the_spec_list_is_narrower_than_what_the_executor_can_send_to() -> None:
 def test_the_watchdog_declares_what_its_dispatcher_can_build() -> None:
     """Declared support must match the dispatcher, or a provider routes silently.
 
-    ``_build_dispatcher`` branches on Rocket.Chat and Buzz and falls through to
-    Telegram. Adding a member to ``WATCHDOG_SUPPORTED_PROVIDERS`` without a
-    branch would not raise — it would deliver that alarm to Telegram.
+    ``_build_dispatcher`` branches on Rocket.Chat, Buzz, and Feishu and falls
+    through to Telegram. Adding a member to ``WATCHDOG_SUPPORTED_PROVIDERS``
+    without a branch would not raise — it would deliver that alarm to Telegram.
     """
     # Arrange / Act
     declared = frozenset(WATCHDOG_SUPPORTED_PROVIDERS)
