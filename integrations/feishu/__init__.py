@@ -1,5 +1,5 @@
-"""Feishu integration: alarm delivery for the watchdog."""
+"""Feishu integration: alert-push delivery for the watchdog and background RCA notices."""
 
-from integrations.feishu.alarms import FeishuAlarmDispatcher, load_credentials_from_env
+from integrations.feishu.credentials import FeishuAlarmCredentials, load_credentials_from_env
 
-__all__ = ["FeishuAlarmDispatcher", "load_credentials_from_env"]
+__all__ = ["FeishuAlarmCredentials", "load_credentials_from_env"]

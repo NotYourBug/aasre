@@ -896,7 +896,7 @@ Session-local async investigation mode. Launch an RCA, keep using the shell, and
 | `/background show &lt;task_id&gt;` | Full RCA summary plus per-channel notification result |
 | `/background use &lt;task_id&gt;` | Promote a completed RCA into active follow-up context |
 | `/background notify list` | Show the current completion channels |
-| `/background notify set &lt;channel[,channel...]&gt;` | Set channels — `email`, `telegram`, `rocketchat`, `buzz`, or a combination |
+| `/background notify set &lt;channel[,channel...]&gt;` | Set channels — `email`, `telegram`, `rocketchat`, `buzz`, `feishu`, or a combination |
 
 ```text
 /background on
@@ -905,7 +905,7 @@ Session-local async investigation mode. Launch an RCA, keep using the shell, and
 /background show &lt;task_id&gt;
 ```
 
-Channels are **off by default**. They are cleared when the REPL process exits; `/new` keeps notify prefs but clears jobs and turns background mode off. `email` requires [`smtp`](/smtp); `telegram` requires [`telegram`](/messaging/telegram); `rocketchat` requires [`rocketchat`](/messaging/rocketchat); `buzz` requires [`buzz`](/messaging/buzz). Interactive shell only — there is no `opensre background …` CLI command. Full guide: [Background investigations](/background-investigations).
+Channels are **off by default**. They are cleared when the REPL process exits; `/new` keeps notify prefs but clears jobs and turns background mode off. `email` requires [`smtp`](/smtp); `telegram` requires [`telegram`](/messaging/telegram); `rocketchat` requires [`rocketchat`](/messaging/rocketchat); `buzz` requires [`buzz`](/messaging/buzz); `feishu` requires `ALERTPUSH_APP_ID`, `ALERTPUSH_APP_SECRET`, and `FEISHU_ALARM_RECEIVE_ID`. Interactive shell only — there is no `opensre background …` CLI command. Full guide: [Background investigations](/background-investigations).
 
 ---
 

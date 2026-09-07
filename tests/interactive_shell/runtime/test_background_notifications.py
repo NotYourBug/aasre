@@ -740,6 +740,8 @@ _VENDOR_TRANSPORTS = (
     "integrations.rocketchat.delivery",
     "integrations.buzz.delivery",
     "integrations.smtp.delivery",
+    "integrations.feishu.delivery",
+    "integrations.feishu.alarms",
     "integrations.catalog",
 )
 
@@ -761,7 +763,7 @@ _BOOTSTRAP_PROBE = (
     "import sys; "
     "from bootstrap.adapters import install_notification_adapters; "
     "names = install_notification_adapters(); "
-    "assert sorted(names) == ['buzz', 'email', 'rocketchat', 'telegram'], names; "
+    "assert sorted(names) == ['buzz', 'email', 'feishu', 'rocketchat', 'telegram'], names; "
     f"{_ASSERT_NO_TRANSPORTS}"
     "print('OK: registration clean')"
 )

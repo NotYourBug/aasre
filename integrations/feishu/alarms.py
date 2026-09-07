@@ -1,76 +1,24 @@
 """Feishu watchdog alarm dispatcher via im.message.create.
 
-Credential resolution and raw transport live here alongside the dispatcher;
-this module owns throttling + dispatch policy (mirrors
-:mod:`integrations.rocketchat.alarms`). Env-var names come from
-:mod:`config.constants.feishu`.
+Credential resolution lives in :mod:`integrations.feishu.credentials`; raw
+transport in :mod:`integrations.feishu.delivery`. This module owns throttling +
+dispatch policy (mirrors :mod:`integrations.rocketchat.alarms`).
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import time
 
-import lark_oapi as lark
-from lark_oapi.api.im.v1 import (
-    CreateMessageRequest,
-    CreateMessageRequestBody,
-    CreateMessageResponse,
-)
-
-from config.constants.feishu import (
-    ALERTPUSH_APP_ID_ENV,
-    ALERTPUSH_APP_SECRET_ENV,
-    FEISHU_ALARM_RECEIVE_ID_ENV,
-    FEISHU_ALARM_RECEIVE_ID_TYPE_ENV,
-)
-from config.strict_config import StrictConfigModel
 from infrastructure.delivery.notifications.cooldown import CooldownGate
 from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
 from infrastructure.text.truncation import truncate
+from integrations.feishu.credentials import FeishuAlarmCredentials
+from integrations.feishu.delivery import post_feishu_message
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_COOLDOWN_SECONDS = 300.0
-
-
-class FeishuAlarmCredentials(StrictConfigModel):
-    app_id: str
-    app_secret: str
-    receive_id: str
-    receive_id_type: str = "chat_id"
-
-
-def load_credentials_from_env(
-    channel_override: str | None = None,
-) -> FeishuAlarmCredentials:
-    """Read ALERTPUSH_* + receive-id env vars into credentials."""
-    return FeishuAlarmCredentials(
-        app_id=os.environ.get(ALERTPUSH_APP_ID_ENV, ""),
-        app_secret=os.environ.get(ALERTPUSH_APP_SECRET_ENV, ""),
-        receive_id=channel_override or os.environ.get(FEISHU_ALARM_RECEIVE_ID_ENV, ""),
-        receive_id_type=os.environ.get(FEISHU_ALARM_RECEIVE_ID_TYPE_ENV, "chat_id"),
-    )
-
-
-def _create_message(creds: FeishuAlarmCredentials, text: str) -> CreateMessageResponse:
-    """Send one text message via the pinned lark-oapi SDK."""
-    client = lark.Client.builder().app_id(creds.app_id).app_secret(creds.app_secret).build()
-    request = (
-        CreateMessageRequest.builder()
-        .receive_id_type(creds.receive_id_type)
-        .request_body(
-            CreateMessageRequestBody.builder()
-            .receive_id(creds.receive_id)
-            .msg_type("text")
-            .content(json.dumps({"text": text}))
-            .build()
-        )
-        .build()
-    )
-    return client.im.v1.message.create(request)
 
 
 class FeishuAlarmDispatcher:
@@ -101,14 +49,21 @@ class FeishuAlarmDispatcher:
         text = truncate(f"[{threshold_name}] {message}", MAX_MESSAGE_SIZE, suffix="…")
 
         # The cooldown slot was reserved before this network call. If the
-        # delivery raises or the SDK reports a non-zero code, the slot stays
-        # armed for the cooldown window and the next caller for the same key
-        # is silently suppressed — emit the same warning in both paths so
-        # operators see the original failure instead of only the suppression
-        # debug line.
+        # delivery returns ok=False, the slot stays armed for the cooldown
+        # window and the next caller for the same key is silently suppressed —
+        # emit the same warning in both paths so operators see the original
+        # failure instead of only the suppression debug line. Transport failures
+        # already fold into ok=False inside the helper; the try/except below
+        # only guards the SDK builder chain, which runs before the helper's own
+        # try.
         try:
-            resp = _create_message(self._creds, text)
-            ok = bool(resp.success())
+            ok, error, _message_id = post_feishu_message(
+                self._creds.app_id,
+                self._creds.app_secret,
+                self._creds.receive_id,
+                self._creds.receive_id_type,
+                text,
+            )
         except Exception as exc:
             logger.warning(
                 "alarm delivery raised and cooldown remains armed: name=%s error=%s",
@@ -124,7 +79,7 @@ class FeishuAlarmDispatcher:
         logger.warning(
             "alarm delivery failed and cooldown remains armed: name=%s error=%s",
             threshold_name,
-            getattr(resp, "msg", ""),
+            error,
         )
         return False
 
