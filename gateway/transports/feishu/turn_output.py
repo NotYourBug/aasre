@@ -16,8 +16,14 @@ from infrastructure.text.truncation import truncate
 logger = logging.getLogger(__name__)
 
 
-def _send_text(app_id: str, app_secret: str, chat_id: str, text: str) -> None:
-    """Send one text message via the pinned lark-oapi SDK (Task 0)."""
+def _send_text(app_id: str, app_secret: str, chat_id: str, text: str) -> str:
+    """Send one text message via the pinned lark-oapi SDK; return its message_id.
+
+    Raises on transport/construction failure so the turn's error path still
+    surfaces it; callers that only post (turn output, /stop replies) ignore the
+    returned id, while the approval prompter uses it to register the prompt for
+    reply matching.
+    """
     client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
     request = (
         CreateMessageRequest.builder()
@@ -32,10 +38,12 @@ def _send_text(app_id: str, app_secret: str, chat_id: str, text: str) -> None:
         .build()
     )
     try:
-        client.im.v1.message.create(request)
+        response = client.im.v1.message.create(request)
     except Exception:
         logger.exception("Feishu turn output send failed")
         raise
+    data = getattr(response, "data", None)
+    return str(getattr(data, "message_id", "") or "") if data is not None else ""
 
 
 class _FeishuChannel:

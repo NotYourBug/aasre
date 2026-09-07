@@ -16,11 +16,14 @@ from config.constants.gateway import (
 from config.scope_context import bound_storage_scope
 from gateway.core.billing.turn_metering import bound_turn_metering
 from gateway.core.middleware.active_turns import ActiveTurnRegistry
+from gateway.core.middleware.approvals import ApprovalBroker, approval_tool_hooks
 from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.core.middleware.terminal_outcome import TerminalOutcomeArbiter
 from gateway.core.storage import SessionResolver
+from gateway.transports.feishu.approvals import FeishuApprovalPrompter
 from gateway.transports.feishu.events import FeishuInboundMessage
 from gateway.transports.feishu.inbound_security import enforce_inbound_feishu_message_security
+from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.principal import PrincipalResolutionError, resolve_feishu_scope
 from gateway.transports.feishu.session_rotation import conversation_key, resolve_or_rotate_session
 from gateway.transports.feishu.settings import FeishuGatewaySettings
@@ -36,7 +39,9 @@ def _run_turn(
     session_resolver: SessionResolver,
     active_cancels: ActiveTurnRegistry,
     conversation_locks: ConversationLockRegistry,
-    send_text: Callable[[str, str], None],
+    approvals: ApprovalBroker,
+    pending_approvals: PendingApprovals,
+    send_text: Callable[[str, str], str],
     handler: TurnCallback,
     logger: logging.Logger,
     turn_cancel: threading.Event | None = None,
@@ -101,6 +106,15 @@ def _run_turn(
             app_secret=settings.app_secret,
             chat_id=inbound.chat_id,
             edit_interval_seconds=settings.status_update_interval_seconds,
+            tool_hooks=approval_tool_hooks(
+                FeishuApprovalPrompter(
+                    broker=approvals,
+                    send_text=send_text,
+                    chat_id=inbound.chat_id,
+                    requester_open_id=inbound.open_id,
+                    pending_approvals=pending_approvals,
+                )
+            ),
         )
         terminal = TerminalOutcomeArbiter(turn_cancel)
         output.turn_cancel = terminal.cancel_event
