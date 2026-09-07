@@ -110,6 +110,43 @@ def test_post_feishu_message_exception_redacts_secret(monkeypatch: pytest.Monkey
     assert message_id == ""
 
 
+def test_post_feishu_message_contains_sdk_construction_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A builder that raises during client construction must be contained,
+    not escape ``post_feishu_message`` (Greptile issue: SDK construction was
+    outside the transport exception boundary)."""
+
+    class _BoomBuilder:
+        def app_id(self, _value: str) -> _BoomBuilder:
+            return self
+
+        def app_secret(self, _value: str) -> _BoomBuilder:
+            return self
+
+        def build(self) -> Any:
+            raise ValueError(f"bad app secret {_APP_SECRET}")
+
+    class _Client:
+        @staticmethod
+        def builder() -> _BoomBuilder:
+            return _BoomBuilder()
+
+    class _Lark:
+        Client = _Client
+
+    monkeypatch.setattr("integrations.feishu.delivery.lark", _Lark)
+
+    ok, error, message_id = post_feishu_message(
+        _APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", "hello"
+    )
+
+    assert ok is False
+    assert message_id == ""
+    assert _APP_SECRET not in error
+    assert "<redacted>" in error
+
+
 def test_send_feishu_report_missing_creds() -> None:
     ok, error = send_feishu_report("report", {})
     assert ok is False

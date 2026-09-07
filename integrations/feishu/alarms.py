@@ -52,10 +52,10 @@ class FeishuAlarmDispatcher:
         # delivery returns ok=False, the slot stays armed for the cooldown
         # window and the next caller for the same key is silently suppressed —
         # emit the same warning in both paths so operators see the original
-        # failure instead of only the suppression debug line. Transport failures
-        # already fold into ok=False inside the helper; the try/except below
-        # only guards the SDK builder chain, which runs before the helper's own
-        # try.
+        # failure instead of only the suppression debug line. Transport and
+        # construction failures fold into ok=False inside the helper; the
+        # try/except below is defense-in-depth so a contract-violating raise
+        # still returns False instead of escaping the watchdog runner.
         try:
             ok, error, _message_id = post_feishu_message(
                 self._creds.app_id,

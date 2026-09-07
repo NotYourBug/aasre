@@ -31,10 +31,17 @@ class FeishuAlarmCredentials(StrictConfigModel):
 def load_credentials_from_env(
     channel_override: str | None = None,
 ) -> FeishuAlarmCredentials:
-    """Read ALERTPUSH_* + receive-id env vars into credentials."""
+    """Read ALERTPUSH_* + receive-id env vars into credentials.
+
+    The app secret resolves env-first then the local credentials file (the
+    same tier order as the other vendor credential leaves), so a secret saved
+    via guided setup works without being exported.
+    """
+    from config.llm_credentials import resolve_env_credential
+
     return FeishuAlarmCredentials(
         app_id=os.environ.get(ALERTPUSH_APP_ID_ENV, ""),
-        app_secret=os.environ.get(ALERTPUSH_APP_SECRET_ENV, ""),
+        app_secret=resolve_env_credential(ALERTPUSH_APP_SECRET_ENV),
         receive_id=channel_override or os.environ.get(FEISHU_ALARM_RECEIVE_ID_ENV, ""),
         receive_id_type=os.environ.get(FEISHU_ALARM_RECEIVE_ID_TYPE_ENV, "chat_id"),
     )

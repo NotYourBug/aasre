@@ -31,24 +31,25 @@ def post_feishu_message(
 ) -> tuple[bool, str, str]:
     """Send one text message via the pinned lark-oapi SDK.
 
-    Returns ``(success, error, message_id)``. Never raises: a transport
-    exception (bad credentials, network failure) becomes ``(False, error, "")``
-    with the app secret redacted, matching the other vendors' transport helpers.
+    Returns ``(success, error, message_id)``. Never raises: client/request
+    construction and the transport call are both inside the exception boundary,
+    so bad credentials or a network failure become ``(False, error, "")`` with
+    the app secret redacted, matching the other vendors' transport helpers.
     """
-    client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
-    request = (
-        CreateMessageRequest.builder()
-        .receive_id_type(receive_id_type)
-        .request_body(
-            CreateMessageRequestBody.builder()
-            .receive_id(receive_id)
-            .msg_type("text")
-            .content(json.dumps({"text": text}))
+    try:
+        client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
+        request = (
+            CreateMessageRequest.builder()
+            .receive_id_type(receive_id_type)
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(receive_id)
+                .msg_type("text")
+                .content(json.dumps({"text": text}))
+                .build()
+            )
             .build()
         )
-        .build()
-    )
-    try:
         response = client.im.v1.message.create(request)
     except Exception as exc:
         safe_error = redact_token(str(exc), app_secret)
