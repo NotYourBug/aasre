@@ -25,23 +25,23 @@ def _patch_clock(monkeypatch: pytest.MonkeyPatch, ticks: list[float]) -> None:
     monkeypatch.setattr(FeishuAlarmDispatcher, "_now", staticmethod(_now))
 
 
-def _stub_create_message(
+def _stub_post_feishu_message(
     monkeypatch: pytest.MonkeyPatch, *, ok: bool = True, msg: str = "success"
 ) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
 
-    def _fake_create(creds: FeishuAlarmCredentials, text: str) -> object:
-        calls.append({"creds": creds, "text": text})
-        # ``success`` is a bound method on the response, so it receives the
-        # instance as its first argument — mirror the SDK's method shape.
-        return type("R", (), {"success": lambda _self: ok, "code": 0 if ok else 1, "msg": msg})()
+    def _fake_post(
+        app_id: str, app_secret: str, receive_id: str, receive_id_type: str, text: str
+    ) -> tuple[bool, str, str]:
+        calls.append({"app_id": app_id, "text": text})
+        return (ok, "" if ok else msg, "om_1" if ok else "")
 
-    monkeypatch.setattr("integrations.feishu.alarms._create_message", _fake_create)
+    monkeypatch.setattr("integrations.feishu.alarms.post_feishu_message", _fake_post)
     return calls
 
 
 def test_dispatch_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _stub_create_message(monkeypatch)
+    calls = _stub_post_feishu_message(monkeypatch)
     _patch_clock(monkeypatch, [100.0])
 
     dispatcher = FeishuAlarmDispatcher(_CREDS)
@@ -52,7 +52,7 @@ def test_dispatch_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_dispatch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _stub_create_message(monkeypatch, ok=False, msg="denied")
+    calls = _stub_post_feishu_message(monkeypatch, ok=False, msg="denied")
     _patch_clock(monkeypatch, [100.0])
 
     dispatcher = FeishuAlarmDispatcher(_CREDS)
@@ -64,7 +64,7 @@ def test_dispatch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_second_dispatch_within_cooldown_is_suppressed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls = _stub_create_message(monkeypatch)
+    calls = _stub_post_feishu_message(monkeypatch)
     _patch_clock(monkeypatch, [100.0, 200.0])
 
     dispatcher = FeishuAlarmDispatcher(_CREDS, cooldown_seconds=300.0)
@@ -78,10 +78,12 @@ def test_second_dispatch_within_cooldown_is_suppressed(
 def test_dispatch_transport_exception_returns_false_and_keeps_cooldown_armed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def _raise(creds: FeishuAlarmCredentials, text: str) -> object:
+    def _raise(
+        app_id: str, app_secret: str, receive_id: str, receive_id_type: str, text: str
+    ) -> tuple[bool, str, str]:
         raise RuntimeError("network exploded")
 
-    monkeypatch.setattr("integrations.feishu.alarms._create_message", _raise)
+    monkeypatch.setattr("integrations.feishu.alarms.post_feishu_message", _raise)
     _patch_clock(monkeypatch, [100.0, 105.0])
 
     dispatcher = FeishuAlarmDispatcher(_CREDS, cooldown_seconds=300.0)

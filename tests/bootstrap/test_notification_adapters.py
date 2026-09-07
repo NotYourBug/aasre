@@ -20,7 +20,7 @@ from infrastructure.delivery.notifications.outbound_registry import (
     outbound_adapter_names_for,
 )
 
-_EXPECTED_CHANNELS = ("buzz", "email", "rocketchat", "telegram")
+_EXPECTED_CHANNELS = ("buzz", "email", "feishu", "rocketchat", "telegram")
 
 
 def test_step_registers_every_shipped_channel() -> None:
@@ -104,6 +104,7 @@ def test_only_the_composition_root_registers_notification_adapters() -> None:
 # about which module some unrelated import happened to pull in first.
 _IMPORT_ONLY_PROBE = (
     "import integrations.buzz.background_adapter; "
+    "import integrations.feishu.background_adapter; "
     "import integrations.rocketchat.background_adapter; "
     "import integrations.smtp.background_adapter; "
     "import integrations.telegram.background_adapter; "

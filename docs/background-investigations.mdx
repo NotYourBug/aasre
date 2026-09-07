@@ -14,7 +14,7 @@ When background mode is on:
 - Completion notifications can go to email ([SMTP](/smtp)), Telegram
   ([Telegram](/messaging/telegram)), Rocket.Chat
   ([Rocket.Chat](/messaging/rocketchat)), Buzz
-  ([Buzz](/messaging/buzz)), or any combination of those
+  ([Buzz](/messaging/buzz)), Feishu, or any combination of those
 
 <Note>
 In-flight jobs stop if the shell exits. Completed RCAs are kept, and you can look
@@ -35,7 +35,7 @@ This is not the hosted async HTTP API (`POST /api/investigations` and
 | `/background show <task_id>` | Show the RCA summary and per-channel notification result for one job |
 | `/background use <task_id>` | Promote a completed job into the active follow-up context |
 | `/background notify list` | Show where completed RCAs are delivered (default: **none**) |
-| `/background notify set <channel[,channel...]>` | Set completion channels — `email`, `telegram`, `rocketchat`, `buzz`, or a comma-separated list |
+| `/background notify set <channel[,channel...]>` | Set completion channels — `email`, `telegram`, `rocketchat`, `buzz`, `feishu`, or a comma-separated list |
 | `/tasks` | List session tasks (including background investigations) |
 | `/cancel <task_id>` | Cancel a running background investigation |
 
@@ -61,7 +61,7 @@ shell only.
    skip this step, no notification is sent:
 
 ```text
-/background notify set telegram    # or: email, rocketchat, buzz, or email,telegram
+/background notify set telegram    # or: email, rocketchat, buzz, feishu, or email,telegram
 /background notify list            # confirm
 ```
 
@@ -95,7 +95,7 @@ Each finished background job keeps:
 
 `/background show <task_id>` prints status, command, root cause, top analysis,
 next steps, and notify results. It does **not** print the internal stats table.
-Those stats are included in notification messages (email, Telegram, Rocket.Chat, Buzz)
+Those stats are included in notification messages (email, Telegram, Rocket.Chat, Buzz, Feishu)
 when a channel is configured.
 
 ## Completion notifications
@@ -109,10 +109,11 @@ Notifications are **off by default**. Set channels with
 | `telegram` | [Telegram](/messaging/telegram) integration | `opensre integrations setup telegram` |
 | `rocketchat` | [Rocket.Chat](/messaging/rocketchat) integration | `opensre integrations setup rocketchat` |
 | `buzz` | [Buzz](/messaging/buzz) integration | `opensre integrations setup buzz` |
+| `feishu` | Feishu alert-push app | Set `ALERTPUSH_APP_ID`, `ALERTPUSH_APP_SECRET`, `FEISHU_ALARM_RECEIVE_ID` |
 
 All channels send the same summary structure: **Root cause**, **Top analysis**,
 **What to do next**, plus a short internal stats section. Telegram, Rocket.Chat,
-and Buzz messages are plain text and are capped at the 4,096-character
+Buzz, and Feishu messages are plain text and are capped at the 4,096-character
 limit (sections may be shortened to fit). Email can carry a fuller version of
 the same content.
 

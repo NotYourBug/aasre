@@ -38,6 +38,7 @@ _ALLOWED: dict[str, frozenset[str]] = {
         {
             "integrations.buzz.background_adapter",
             "integrations.discord.scheduled_delivery",
+            "integrations.feishu.background_adapter",
             "integrations.rocketchat.background_adapter",
             "integrations.rocketchat.scheduled_delivery",
             "integrations.slack.scheduled_delivery",

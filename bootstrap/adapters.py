@@ -65,12 +65,14 @@ def install_notification_adapters() -> tuple[str, ...]:
         registered_outbound_adapter_names,
     )
     from integrations.buzz.background_adapter import buzz_background_adapter
+    from integrations.feishu.background_adapter import feishu_background_adapter
     from integrations.rocketchat.background_adapter import rocketchat_background_adapter
     from integrations.smtp.background_adapter import email_background_adapter
     from integrations.telegram.background_adapter import telegram_background_adapter
 
     for adapter in (
         buzz_background_adapter,
+        feishu_background_adapter,
         rocketchat_background_adapter,
         email_background_adapter,
         telegram_background_adapter,
