@@ -60,7 +60,6 @@ class FeishuApprovalPrompter:
         arguments: Mapping[str, Any],
         expiry_seconds: float,
     ) -> tuple[bool, str]:
-        approval_id = self._broker.create(platform="feishu", chat_id=self._chat_id)
         preview = arguments_preview(arguments)
         body = f"**Approval needed — `{tool_name}`**"
         if reason.strip():
@@ -82,6 +81,9 @@ class FeishuApprovalPrompter:
         if not message_id:
             return (False, "")
 
+        # Create the broker entry only after the prompt is posted: a failed or
+        # empty post must not leak an approval that ``wait`` never cleans up.
+        approval_id = self._broker.create(platform="feishu", chat_id=self._chat_id)
         self._pending_approvals.register(
             message_id,
             approval_id=approval_id,

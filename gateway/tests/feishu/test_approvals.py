@@ -98,6 +98,27 @@ def test_request_returns_denied_when_prompt_post_returns_no_message_id() -> None
     assert (approved, decided_by) == (False, "")
 
 
+def test_failed_or_missing_message_id_post_leaves_no_broker_entry() -> None:
+    """A prompt that never posted must not leak an unresolved broker approval."""
+    for send in (_fake_send([], error=RuntimeError("boom")), _fake_send([], message_id="")):
+        broker = ApprovalBroker()
+        pending = PendingApprovals()
+        prompter = FeishuApprovalPrompter(
+            broker=broker,
+            send_text=send,
+            chat_id=CHAT,
+            requester_open_id=REQUESTER,
+            pending_approvals=pending,
+        )
+
+        approved, decided_by = prompter.request(
+            tool_name="feishu_send_message", reason="", arguments={}, expiry_seconds=30
+        )
+
+        assert (approved, decided_by) == (False, "")
+        assert broker.close() == 0
+
+
 def test_request_expiry_denies_and_discards() -> None:
     posted: list[str] = []
     broker = ApprovalBroker()
