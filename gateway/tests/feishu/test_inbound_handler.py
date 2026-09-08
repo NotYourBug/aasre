@@ -27,12 +27,14 @@ from core.agent_harness.session.persistence.memory import InMemorySessionStore
 from gateway.core.billing import turn_metering
 from gateway.core.billing.credits_client import CreditsOutcome
 from gateway.core.middleware.active_turns import ActiveTurnRegistry
+from gateway.core.middleware.approvals import ApprovalBroker
 from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.tests.billing.turn_metering_harness import metered_callback
 from gateway.transports.feishu import inbound_handler
 from gateway.transports.feishu.events import FeishuInboundMessage
 from gateway.transports.feishu.inbound_handler import _run_turn
 from gateway.transports.feishu.inbound_security import FeishuInboundDecision
+from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 
@@ -112,6 +114,8 @@ def _run(
         session_resolver=resolver,  # type: ignore[arg-type]
         active_cancels=active_cancels,
         conversation_locks=ConversationLockRegistry(),
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
         send_text=send_text,
         handler=handler,
         logger=LOGGER,
@@ -204,7 +208,9 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
                 session_resolver=resolver,  # type: ignore[arg-type]
                 active_cancels=ActiveTurnRegistry(),
                 conversation_locks=ConversationLockRegistry(),
-                send_text=lambda _c, _t: None,
+                approvals=ApprovalBroker(),
+                pending_approvals=PendingApprovals(),
+                send_text=lambda _c, _t: "",
                 handler=hanging_handler,
                 logger=LOGGER,
             )
@@ -304,7 +310,9 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
                 session_resolver=resolver,  # type: ignore[arg-type]
                 active_cancels=registry,
                 conversation_locks=ConversationLockRegistry(),
-                send_text=lambda _c, _t: None,
+                approvals=ApprovalBroker(),
+                pending_approvals=PendingApprovals(),
+                send_text=lambda _c, _t: "",
                 handler=cooperative_agent,
                 logger=LOGGER,
                 turn_cancel=turn_cancel,
@@ -325,3 +333,45 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
     assert turn_cancel.is_set()
     callback.assert_not_called()
     assert any(USER_STOP_MESSAGE in text for _, text in outbound), outbound
+
+
+def test_run_turn_wires_approval_tool_hooks_into_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The output's tool_hooks is the result of approval_tool_hooks(prompter)."""
+    captured: dict[str, object] = {}
+    sentinel = object()
+
+    def fake_hooks(prompter: object) -> object:
+        captured["prompter"] = prompter
+        return sentinel
+
+    def fake_output(**kwargs: object) -> MagicMock:
+        captured["tool_hooks"] = kwargs.get("tool_hooks")
+        return MagicMock()
+
+    monkeypatch.setattr(inbound_handler, "approval_tool_hooks", fake_hooks)
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", fake_output)
+    monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", lambda *_a, **_k: None)
+
+    # A pre-set cancel short-circuits the turn right after the output is built,
+    # so the assertion pins the wiring without needing the metering path.
+    turn_cancel = threading.Event()
+    turn_cancel.set()
+
+    _run_turn(
+        _inbound("hello"),
+        settings=_settings(),
+        session_resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),  # type: ignore[arg-type]
+        active_cancels=ActiveTurnRegistry(),
+        conversation_locks=ConversationLockRegistry(),
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
+        send_text=lambda _c, _t: "",
+        handler=MagicMock(),
+        logger=LOGGER,
+        turn_cancel=turn_cancel,
+    )
+
+    assert "prompter" in captured
+    assert captured["tool_hooks"] is sentinel

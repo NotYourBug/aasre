@@ -7,6 +7,7 @@ import pytest
 from gateway.core.middleware.identity_policy import persist_policy_if_needed
 from gateway.transports.feishu.inbound_security import (
     enforce_inbound_feishu_message_security,
+    is_open_id_authorized,
 )
 from integrations.messaging_security import MessagingIdentityPolicy
 
@@ -95,3 +96,15 @@ def test_authorized_user_can_rotate_session() -> None:
     )
     assert decision.allowed is True
     assert decision.reply_text == "__ROTATE_SESSION__"
+
+
+@pytest.mark.usefixtures("mock_integration_store")
+def test_is_open_id_authorized_reflects_the_allowlist() -> None:
+    assert (
+        is_open_id_authorized(open_id="ou_42", chat_id="oc_42", env_allowed_open_ids=["ou_42"])
+        is True
+    )
+    assert (
+        is_open_id_authorized(open_id="ou_99", chat_id="oc_42", env_allowed_open_ids=["ou_42"])
+        is False
+    )

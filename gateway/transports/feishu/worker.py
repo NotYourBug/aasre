@@ -18,17 +18,95 @@ from lark_oapi.ws import Client
 
 from config.constants.gateway import NO_ACTIVE_TURN_MESSAGE
 from gateway.core.middleware.active_turns import ActiveTurnRegistry, is_stop_command
+from gateway.core.middleware.approvals import ApprovalBroker
 from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.core.storage import SessionResolver
 from gateway.core.storage.session.binding_store import BindingStore
 from gateway.transports.feishu.events import FeishuInboundMessage
 from gateway.transports.feishu.inbound_handler import _run_turn as handle_inbound_turn
+from gateway.transports.feishu.inbound_security import is_open_id_authorized
+from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import _send_text
 from infrastructure.turn_host.turn_callback import TurnCallback
 
 _PLATFORM_FEISHU = "feishu"
+
+_APPROVE_WORDS = frozenset({"approve", "approved", "approves", "yes", "y", "ok", "okay", "lgtm"})
+_DENY_WORDS = frozenset({"deny", "denied", "denies", "no", "n", "reject", "rejected", "cancel"})
+
+
+def _decision(text: str) -> bool | None:
+    """Read a reply as approve/deny, or ``None`` when it is neither."""
+    words = text.strip().lower().split(maxsplit=1)
+    if not words:
+        return None
+    first = words[0].strip("*_`.!,:")
+    if first in _APPROVE_WORDS:
+        return True
+    if first in _DENY_WORDS:
+        return False
+    return None
+
+
+def _resolve_approval_reply(
+    *,
+    parent_id: str,
+    open_id: str,
+    chat_id: str,
+    text: str,
+    approvals: ApprovalBroker,
+    pending_approvals: PendingApprovals,
+    env_allowed_open_ids: list[str],
+    logger: logging.Logger,
+) -> bool:
+    """Resolve a reply aimed at a pending approval prompt, if any.
+
+    Returns whether the reply was consumed here — a reply aimed at a live
+    prompt never falls through to start a chat turn, decided or not.
+
+    Runs on the WS loop's own thread — never the turn executor, so a waiting
+    turn's ``ApprovalBroker.wait`` never contends with the lock it is blocked
+    on. Three checks gate the decision, and none consume the prompt when they
+    fail: the responder is still an authorized identity now, they are the
+    member whose own turn raised the request replying in the chat it was
+    posted to, and the reply actually says approve or deny.
+    """
+    if pending_approvals.find(parent_id) is None:
+        return False
+
+    if not is_open_id_authorized(
+        open_id=open_id, chat_id=chat_id, env_allowed_open_ids=env_allowed_open_ids
+    ):
+        logger.warning(
+            "[feishu-gateway] ignoring approval reply from unauthorized open_id=%s chat=%s",
+            open_id,
+            chat_id,
+        )
+        return True
+
+    approved = _decision(text)
+    if approved is None:
+        logger.info(
+            "[feishu-gateway] approval reply was not a decision open_id=%s chat=%s",
+            open_id,
+            chat_id,
+        )
+        return True
+
+    approval_id = pending_approvals.claim(parent_id, open_id=open_id, chat_id=chat_id)
+    if approval_id is None:
+        logger.warning(
+            "[feishu-gateway] ignoring approval reply from a member who did not "
+            "raise the request open_id=%s chat=%s",
+            open_id,
+            chat_id,
+        )
+        return True
+
+    approvals.resolve(approval_id, approved=approved, decided_by=open_id)
+    return True
 
 
 def _verify_feishu_credentials(app_id: str, app_secret: str) -> None:
@@ -48,7 +126,9 @@ def _dispatch_turn(
     session_resolver: SessionResolver,
     active_cancels: ActiveTurnRegistry,
     conversation_locks: ConversationLockRegistry,
-    send_text: Callable[[str, str], None],
+    approvals: ApprovalBroker,
+    pending_approvals: PendingApprovals,
+    send_text: Callable[[str, str], str],
     handler: TurnCallback,
     logger: logging.Logger,
     executor: ThreadPoolExecutor,
@@ -81,6 +161,8 @@ def _dispatch_turn(
         session_resolver=session_resolver,
         active_cancels=active_cancels,
         conversation_locks=conversation_locks,
+        approvals=approvals,
+        pending_approvals=pending_approvals,
         send_text=send_text,
         handler=handler,
         logger=logger,
@@ -147,9 +229,11 @@ def run_feishu_gateway_thread(
     active_cancels = ActiveTurnRegistry()
     conversation_locks = ConversationLockRegistry()
     turn_slots = threading.BoundedSemaphore(settings.max_concurrent_turns)
+    approvals = ApprovalBroker()
+    pending_approvals = PendingApprovals()
 
-    def send_text(chat_id: str, text: str) -> None:
-        _send_text(settings.app_id, settings.app_secret, chat_id, text)
+    def send_text(chat_id: str, text: str) -> str:
+        return _send_text(settings.app_id, settings.app_secret, chat_id, text)
 
     def on_message(data: P2ImMessageReceiveV1) -> None:
         try:
@@ -179,6 +263,7 @@ def run_feishu_gateway_thread(
         chat_id = message.chat_id or ""
         message_id = message.message_id or ""
         text = str(json.loads(message.content or "{}").get("text", "") or "")
+        parent_id = message.parent_id or ""
         sender_id = sender.sender_id
         open_id = (sender_id.open_id or "") if sender_id is not None else ""
         if not chat_id or not open_id or not text:
@@ -195,7 +280,20 @@ def run_feishu_gateway_thread(
             open_id=open_id,
             message_id=message_id,
             text=text,
+            parent_id=parent_id,
         )
+        if parent_id and _resolve_approval_reply(
+            parent_id=parent_id,
+            open_id=open_id,
+            chat_id=chat_id,
+            text=text,
+            approvals=approvals,
+            pending_approvals=pending_approvals,
+            env_allowed_open_ids=settings.allowed_open_ids,
+            logger=logger,
+        ):
+            return
+
         if is_stop_command(text):
             if not active_cancels.request_stop(conversation_key(inbound)):
                 send_text(chat_id, NO_ACTIVE_TURN_MESSAGE)
@@ -207,6 +305,8 @@ def run_feishu_gateway_thread(
             session_resolver=session_resolver,
             active_cancels=active_cancels,
             conversation_locks=conversation_locks,
+            approvals=approvals,
+            pending_approvals=pending_approvals,
             send_text=send_text,
             handler=handler,
             logger=logger,
@@ -231,6 +331,10 @@ def run_feishu_gateway_thread(
         client.start()
     except Exception:
         logger.critical("[feishu-gateway] fatal error in gateway thread", exc_info=True)
+    finally:
+        # Deny every outstanding approval so a turn parked in ``broker.wait`` is
+        # released instead of holding its executor thread for the full timeout.
+        approvals.close()
 
 
 __all__ = ["run_feishu_gateway_thread"]
