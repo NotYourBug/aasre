@@ -88,7 +88,7 @@ def test_only_the_composition_root_registers_notification_adapters() -> None:
 
     # Act
     definers = sorted(
-        f"{path.relative_to(repo)}::{node.name}"
+        f"{path.relative_to(repo).as_posix()}::{node.name}"
         for package in packages
         for path in (repo / package).rglob("*.py")
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))

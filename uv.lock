@@ -2526,7 +2526,7 @@ requires-dist = [
     { name = "huggingface-hub", marker = "extra == 'opensre-hub'", specifier = ">=0.26.0" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "kubernetes", specifier = ">=28.1.0" },
-    { name = "lark-oapi" },
+    { name = "lark-oapi", specifier = ">=1.7.3" },
     { name = "litellm", specifier = ">=1.90.0,<1.96.0" },
     { name = "mcp", specifier = ">=1.28.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10.0" },

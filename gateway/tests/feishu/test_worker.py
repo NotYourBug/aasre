@@ -71,6 +71,45 @@ def test_dispatch_registers_cancel_before_handler_runs() -> None:
     asyncio.run(_run())
 
 
+def test_dispatch_failure_releases_slot_and_unregisters_cancel() -> None:
+    """A synchronous dispatch failure must not leak the slot or the cancel Event."""
+    registry = ActiveTurnRegistry()
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="m1",
+        text="hello",
+    )
+    key = conversation_key(inbound)
+    slots = threading.BoundedSemaphore(1)
+    loop = MagicMock()
+    loop.run_in_executor.side_effect = RuntimeError("Event loop is closed")
+
+    _dispatch_turn(
+        inbound,
+        settings=FeishuGatewaySettings(
+            app_id="app",
+            app_secret="secret",
+            allowed_open_ids=["ou_user-1"],
+        ),
+        session_resolver=MagicMock(),  # type: ignore[arg-type]
+        active_cancels=registry,
+        conversation_locks=ConversationLockRegistry(),
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
+        send_text=lambda _c, _t: "",
+        handler=lambda *_args: None,
+        logger=LOGGER,
+        executor=ThreadPoolExecutor(max_workers=1),
+        loop=loop,  # type: ignore[arg-type]
+        turn_slots=slots,
+    )
+
+    # The failed dispatch released the single slot and dropped the cancel Event.
+    assert slots.acquire(blocking=False) is True
+    assert registry.request_stop(key) is False
+
+
 REQUESTER = "ou_user-1"
 OUTSIDER = "ou_user-2"
 CHAT = "oc_chat-1"
