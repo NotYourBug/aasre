@@ -115,7 +115,7 @@ class DeliveryContextSlice(TypedDict, total=False):
     """Channel-specific delivery metadata from the triggering surface.
 
     Keys of ``channel_contexts`` are channel names (``slack``, ``telegram``,
-    ``discord``, ``whatsapp``, ``twilio_sms``, ``openclaw``, ``rocketchat``, …).
+    ``discord``, ``openclaw``, ``rocketchat``, …).
     """
 
     channel_contexts: dict[str, dict[str, Any]]

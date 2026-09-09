@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import Final
 
-# Matches Slack-style links: <url|label> or <url>. Shared between the WhatsApp
-# formatter and the terminal plain-text renderer so both stay in step.
+# Matches Slack-style links: <url|label> or <url>. Used by the terminal
+# plain-text renderer to convert Slack links to a plain form.
 SLACK_LINK_RE: Final[re.Pattern[str]] = re.compile(r"<(https?://[^|>]+)(?:\|([^>]+))?>")
 
 __all__ = ["SLACK_LINK_RE"]

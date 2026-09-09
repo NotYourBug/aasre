@@ -51,8 +51,6 @@ ignore_imports =
     tools.investigation.reporting.delivery.bootstrap -> integrations.rocketchat.reporting_adapter
     tools.investigation.reporting.delivery.bootstrap -> integrations.slack.reporting_adapter
     tools.investigation.reporting.delivery.bootstrap -> integrations.telegram.reporting_adapter
-    tools.investigation.reporting.delivery.bootstrap -> integrations.twilio.reporting_adapter
-    tools.investigation.reporting.delivery.bootstrap -> integrations.whatsapp.reporting_adapter
     tools.investigation.reporting.evaluation -> integrations.opensre.llm_eval_judge
     tools.investigation.reporting.formatters.report -> integrations.telegram.formatting
     tools.investigation.reporting.gitlab_writeback -> integrations.gitlab

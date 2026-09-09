@@ -165,12 +165,6 @@ def load_env_integration_services() -> list[str]:
     add("buzz", _env_is_set("BUZZ_PRIVATE_KEY"))
     add("slack", _any_env("SLACK_BOT_TOKEN", "SLACK_ACCESS_TOKEN"))
     add("smtp", _env_is_set("SMTP_HOST"))
-    add("whatsapp", _all_env("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM"))
-    add(
-        "twilio",
-        _all_env("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN")
-        and _any_env("TWILIO_SMS_FROM", "TWILIO_SMS_MESSAGING_SERVICE_SID"),
-    )
     add(
         "mongodb_atlas",
         _all_env(

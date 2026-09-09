@@ -66,7 +66,6 @@ import integrations.tempo.setup as tempo_setup
 import integrations.temporal.setup as temporal_setup
 import integrations.tracer.setup as tracer_setup
 import integrations.vercel.setup as vercel_setup
-import integrations.whatsapp.setup as whatsapp_setup
 import integrations.x_mcp.setup as x_mcp_setup
 
 # Answers for *prompted* fields only. Constant fields are injected by the flow.
@@ -151,12 +150,6 @@ _ANSWERS: dict[str, dict[str, str]] = {
         "username": "reports@example.com",
         "password": "smtp-secret",
         "default_to": "oncall@example.com",
-    },
-    "whatsapp": {
-        "account_sid": "AC-checkout-sid",
-        "auth_token": "twilio-auth-token",
-        "from_number": "whatsapp:+14155238886",
-        "default_to": "+15551234567",
     },
     "tempo": {
         "url": "https://tempo.eu.example.com",
@@ -301,7 +294,6 @@ _CASES = [
     pytest.param(helm_setup, "HELM_SETUP", cli._setup_helm, id="helm"),
     pytest.param(hermes_setup, "HERMES_SETUP", cli._setup_hermes, id="hermes"),
     pytest.param(smtp_setup, "SMTP_SETUP", cli._setup_smtp, id="smtp"),
-    pytest.param(whatsapp_setup, "WHATSAPP_SETUP", cli._setup_whatsapp, id="whatsapp"),
     pytest.param(tempo_setup, "TEMPO_SETUP", cli._setup_tempo, id="tempo"),
     pytest.param(posthog_mcp_setup, "POSTHOG_MCP_SETUP", cli._setup_posthog_mcp, id="posthog_mcp"),
     pytest.param(sentry_mcp_setup, "SENTRY_MCP_SETUP", cli._setup_sentry_mcp, id="sentry_mcp"),

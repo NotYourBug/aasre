@@ -113,8 +113,6 @@ def _messages_payload(messages: ReportMessages) -> dict[str, object]:
         "slack_text": messages.slack_text,
         "slack_blocks": messages.slack_blocks,
         "telegram_html": messages.telegram_html,
-        "whatsapp_text": messages.whatsapp_text,
-        "sms_text": messages.sms_text,
     }
 
 
