@@ -10,6 +10,7 @@ from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
 from gateway.core.single_message_output import SingleMessageTurnOutput
 from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
+from infrastructure.delivery.notifications.redaction import redact_token
 from infrastructure.text.markdown import tighten_markdown_emphasis
 from infrastructure.text.truncation import truncate
 
@@ -19,10 +20,12 @@ logger = logging.getLogger(__name__)
 def _send_text(app_id: str, app_secret: str, chat_id: str, text: str) -> str:
     """Send one text message via the pinned lark-oapi SDK; return its message_id.
 
-    Raises on transport/construction failure so the turn's error path still
-    surfaces it; callers that only post (turn output, /stop replies) ignore the
-    returned id, while the approval prompter uses it to register the prompt for
-    reply matching.
+    Raises on transport/construction failure *and* on a non-zero Feishu business
+    code (bot not in the chat, missing ``im:message`` permission) so a rejected
+    post is never mistaken for success. The SDK returns such errors as a response
+    with a non-zero ``code`` rather than raising, so the code must be checked.
+    Callers that only post (turn output, /stop replies) ignore the returned id,
+    while the approval prompter uses it to register the prompt for reply matching.
     """
     client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
     request = (
@@ -42,6 +45,14 @@ def _send_text(app_id: str, app_secret: str, chat_id: str, text: str) -> str:
     except Exception:
         logger.exception("Feishu turn output send failed")
         raise
+    if not response.success():
+        error = redact_token(str(getattr(response, "msg", "") or ""), app_secret)
+        logger.warning(
+            "Feishu turn output send rejected code=%s: %s",
+            getattr(response, "code", None),
+            error,
+        )
+        raise RuntimeError(f"Feishu im.message.create failed: {error}")
     data = getattr(response, "data", None)
     return str(getattr(data, "message_id", "") or "") if data is not None else ""
 

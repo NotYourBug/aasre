@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +15,8 @@ import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 from lark_oapi.core.token import TokenManager
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
-from lark_oapi.ws import Client
+from lark_oapi.ws.client import Client
+from lark_oapi.ws.client import loop as _ws_loop
 
 from config.constants.gateway import NO_ACTIVE_TURN_MESSAGE
 from gateway.core.middleware.active_turns import ActiveTurnRegistry, is_stop_command
@@ -35,6 +37,13 @@ _PLATFORM_FEISHU = "feishu"
 
 _APPROVE_WORDS = frozenset({"approve", "approved", "approves", "yes", "y", "ok", "okay", "lgtm"})
 _DENY_WORDS = frozenset({"deny", "denied", "denies", "no", "n", "reject", "rejected", "cancel"})
+
+_LEADING_MENTION_RE = re.compile(r"^(?:@[^\s]+\s*)+")
+
+
+def strip_leading_feishu_mentions(text: str) -> str:
+    """Remove leading ``@_user_1``-style mention tokens so ``@bot /stop`` routes as ``/stop``."""
+    return _LEADING_MENTION_RE.sub("", text.strip()).strip()
 
 
 def _decision(text: str) -> bool | None:
@@ -182,7 +191,7 @@ def _dispatch_turn(
 
 
 class _ReadyOnConnectClient(Client):
-    """lark WS client that signals readiness only once the socket connects.
+    """lark WS client that signals readiness once connected and stops on demand.
 
     ``lark_oapi.ws.Client`` has no first-connect callback (``on_reconnected``
     fires on reconnect only), so setting ``ready_event`` before ``start()``
@@ -190,20 +199,47 @@ class _ReadyOnConnectClient(Client):
     Overriding ``_connect`` sets the event only after the socket is established;
     an auth/config failure raises ``ClientException`` and never signals ready,
     so startup fails closed instead.
+
+    ``Client.start()`` also blocks forever in ``run_until_complete(_select())``
+    (an infinite sleep) and exposes no stop method, so a stop can never join the
+    worker. A stop watcher scheduled on the SDK's module-level loop calls
+    ``loop.stop()`` once ``stop_event`` is set, which unblocks ``_select`` so
+    ``start()`` returns and the worker's shutdown (denying pending approvals)
+    runs.
     """
 
     def __init__(
         self,
         *args: object,
         ready_event: threading.Event,
+        stop_event: threading.Event,
         **kwargs: object,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._ready_event = ready_event
+        self._stop_event = stop_event
+        self._stopped = False
 
     async def _connect(self) -> None:
         await super()._connect()
         self._ready_event.set()
+
+    async def _watch_stop(self) -> None:
+        while not self._stop_event.is_set():
+            await asyncio.sleep(0.5)
+        self._stopped = True
+        _ws_loop.stop()
+
+    def start(self) -> None:
+        _ws_loop.create_task(self._watch_stop())
+        try:
+            super().start()
+        except RuntimeError:
+            # ``loop.stop()`` makes ``run_until_complete(_select())`` raise
+            # "Event loop stopped before Future completed"; a deliberate stop
+            # returns normally, any other RuntimeError still propagates.
+            if not self._stopped:
+                raise
 
 
 def run_feishu_gateway_thread(
@@ -219,11 +255,11 @@ def run_feishu_gateway_thread(
     """Run the Feishu WebSocket loop until ``stop_event`` is set.
 
     ``Client.start()`` blocks and runs its own asyncio loop, so it must be called
-    from this background thread (never wrapped in ``asyncio.run``). There is no
-    first-connect callback, so "ready" means the loop is up and connecting; the
-    event is set immediately before ``start()``. Credentials were verified in the
-    caller before this thread started, so a credential failure out of ``start()``
-    is a runtime error logged here.
+    from this background thread (never wrapped in ``asyncio.run``). ``ready_event``
+    is set by :class:`_ReadyOnConnectClient` only after the socket connects, and a
+    stop watcher on that client unblocks ``start()`` once ``stop_event`` is set.
+    Credentials were verified in the caller before this thread started, so a
+    credential failure out of ``start()`` is a runtime error logged here.
     """
     session_resolver = SessionResolver(bindings, platform=_PLATFORM_FEISHU)
     active_cancels = ActiveTurnRegistry()
@@ -262,7 +298,9 @@ def run_feishu_gateway_thread(
             return
         chat_id = message.chat_id or ""
         message_id = message.message_id or ""
-        text = str(json.loads(message.content or "{}").get("text", "") or "")
+        text = strip_leading_feishu_mentions(
+            str(json.loads(message.content or "{}").get("text", "") or "")
+        )
         parent_id = message.parent_id or ""
         sender_id = sender.sender_id
         open_id = (sender_id.open_id or "") if sender_id is not None else ""
@@ -294,6 +332,11 @@ def run_feishu_gateway_thread(
         ):
             return
 
+        # No mention gate here: the app holds im:message.p2p_msg:readonly plus
+        # im:message.group_at_msg[:.include_bot]:readonly and NOT
+        # im:message.group_msg, so Feishu already delivers only DMs and group
+        # messages that @-mention this bot. A message reaching this point is
+        # therefore addressed to the bot.
         if is_stop_command(text):
             if not active_cancels.request_stop(conversation_key(inbound)):
                 send_text(chat_id, NO_ACTIVE_TURN_MESSAGE)
@@ -326,6 +369,7 @@ def run_feishu_gateway_thread(
         log_level=lark.LogLevel.INFO,
         event_handler=dispatcher_handler,
         ready_event=ready_event,
+        stop_event=stop_event,
     )
     try:
         client.start()
@@ -337,4 +381,7 @@ def run_feishu_gateway_thread(
         approvals.close()
 
 
-__all__ = ["run_feishu_gateway_thread"]
+__all__ = [
+    "run_feishu_gateway_thread",
+    "strip_leading_feishu_mentions",
+]
