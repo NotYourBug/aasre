@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -38,18 +37,27 @@ _PLATFORM_FEISHU = "feishu"
 _APPROVE_WORDS = frozenset({"approve", "approved", "approves", "yes", "y", "ok", "okay", "lgtm"})
 _DENY_WORDS = frozenset({"deny", "denied", "denies", "no", "n", "reject", "rejected", "cancel"})
 
-_LEADING_MENTION_RE = re.compile(r"^(?:@_[^\s]+\s*)+")
 
+def strip_leading_feishu_mentions(text: str, bot_mention_keys: frozenset[str]) -> str:
+    """Remove leading tokens that are the bot's own ``@_user_N`` mention keys.
 
-def strip_leading_feishu_mentions(text: str) -> str:
-    """Remove leading ``@_user_1``-style mention keys so ``@bot /stop`` routes as ``/stop``.
-
-    Only opaque mention keys (Feishu's ``@_``-prefixed placeholder for any
-    ``@``-mention) are stripped. A literal ``@all``/``@everyone`` or a plain
-    word starting with ``@`` is left intact, so the agent does not receive
-    silently altered text.
+    Only the bot's mention placeholder is stripped; other members' mentions and
+    a literal ``@all``/``@everyone`` are preserved, so command/approval routing
+    reads the text the user actually typed. ``@bot /new`` routes as ``/new``.
     """
-    return _LEADING_MENTION_RE.sub("", text.strip()).strip()
+    stripped = text.strip()
+    if not bot_mention_keys:
+        return stripped
+    while stripped:
+        matched = False
+        for key in sorted(bot_mention_keys, key=len, reverse=True):
+            if stripped == key or stripped.startswith(key + " "):
+                stripped = stripped[len(key) :].strip()
+                matched = True
+                break
+        if not matched:
+            break
+    return stripped
 
 
 def _decision(text: str) -> bool | None:
@@ -304,8 +312,11 @@ def run_feishu_gateway_thread(
             return
         chat_id = message.chat_id or ""
         message_id = message.message_id or ""
+        mentions = message.mentions or []
+        bot_mention_keys = frozenset(m.key for m in mentions if m.mentioned_type == "bot" and m.key)
         text = strip_leading_feishu_mentions(
-            str(json.loads(message.content or "{}").get("text", "") or "")
+            str(json.loads(message.content or "{}").get("text", "") or ""),
+            bot_mention_keys,
         )
         parent_id = message.parent_id or ""
         sender_id = sender.sender_id
