@@ -38,11 +38,17 @@ _PLATFORM_FEISHU = "feishu"
 _APPROVE_WORDS = frozenset({"approve", "approved", "approves", "yes", "y", "ok", "okay", "lgtm"})
 _DENY_WORDS = frozenset({"deny", "denied", "denies", "no", "n", "reject", "rejected", "cancel"})
 
-_LEADING_MENTION_RE = re.compile(r"^(?:@[^\s]+\s*)+")
+_LEADING_MENTION_RE = re.compile(r"^(?:@_[^\s]+\s*)+")
 
 
 def strip_leading_feishu_mentions(text: str) -> str:
-    """Remove leading ``@_user_1``-style mention tokens so ``@bot /stop`` routes as ``/stop``."""
+    """Remove leading ``@_user_1``-style mention keys so ``@bot /stop`` routes as ``/stop``.
+
+    Only opaque mention keys (Feishu's ``@_``-prefixed placeholder for any
+    ``@``-mention) are stripped. A literal ``@all``/``@everyone`` or a plain
+    word starting with ``@`` is left intact, so the agent does not receive
+    silently altered text.
+    """
     return _LEADING_MENTION_RE.sub("", text.strip()).strip()
 
 

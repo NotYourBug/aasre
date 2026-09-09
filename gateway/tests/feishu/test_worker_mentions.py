@@ -14,7 +14,10 @@ from gateway.transports.feishu.worker import strip_leading_feishu_mentions
         ("@_user_1 @_user_2 /new", "/new"),
         ("@_user_1 hello there", "hello there"),
         ("hello", "hello"),
-        ("@all hands on deck", "hands on deck"),
+        # A literal @all / @everyone / @name is not an opaque mention key and must
+        # survive, or the agent would receive silently altered text.
+        ("@all hands on deck", "@all hands on deck"),
+        ("@deploy now", "@deploy now"),
         ("", ""),
     ],
 )
