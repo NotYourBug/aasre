@@ -200,7 +200,19 @@ def _dispatch_turn(
         except Exception:
             logger.error("[feishu-gateway] turn dispatch failed", exc_info=True)
 
-    future = loop.run_in_executor(executor, _run_turn)
+    try:
+        future = loop.run_in_executor(executor, _run_turn)
+    except Exception:
+        # A synchronous dispatch failure (the WS loop closed during shutdown)
+        # never reaches ``_on_turn_done``, so release the slot and drop the
+        # cancel Event here instead of leaking both on a daemon thread.
+        turn_slots.release()
+        active_cancels.unregister(key, turn_cancel)
+        logger.error(
+            "[feishu-gateway] turn dispatch rejected: executor unavailable",
+            exc_info=True,
+        )
+        return
     future.add_done_callback(_on_turn_done)
 
 
