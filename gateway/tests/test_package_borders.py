@@ -191,7 +191,7 @@ def test_only_the_gateway_facade_imports_the_transport_composer() -> None:
     """
     offenders: list[str] = []
     for path in _python_files("gateway"):
-        rel = str(path.relative_to(REPO_ROOT))
+        rel = path.relative_to(REPO_ROOT).as_posix()
         if rel in ("gateway/startup.py", "gateway/transports/startup.py"):
             continue
         if rel.startswith("gateway/tests/"):
