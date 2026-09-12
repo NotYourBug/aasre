@@ -65,8 +65,10 @@ def test_only_the_composition_root_defines_the_steps() -> None:
     )
 
     # Act
+    # ``as_posix()`` keeps the comparison separator-independent: ``str(Path)``
+    # yields backslashes on Windows and would fail against the expected list.
     definers = sorted(
-        f"{path.relative_to(repo)}::{node.name}"
+        f"{path.relative_to(repo).as_posix()}::{node.name}"
         for package in packages
         for path in (repo / package).rglob("*.py")
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
