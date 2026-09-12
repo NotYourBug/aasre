@@ -24,7 +24,18 @@ class FeishuScheduledDelivery:
         if not app_id or not app_secret:
             return False, "Missing app_id or app_secret for Feishu", ""
 
-        receive_id = (task.chat_id or "").strip() or creds.get("receive_id", "")
+        # The destination type travels with whichever destination won. A task's
+        # own --chat-id names a chat, whereas FEISHU_CHAT_RECEIVE_ID_TYPE
+        # describes only the configured fallback — pairing them the other way
+        # would send a chat id typed as an open_id whenever that fallback
+        # targets a person.
+        explicit_chat_id = (task.chat_id or "").strip()
+        if explicit_chat_id:
+            receive_id, receive_id_type = explicit_chat_id, "chat_id"
+        else:
+            receive_id = creds.get("receive_id", "")
+            receive_id_type = creds.get("receive_id_type", "chat_id")
+
         if not receive_id:
             return (
                 False,
@@ -41,7 +52,7 @@ class FeishuScheduledDelivery:
             app_id,
             app_secret,
             receive_id,
-            creds.get("receive_id_type", "chat_id"),
+            receive_id_type,
             plain_message,
         )
         return (True, "", message_id) if ok else (False, error, "")

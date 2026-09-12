@@ -101,6 +101,41 @@ def test_falls_back_to_the_configured_receive_id(monkeypatch: pytest.MonkeyPatch
     assert calls[0][2] == "oc_default"
 
 
+def test_fallback_keeps_its_own_receive_id_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fallback aimed at a person posts as that person."""
+    _install_fake_credentials(
+        monkeypatch, _chat_creds(receive_id="ou_fallback", receive_id_type="open_id")
+    )
+    calls = _install_fake_post(monkeypatch)
+
+    ok, _error, _message_id = FeishuScheduledDelivery().deliver(_task(chat_id=""), "digest")
+
+    assert ok is True
+    assert calls[0][2:4] == ("ou_fallback", "open_id")
+
+
+def test_task_chat_id_does_not_inherit_the_fallback_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The type travels with the destination that won, not with the fallback.
+
+    A task's own ``--chat-id`` names a chat. Applying the configured fallback's
+    type to it would send a chat id typed as an ``open_id`` whenever that
+    fallback targets a person.
+    """
+    _install_fake_credentials(
+        monkeypatch, _chat_creds(receive_id="ou_fallback", receive_id_type="open_id")
+    )
+    calls = _install_fake_post(monkeypatch)
+
+    ok, _error, _message_id = FeishuScheduledDelivery().deliver(
+        _task(chat_id="oc_explicit"), "digest"
+    )
+
+    assert ok is True
+    assert calls[0][2:4] == ("oc_explicit", "chat_id")
+
+
 def test_refuses_without_any_destination(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_credentials(monkeypatch, _chat_creds(receive_id=""))
     calls = _install_fake_post(monkeypatch)
