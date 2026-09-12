@@ -1,12 +1,17 @@
 """Feishu integration env-var names.
 
-Chat transport uses the interactive app (FEISHU_*); alarm delivery uses the
-dedicated alert-push app (ALERTPUSH_*) plus the receive-id target.
+The interactive app (``FEISHU_*``) serves the chat transport and everything
+delivered into a conversation: investigation reports and scheduled tasks, which
+target ``FEISHU_CHAT_RECEIVE_ID``. The dedicated alert-push app
+(``ALERTPUSH_*``) is one-way only — watchdog alarms and background-RCA notices,
+targeting ``FEISHU_ALARM_RECEIVE_ID``.
 """
 
 FEISHU_APP_ID_ENV = "FEISHU_APP_ID"
 FEISHU_APP_SECRET_ENV = "FEISHU_APP_SECRET"
 FEISHU_ALLOWED_OPEN_IDS_ENV = "FEISHU_ALLOWED_OPEN_IDS"
+FEISHU_CHAT_RECEIVE_ID_ENV = "FEISHU_CHAT_RECEIVE_ID"
+FEISHU_CHAT_RECEIVE_ID_TYPE_ENV = "FEISHU_CHAT_RECEIVE_ID_TYPE"
 ALERTPUSH_APP_ID_ENV = "ALERTPUSH_APP_ID"
 ALERTPUSH_APP_SECRET_ENV = "ALERTPUSH_APP_SECRET"
 FEISHU_ALARM_RECEIVE_ID_ENV = "FEISHU_ALARM_RECEIVE_ID"
@@ -16,6 +21,8 @@ __all__ = [
     "FEISHU_APP_ID_ENV",
     "FEISHU_APP_SECRET_ENV",
     "FEISHU_ALLOWED_OPEN_IDS_ENV",
+    "FEISHU_CHAT_RECEIVE_ID_ENV",
+    "FEISHU_CHAT_RECEIVE_ID_TYPE_ENV",
     "ALERTPUSH_APP_ID_ENV",
     "ALERTPUSH_APP_SECRET_ENV",
     "FEISHU_ALARM_RECEIVE_ID_ENV",
