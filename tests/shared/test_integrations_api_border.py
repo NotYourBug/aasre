@@ -54,6 +54,7 @@ _ALLOWED: dict[str, frozenset[str]] = {
             "integrations.datadog.correlation.registration",
             "integrations.discord.reporting_adapter",
             "integrations.feishu.alarms",
+            "integrations.feishu.reporting_adapter",
             "integrations.grafana.reporting_adapter",
             "integrations.openclaw.reporting_adapter",
             "integrations.opensre.llm_eval_judge",

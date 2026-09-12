@@ -33,6 +33,7 @@ def ensure_delivery_adapters_registered() -> tuple[str, ...]:
     # here means ``dispatch.py`` never touches the vendor packages directly.
     import integrations.buzz.reporting_adapter  # noqa: F401
     import integrations.discord.reporting_adapter  # noqa: F401
+    import integrations.feishu.reporting_adapter  # noqa: F401
     import integrations.grafana.reporting_adapter  # noqa: F401
     import integrations.openclaw.reporting_adapter  # noqa: F401
     import integrations.rocketchat.reporting_adapter  # noqa: F401
