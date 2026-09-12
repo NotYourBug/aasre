@@ -15,6 +15,7 @@ from typing import Any
 from rich.console import Console
 
 from infrastructure.scheduling.scheduler.credentials import (
+    resolve_feishu_credentials,
     resolve_rocketchat_credentials,
     resolve_slack_credentials,
     resolve_slack_default_chat_id,
@@ -95,6 +96,17 @@ def rocketchat_delivery_ready() -> bool:
     return _rocketchat_token_credentials_present(resolve_rocketchat_credentials({}))
 
 
+def feishu_delivery_ready() -> bool:
+    """Return True when Feishu chat-app credentials are available.
+
+    Feishu is not a catalog integration, so there is no store tier to consult —
+    readiness reads the environment directly. The destination is deliberately
+    not part of readiness: digest tasks always carry an explicit ``--chat-id``.
+    """
+    creds = resolve_feishu_credentials({})
+    return bool(creds.get("app_id") and creds.get("app_secret"))
+
+
 def _slack_task_can_deliver(task_params: dict[str, str], chat_id: str) -> bool:
     return slack_can_deliver(resolve_slack_credentials(task_params), chat_id=chat_id)
 
@@ -107,6 +119,15 @@ def _telegram_task_can_deliver(task_params: dict[str, str], chat_id: str) -> boo
 def _rocketchat_task_can_deliver(task_params: dict[str, str], chat_id: str) -> bool:
     creds = resolve_rocketchat_credentials(task_params)
     return _rocketchat_token_credentials_present(creds) and bool(chat_id.strip())
+
+
+def _feishu_task_can_deliver(task_params: dict[str, str], chat_id: str) -> bool:
+    creds = resolve_feishu_credentials(task_params)
+    if not (creds.get("app_id") and creds.get("app_secret")):
+        return False
+    # Either destination works: the task's own chat_id, or the configured
+    # fallback the adapter uses when the task carries none.
+    return bool(chat_id.strip() or creds.get("receive_id"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +177,16 @@ _DELIVERY_SPECS: tuple[_DeliveryProviderSpec, ...] = (
             "target an explicit --chat-id)."
         ),
         can_deliver=_rocketchat_task_can_deliver,
+    ),
+    _DeliveryProviderSpec(
+        provider=Provider.FEISHU,
+        label="Feishu",
+        ready=feishu_delivery_ready,
+        setup_hint=(
+            "Feishu is not configured for delivery. Set FEISHU_APP_ID and "
+            "FEISHU_APP_SECRET, and pass --chat-id (or set FEISHU_CHAT_RECEIVE_ID)."
+        ),
+        can_deliver=_feishu_task_can_deliver,
     ),
 )
 
@@ -261,6 +292,7 @@ __all__ = [
     "any_delivery_ready",
     "delivery_provider_ready",
     "delivery_setup_hint",
+    "feishu_delivery_ready",
     "require_delivery_provider",
     "rocketchat_delivery_ready",
     "slack_can_deliver",

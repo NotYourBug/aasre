@@ -18,6 +18,14 @@ from infrastructure.scheduling.scheduler.delivery import (
 from infrastructure.scheduling.scheduler.types import Provider
 
 
+def _stub_feishu_credentials(monkeypatch: pytest.MonkeyPatch, creds: dict[str, str]) -> None:
+    """Isolate Feishu readiness from whatever this machine's environment holds."""
+    monkeypatch.setattr(
+        "infrastructure.scheduling.scheduler.delivery.resolve_feishu_credentials",
+        lambda _params: dict(creds),
+    )
+
+
 class TestDeliveryReadiness:
     def test_telegram_ready_when_token_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
@@ -60,6 +68,7 @@ class TestDeliveryReadiness:
             "infrastructure.scheduling.scheduler.delivery.resolve_slack_credentials",
             lambda _params: {"webhook_url": "https://hooks.slack.com/services/x"},
         )
+        _stub_feishu_credentials(monkeypatch, {})
         assert slack_delivery_ready() is False
         assert delivery_provider_ready("slack") is False
         assert any_delivery_ready() is False
@@ -84,6 +93,7 @@ class TestDeliveryReadiness:
                 "user_id": "u1",
             },
         )
+        _stub_feishu_credentials(monkeypatch, {})
         assert rocketchat_delivery_ready() is True
         assert delivery_provider_ready(Provider.ROCKETCHAT) is True
         assert any_delivery_ready() is True
@@ -102,6 +112,7 @@ class TestDeliveryReadiness:
             "infrastructure.scheduling.scheduler.delivery.resolve_rocketchat_credentials",
             lambda _params: {"webhook_url": "https://chat.example.com/hooks/a/b"},
         )
+        _stub_feishu_credentials(monkeypatch, {})
         assert rocketchat_delivery_ready() is False
         assert delivery_provider_ready(Provider.ROCKETCHAT) is False
         assert any_delivery_ready() is False
@@ -119,13 +130,15 @@ class TestDeliveryReadiness:
             "infrastructure.scheduling.scheduler.delivery.resolve_rocketchat_credentials",
             lambda _params: {},
         )
+        _stub_feishu_credentials(monkeypatch, {})
         assert any_delivery_ready() is False
-        assert "Telegram, Slack, or Rocket.Chat" in delivery_setup_hint()
+        assert "Telegram, Slack, Rocket.Chat, or Feishu" in delivery_setup_hint()
 
     def test_provider_specific_hint(self) -> None:
         assert "Telegram" in delivery_setup_hint(Provider.TELEGRAM)
         assert "Slack" in delivery_setup_hint(Provider.SLACK)
         assert "Rocket.Chat" in delivery_setup_hint(Provider.ROCKETCHAT)
+        assert "Feishu" in delivery_setup_hint(Provider.FEISHU)
 
     def test_unknown_provider_hint(self) -> None:
         hint = delivery_setup_hint("discord")
@@ -156,6 +169,7 @@ class TestTaskCanDeliver:
             "infrastructure.scheduling.scheduler.delivery.resolve_rocketchat_credentials",
             lambda _p: {},
         )
+        _stub_feishu_credentials(monkeypatch, {})
 
     def test_slack_task_without_a_destination_cannot_deliver(self, monkeypatch) -> None:
         # Arrange: bot token but no chat_id — chat.postMessage has no channel

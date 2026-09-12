@@ -33,13 +33,16 @@ EXECUTOR_DELIVERS = frozenset(
         Provider.SLACK,
         Provider.DISCORD,
         Provider.ROCKETCHAT,
+        Provider.FEISHU,
         Provider.INTERACTIVE_SHELL,
     }
 )
 
 #: What ``delivery._DELIVERY_SPECS`` knows how to check readiness and print
 #: setup hints for. Narrower than what the executor can send to.
-DELIVERY_SPECS_COVER = frozenset({Provider.TELEGRAM, Provider.SLACK, Provider.ROCKETCHAT})
+DELIVERY_SPECS_COVER = frozenset(
+    {Provider.TELEGRAM, Provider.SLACK, Provider.ROCKETCHAT, Provider.FEISHU}
+)
 
 #: What the watchdog's dispatcher distinguishes. Telegram is the documented
 #: fallthrough, so it has no branch of its own.

@@ -21,6 +21,12 @@ from config.constants.buzz import (
     BUZZ_RELAY_URL_ENV,
 )
 from config.constants.discord import DISCORD_BOT_TOKEN_ENV
+from config.constants.feishu import (
+    FEISHU_APP_ID_ENV,
+    FEISHU_APP_SECRET_ENV,
+    FEISHU_CHAT_RECEIVE_ID_ENV,
+    FEISHU_CHAT_RECEIVE_ID_TYPE_ENV,
+)
 from config.constants.rocketchat import (
     ROCKETCHAT_AUTH_TOKEN_ENV,
     ROCKETCHAT_SERVER_URL_ENV,
@@ -236,6 +242,45 @@ def resolve_buzz_credentials(task_params: dict[str, str]) -> dict[str, str]:
     return resolved
 
 
+def resolve_feishu_credentials(task_params: dict[str, str]) -> dict[str, str]:
+    """Resolve Feishu chat-app credentials from task params or environment.
+
+    Feishu is not a catalog integration, so there is no store tier: each field
+    resolves params → environment, with the app secret going through
+    ``resolve_env_credential`` so a secret saved by guided setup works without
+    being exported. ``receive_id`` is only a *fallback* destination — the
+    scheduled task's own ``chat_id`` takes precedence over it.
+    """
+    resolved: dict[str, str] = {}
+
+    app_id = task_params.get("app_id", "").strip() or os.getenv(FEISHU_APP_ID_ENV, "").strip()
+    if app_id:
+        resolved["app_id"] = app_id
+
+    app_secret = (
+        task_params.get("app_secret", "").strip()
+        or resolve_env_credential(FEISHU_APP_SECRET_ENV).strip()
+    )
+    if app_secret:
+        resolved["app_secret"] = app_secret
+
+    receive_id = (
+        task_params.get("receive_id", "").strip()
+        or os.getenv(FEISHU_CHAT_RECEIVE_ID_ENV, "").strip()
+    )
+    if receive_id:
+        resolved["receive_id"] = receive_id
+
+    receive_id_type = (
+        task_params.get("receive_id_type", "").strip()
+        or os.getenv(FEISHU_CHAT_RECEIVE_ID_TYPE_ENV, "").strip()
+    )
+    if receive_id_type:
+        resolved["receive_id_type"] = receive_id_type
+
+    return resolved
+
+
 def _resolve_credentials(
     task_params: dict[str, str],
     *,
@@ -303,6 +348,7 @@ def requires_explicit_chat_id(provider: str, task_params: dict[str, str] | None 
 __all__ = [
     "requires_explicit_chat_id",
     "resolve_discord_credentials",
+    "resolve_feishu_credentials",
     "resolve_rocketchat_credentials",
     "resolve_slack_credentials",
     "resolve_slack_default_chat_id",
