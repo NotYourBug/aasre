@@ -341,13 +341,6 @@ RULES: tuple[PathRule, ...] = (
         ),
     ),
     PathRule(
-        "integrations/twilio/",
-        (
-            "tests/integrations/test_twilio.py",
-            "tests/tools/test_twilio_notify_tool.py",
-        ),
-    ),
-    PathRule(
         "integrations/github/tools/",
         (
             "tests/tools/test_github_actions_tool.py",
@@ -596,9 +589,7 @@ def _matches(path: str, prefix: str) -> bool:
 def _area_key(prefix: str) -> str:
     parts = prefix.split("/")
     if parts[0] == "deployment" or (
-        len(parts) >= 2
-        and parts[0] == "infrastructure"
-        and parts[1].startswith("deployment")
+        len(parts) >= 2 and parts[0] == "infrastructure" and parts[1].startswith("deployment")
     ):
         return "deployment"
     return prefix
