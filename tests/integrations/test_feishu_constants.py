@@ -1,4 +1,4 @@
-from config.constants.feishu import (
+from config.constants import (
     ALERTPUSH_APP_ID_ENV,
     ALERTPUSH_APP_SECRET_ENV,
     FEISHU_ALARM_RECEIVE_ID_ENV,
