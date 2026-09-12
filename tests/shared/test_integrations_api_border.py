@@ -65,8 +65,6 @@ _ALLOWED: dict[str, frozenset[str]] = {
             "integrations.telegram.credentials",
             "integrations.telegram.formatting",
             "integrations.telegram.reporting_adapter",
-            "integrations.twilio.reporting_adapter",
-            "integrations.whatsapp.reporting_adapter",
         }
     ),
     "surfaces": frozenset(

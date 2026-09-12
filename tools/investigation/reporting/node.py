@@ -60,7 +60,6 @@ def generate_report(
     messages = ReportMessages(
         slack_text=masking_ctx.unmask(messages.slack_text),
         telegram_html=masking_ctx.unmask(messages.telegram_html),
-        whatsapp_text=masking_ctx.unmask(messages.whatsapp_text),
         slack_blocks=masking_ctx.unmask_value(messages.slack_blocks),
     )
     if isinstance(short_summary, str):

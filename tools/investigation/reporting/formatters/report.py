@@ -7,7 +7,6 @@ from tools.investigation.reporting.context import ReportContext
 from tools.investigation.reporting.formatters.base import (
     format_html_link,
     format_slack_link,
-    slack_links_to_plain_text,
 )
 from tools.investigation.reporting.formatters.evidence import (
     format_cited_evidence_section,
@@ -663,63 +662,6 @@ def format_telegram_message(ctx: ReportContext) -> str:
         parts.append("<i>" + html.escape(" | ".join(meta_bits)) + "</i>")
 
     return "\n\n".join(p for p in parts if p)
-
-
-def format_whatsapp_message(ctx: ReportContext) -> str:
-    """Format a plain-text RCA message for WhatsApp (mobile-friendly).
-
-    WhatsApp supports basic formatting (*bold*, _italic_, `code`) but we
-    keep the message plain and structured for maximum compatibility and
-    readability on small screens.
-    """
-    duration_seconds = ctx.get("investigation_duration_seconds")
-    alert_id = ctx.get("alert_id")
-    derived_rc = _derive_root_cause_sentence(ctx)
-    root_cause_sentence = derived_rc or "Not determined (insufficient evidence)."
-
-    parts: list[str] = []
-
-    severity = ctx.get("severity", "")
-    if severity:
-        parts.append(f"[{severity.upper()}] OpenSRE Investigation")
-    else:
-        parts.append("OpenSRE Investigation")
-
-    top_log = _get_top_error_log(ctx.get("evidence") or {})
-    if top_log:
-        parts.append(f"{root_cause_sentence}\nTop log: {top_log}")
-    else:
-        parts.append(root_cause_sentence)
-
-    validated_lines, non_validated_lines = _render_claim_lines(ctx)
-    if validated_lines:
-        parts.append("*Findings*\n" + "\n".join(validated_lines))
-    if non_validated_lines:
-        parts.append("*Inferred Claims*\n" + "\n".join(non_validated_lines))
-
-    provenance_lines = _format_provenance_lines(ctx)
-    if provenance_lines:
-        parts.append("*Provenance*\n" + "\n".join(provenance_lines))
-
-    remediation_steps = ctx.get("remediation_steps", [])
-    if remediation_steps:
-        parts.append("*Recommended Actions*\n" + "\n".join(f"• {s}" for s in remediation_steps))
-
-    trace_steps = build_investigation_trace(ctx)
-    if trace_steps:
-        parts.append("*Investigation Trace*\n" + "\n".join(trace_steps))
-
-    meta_bits: list[str] = []
-    if duration_seconds is not None:
-        meta_bits.append(f"Timing: {duration_seconds}s")
-    if alert_id:
-        meta_bits.append(f"Alert ID: {alert_id}")
-    if meta_bits:
-        parts.append(" | ".join(meta_bits))
-
-    # Shared helpers emit Slack <url|label> links; WhatsApp and SMS render no
-    # markup, so convert at this boundary to plain `label (url)` form.
-    return slack_links_to_plain_text("\n\n".join(p for p in parts if p))
 
 
 # ---------------------------------------------------------------------------

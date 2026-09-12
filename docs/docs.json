@@ -236,9 +236,7 @@
                   "messaging/slack",
                   "messaging/discord",
                   "messaging/telegram",
-                  "messaging/rocketchat",
-                  "messaging/whatsapp",
-                  "messaging/twilio-sms"
+                  "messaging/rocketchat"
                 ]
               },
               {
@@ -324,10 +322,6 @@
     }
   },
   "redirects": [
-    {
-      "source": "/messaging/twilio",
-      "destination": "/messaging/twilio-sms"
-    },
     {
       "source": "/tracer-faq",
       "destination": "/faq"

@@ -235,42 +235,6 @@ def test_integrations_setup_accepts_telegram() -> None:
     mock_verify.assert_called_once_with("telegram")
 
 
-def test_integrations_setup_accepts_whatsapp() -> None:
-    runner = CliRunner()
-
-    with (
-        patch("surfaces.cli.commands.integrations.capture_integration_setup_started"),
-        patch("surfaces.cli.commands.integrations.capture_integration_setup_completed"),
-        patch("surfaces.cli.commands.integrations.capture_integration_verified"),
-        patch("integrations.cli.cmd_setup") as mock_setup,
-        patch("integrations.cli.cmd_verify", return_value=0) as mock_verify,
-    ):
-        mock_setup.return_value = "whatsapp"
-        result = runner.invoke(cli, ["integrations", "setup", "whatsapp"])
-
-    assert result.exit_code == 0
-    mock_setup.assert_called_once_with("whatsapp")
-    mock_verify.assert_called_once_with("whatsapp")
-
-
-def test_integrations_setup_accepts_twilio() -> None:
-    runner = CliRunner()
-
-    with (
-        patch("surfaces.cli.commands.integrations.capture_integration_setup_started"),
-        patch("surfaces.cli.commands.integrations.capture_integration_setup_completed"),
-        patch("surfaces.cli.commands.integrations.capture_integration_verified"),
-        patch("integrations.cli.cmd_setup") as mock_setup,
-        patch("integrations.cli.cmd_verify", return_value=0) as mock_verify,
-    ):
-        mock_setup.return_value = "twilio"
-        result = runner.invoke(cli, ["integrations", "setup", "twilio"])
-
-    assert result.exit_code == 0
-    mock_setup.assert_called_once_with("twilio")
-    mock_verify.assert_called_once_with("twilio")
-
-
 def test_integrations_setup_accepts_smtp() -> None:
     runner = CliRunner()
 
@@ -457,9 +421,9 @@ def test_verify_services_includes_previously_missing_integrations() -> None:
 
 
 def test_setup_services_includes_previously_missing_integrations() -> None:
-    # #2537: telegram, whatsapp and twilio had handlers and registry entries
-    # but were rejected by Click because the CLI's hardcoded SETUP_SERVICES
-    # tuple had drifted. Anchor them here so a revert to a hardcoded tuple —
-    # or accidental removal from the registry — fails this test loudly.
-    previously_missing = {"telegram", "twilio", "whatsapp"}
+    # #2537: telegram had a handler and registry entry but was rejected by
+    # Click because the CLI's hardcoded SETUP_SERVICES tuple had drifted.
+    # Anchor it here so a revert to a hardcoded tuple — or accidental removal
+    # from the registry — fails this test loudly.
+    previously_missing = {"telegram"}
     assert previously_missing <= set(SETUP_SERVICES)

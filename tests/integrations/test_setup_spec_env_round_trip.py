@@ -70,9 +70,7 @@ from integrations.telegram.setup import TELEGRAM_SETUP
 from integrations.tempo.setup import TEMPO_SETUP
 from integrations.temporal.setup import TEMPORAL_SETUP
 from integrations.tracer.setup import TRACER_SETUP
-from integrations.twilio.setup import TWILIO_SETUP
 from integrations.vercel.setup import VERCEL_SETUP
-from integrations.whatsapp.setup import WHATSAPP_SETUP
 from integrations.x_mcp.setup import X_MCP_SETUP
 
 # A distinct, recognizable value per field, so two fields of the same
@@ -161,12 +159,6 @@ _SUBMITTED: dict[str, dict[str, str]] = {
         "password": "smtp-secret",
         "from_address": "reports@example.com",
         "default_to": "oncall@example.com",
-    },
-    "whatsapp": {
-        "account_sid": "AC-checkout-sid",
-        "auth_token": "twilio-auth-token",
-        "from_number": "whatsapp:+14155238886",
-        "default_to": "+15551234567",
     },
     "tempo": {
         "url": "https://tempo.eu.example.com",
@@ -348,7 +340,6 @@ _SPECS = [
     TEMPORAL_SETUP,
     TRACER_SETUP,
     VERCEL_SETUP,
-    WHATSAPP_SETUP,
     POSTHOG_MCP_SETUP,
     SENTRY_MCP_SETUP,
     X_MCP_SETUP,
@@ -417,9 +408,8 @@ def _restore_environment(written: _Persisted, monkeypatch: pytest.MonkeyPatch) -
     ``os.environ`` for the whole test session, so without this a spec whose
     ``env_var`` is wrong can still "round-trip" — not from what this test just
     persisted, but from a same-named value already sitting in that real
-    ``.env`` (Twilio's shared account vars are a real example: a wrong
-    ``env_var`` still resolved because the correct name happened to already be
-    set for real).
+    ``.env`` (a wrong ``env_var`` still resolved because the correct name
+    happened to already be set for real).
 
     Keyring secrets are seeded straight into ``os.environ`` because
     ``resolve_env_credential`` checks the environment first — which is what a
@@ -507,32 +497,3 @@ def test_persisted_credentials_are_read_back_by_the_catalog(
             f"{spec.service}.{field.name} was persisted as {field.env_var!r}, "
             "which the catalog does not read back into that credential"
         )
-
-
-def test_twilio_persisted_credentials_are_read_back_by_the_catalog(
-    persisted: _Persisted, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Twilio stores SMS fields flat; the catalog rehydrates a nested ``sms`` dict."""
-    submitted = {
-        "account_sid": "ACtwilioaccountsid0001",
-        "auth_token": "twilio-auth-token",
-        "from_number": "+14155551234",
-        "messaging_service_sid": "",
-        "default_to": "+14155559876",
-    }
-    assert {field.name for field in TWILIO_SETUP.fields} == set(submitted)
-
-    outcome = setup_flow.apply_setup(
-        dataclasses.replace(TWILIO_SETUP, verify=None, resolve=None), submitted
-    )
-    assert outcome.ok, outcome.detail
-
-    _restore_environment(persisted, monkeypatch)
-    resolved = _catalog_credentials("twilio")
-    assert resolved.get("account_sid") == submitted["account_sid"]
-    assert resolved.get("auth_token") == submitted["auth_token"]
-    sms = resolved.get("sms") or {}
-    assert isinstance(sms, dict)
-    assert sms.get("from_number") == submitted["from_number"]
-    assert sms.get("messaging_service_sid") == submitted["messaging_service_sid"]
-    assert sms.get("default_to") == submitted["default_to"]

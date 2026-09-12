@@ -70,8 +70,8 @@ def slack_links_to_plain_text(text: str) -> str:
     """Convert Slack ``<url|label>`` links to plain ``label (url)``.
 
     The inverse of :func:`format_slack_link`, for channels that render no markup
-    (WhatsApp, SMS, terminal plain-text mode). The URL is kept because
-    plain-text clients auto-linkify bare URLs.
+    (terminal plain-text mode). The URL is kept because plain-text clients
+    auto-linkify bare URLs.
     """
 
     def _repl(match: re.Match[str]) -> str:

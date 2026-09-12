@@ -68,8 +68,6 @@ class EffectiveIntegrations(StrictConfigModel):
     rocketchat: EffectiveIntegrationEntry | None = None
     buzz: EffectiveIntegrationEntry | None = None
     smtp: EffectiveIntegrationEntry | None = None
-    whatsapp: EffectiveIntegrationEntry | None = None
-    twilio: EffectiveIntegrationEntry | None = None
     openclaw: EffectiveIntegrationEntry | None = None
     posthog_mcp: EffectiveIntegrationEntry | None = None
     sentry_mcp: EffectiveIntegrationEntry | None = None

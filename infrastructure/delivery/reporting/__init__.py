@@ -2,8 +2,8 @@
 
 The investigation pipeline in :mod:`tools.investigation.reporting.delivery`
 dispatches rendered incident reports to whichever vendor channels the current
-run has credentials for (Slack, Discord, Telegram, WhatsApp, Twilio SMS,
-OpenClaw). Historically the dispatch logic imported each vendor's
+run has credentials for (Slack, Discord, Telegram, OpenClaw). Historically
+the dispatch logic imported each vendor's
 ``send_*_report`` function directly, which forms a ``tools -> integrations``
 edge for every vendor (T-4 layering audit, issue #3352).
 

@@ -237,15 +237,6 @@ from config.constants.temporal import (
     TEMPORAL_NAMESPACE_ENV,
 )
 from config.constants.tracer import TRACER_BASE_URL_ENV, TRACER_JWT_TOKEN_ENV
-from config.constants.twilio import (
-    TWILIO_ACCOUNT_SID_ENV,
-    TWILIO_AUTH_TOKEN_ENV,
-    TWILIO_SMS_DEFAULT_TO_ENV,
-    TWILIO_SMS_FROM_ENV,
-    TWILIO_SMS_MESSAGING_SERVICE_SID_ENV,
-    TWILIO_WHATSAPP_FROM_ENV,
-    WHATSAPP_DEFAULT_TO_ENV,
-)
 from config.constants.vercel import VERCEL_API_TOKEN_ENV, VERCEL_TEAM_ID_ENV
 from config.constants.x_mcp import X_MCP_AUTH_TOKEN_ENV, X_MCP_URL_ENV
 from config.constants.yandex_cloud import (
@@ -297,9 +288,7 @@ from integrations.config_models import (
     SMTPIntegrationConfig,
     SplunkIntegrationConfig,
     TelegramBotConfig,
-    TwilioIntegrationConfig,
     VictoriaLogsIntegrationConfig,
-    WhatsAppConfig,
 )
 from integrations.coralogix import classify as _classify_coralogix
 from integrations.dagster import build_dagster_config
@@ -383,11 +372,9 @@ from integrations.tempo import classify as _classify_tempo
 from integrations.tempo import tempo_config_from_env
 from integrations.temporal import classify as _classify_temporal
 from integrations.temporal.client import TemporalConfig
-from integrations.twilio import classify as _classify_twilio
 from integrations.vercel import classify as _classify_vercel
 from integrations.vercel.client import VercelConfig
 from integrations.victoria_logs import classify as _classify_victoria_logs
-from integrations.whatsapp import classify as _classify_whatsapp
 from integrations.x_mcp import build_x_mcp_config
 from integrations.x_mcp import classify as _classify_x_mcp
 from integrations.yandex_cloud import classify as _classify_yandex_cloud
@@ -531,8 +518,6 @@ _CLASSIFIERS: dict[str, _ClassifyFn] = {
     "rocketchat": _classify_rocketchat,
     "buzz": _classify_buzz,
     "slack": _classify_slack,
-    "whatsapp": _classify_whatsapp,
-    "twilio": _classify_twilio,
     "openclaw": _classify_openclaw,
     "posthog": _classify_posthog,
     "posthog_mcp": _classify_posthog_mcp,
@@ -1481,59 +1466,6 @@ def load_env_integrations() -> list[dict[str, Any]]:
             _report_env_loader_failure(exc, integration="smtp")
         else:
             integrations.append(_active_env_record("smtp", smtp_config.model_dump()))
-
-    # Shared Twilio account credentials — consumed by both the WhatsApp and
-    # the SMS env-bootstrap blocks below.
-    twilio_account_sid = resolve_env_credential(TWILIO_ACCOUNT_SID_ENV)
-    twilio_auth_token = resolve_env_credential(TWILIO_AUTH_TOKEN_ENV)
-
-    whatsapp_from_number = os.getenv(TWILIO_WHATSAPP_FROM_ENV, "").strip()
-    if twilio_account_sid and twilio_auth_token and whatsapp_from_number:
-        try:
-            wa_config = WhatsAppConfig.model_validate(
-                {
-                    "account_sid": twilio_account_sid,
-                    "auth_token": twilio_auth_token,
-                    "from_number": whatsapp_from_number,
-                    "default_to": os.getenv(WHATSAPP_DEFAULT_TO_ENV, "").strip() or None,
-                }
-            )
-        except Exception as exc:
-            _report_env_loader_failure(exc, integration="whatsapp")
-        else:
-            integrations.append(_active_env_record("whatsapp", wa_config.model_dump()))
-
-    # Twilio SMS integration — independent of the legacy WhatsApp record.
-    # Hydrated when account+token are present AND an SMS sender is set
-    # (a from_number or a Messaging Service SID).
-    twilio_sms_from = os.getenv(TWILIO_SMS_FROM_ENV, "").strip()
-    twilio_sms_messaging_service = os.getenv(TWILIO_SMS_MESSAGING_SERVICE_SID_ENV, "").strip()
-    if (
-        twilio_account_sid
-        and twilio_auth_token
-        and (twilio_sms_from or twilio_sms_messaging_service)
-    ):
-        twilio_payload: dict[str, Any] = {
-            "account_sid": twilio_account_sid,
-            "auth_token": twilio_auth_token,
-            "sms": {
-                "enabled": True,
-                "from_number": twilio_sms_from,
-                "messaging_service_sid": twilio_sms_messaging_service,
-                "default_to": os.getenv(TWILIO_SMS_DEFAULT_TO_ENV, "").strip() or None,
-            },
-        }
-        try:
-            twilio_config = TwilioIntegrationConfig.model_validate(twilio_payload)
-        except Exception as exc:
-            _report_env_loader_failure(exc, integration="twilio")
-        else:
-            integrations.append(
-                _active_env_record(
-                    "twilio",
-                    twilio_config.model_dump(exclude={"integration_id"}),
-                )
-            )
 
     atlas_pub = resolve_env_credential(MONGODB_ATLAS_PUBLIC_KEY_ENV)
     atlas_priv = resolve_env_credential(MONGODB_ATLAS_PRIVATE_KEY_ENV)

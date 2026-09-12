@@ -38,8 +38,6 @@ def ensure_delivery_adapters_registered() -> tuple[str, ...]:
     import integrations.rocketchat.reporting_adapter  # noqa: F401
     import integrations.slack.reporting_adapter  # noqa: F401
     import integrations.telegram.reporting_adapter  # noqa: F401
-    import integrations.twilio.reporting_adapter  # noqa: F401
-    import integrations.whatsapp.reporting_adapter  # noqa: F401
 
     return registered_delivery_adapter_names()
 

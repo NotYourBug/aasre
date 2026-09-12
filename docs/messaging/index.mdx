@@ -1,6 +1,6 @@
 ---
 title: "Messaging"
-description: "Deliver investigation findings and trigger investigations from Slack, Discord, Telegram, Rocket.Chat, WhatsApp, Twilio SMS, Buzz, or email (SMTP)."
+description: "Deliver investigation findings and trigger investigations from Slack, Discord, Telegram, Rocket.Chat, Buzz, or email (SMTP)."
 ---
 
 ## Overview
@@ -20,12 +20,10 @@ OpenSRE can deliver investigation findings — and, on some platforms, accept in
 | [**Discord**](/messaging/discord) | Communities and teams using Discord servers | ✅ Gateway chat + `/investigate` via `opensre gateway start` | `opensre integrations setup discord` | ~10 min |
 | [**Telegram**](/messaging/telegram) | Mobile-first and on-call rotations | ✅ DM text chat via `opensre gateway start` | `opensre integrations setup telegram` | ~5 min |
 | [**Rocket.Chat**](/messaging/rocketchat) | Self-hosted and open-source workspaces | ❌ delivery only | `opensre integrations setup rocketchat` | ~5 min |
-| [**WhatsApp**](/messaging/whatsapp) | Mobile alerting via Twilio WhatsApp | ❌ delivery only | `opensre integrations setup whatsapp` | ~5 min |
-| [**Twilio SMS**](/messaging/twilio-sms) | SMS paging via Twilio (separate from WhatsApp) | ❌ delivery only | `opensre integrations setup twilio` | ~5 min |
 | [**Buzz**](/messaging/buzz) | Block Buzz / Nostr workspaces | ❌ delivery only | `opensre integrations setup buzz` | ~5 min |
 | [**SMTP**](/smtp) | Background RCA completion email | ❌ email only | `opensre integrations setup smtp` | ~5 min |
 
-If you're not sure, start with Slack. Pick Discord if you want chat-driven investigations with threaded follow-ups. Pick WhatsApp or Twilio SMS when your team already pages via Twilio.
+If you're not sure, start with Slack. Pick Discord if you want chat-driven investigations with threaded follow-ups.
 
 You can configure more than one. Each is independent and uses its own credentials.
 
@@ -35,7 +33,7 @@ Two-way pairing (`opensre messaging pair|allow|revoke`) applies to **Telegram, S
 
 Each platform guide covers:
 
-1. **Prerequisites** — workspace/server admin rights, Twilio account, etc.
+1. **Prerequisites** — workspace/server admin rights, etc.
 2. **Create the bot/app** — BotFather, Discord Developer Portal, Slack App, etc.
 3. **Credentials** — the exact tokens, IDs, and keys to copy.
 4. **OpenSRE setup** — `opensre integrations setup …`.
@@ -69,17 +67,6 @@ ROCKETCHAT_USER_ID=
 ROCKETCHAT_DEFAULT_CHANNEL=
 ROCKETCHAT_WEBHOOK_URL=
 
-# WhatsApp (Twilio)
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_WHATSAPP_FROM=
-WHATSAPP_DEFAULT_TO=
-
-# Twilio SMS (shares TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN)
-TWILIO_SMS_FROM=
-TWILIO_SMS_MESSAGING_SERVICE_SID=
-TWILIO_SMS_DEFAULT_TO=
-
 # Buzz
 BUZZ_RELAY_URL=
 BUZZ_PRIVATE_KEY=
@@ -94,7 +81,7 @@ SMTP_DEFAULT_TO=
 
 ## Investigation tools
 
-Platform-specific send/read tools and gateway behavior are documented on each page (for example `slack_send_message`, `telegram_send_message`, `buzz_send_message`, `twilio_notify`).
+Platform-specific send/read tools and gateway behavior are documented on each page (for example `slack_send_message`, `telegram_send_message`, `buzz_send_message`).
 
 ## Verify
 
@@ -104,7 +91,7 @@ After editing `.env` or the store, run:
 opensre integrations verify <service>
 ```
 
-Examples: `telegram`, `slack`, `whatsapp`, `twilio`, `buzz`, `smtp`.
+Examples: `telegram`, `slack`, `buzz`, `smtp`.
 
 Note that `opensre doctor` only inspects the integrations store (`~/.opensre/integrations.json`), so it does **not** detect env-var-only configurations.
 
@@ -114,7 +101,7 @@ Note that `opensre doctor` only inspects the integrations store (`~/.opensre/int
 opensre integrations setup <service>
 ```
 
-Existing values are often pre-populated so you can press Enter to keep what you have. Slack, Telegram, Discord, Rocket.Chat, Buzz, WhatsApp, Twilio SMS, and SMTP each have a dedicated setup path as listed in the table above.
+Existing values are often pre-populated so you can press Enter to keep what you have. Slack, Telegram, Discord, Rocket.Chat, Buzz, and SMTP each have a dedicated setup path as listed in the table above.
 
 ## Troubleshooting
 

@@ -664,22 +664,6 @@ def _setup_smtp() -> None:
     _run_spec_setup(SMTP_SETUP)
 
 
-def _setup_whatsapp() -> None:
-    from integrations.whatsapp.setup import WHATSAPP_SETUP
-
-    _run_spec_setup(WHATSAPP_SETUP)
-
-
-def _setup_twilio() -> None:
-    """Wizard for the Twilio SMS integration.
-
-    WhatsApp delivery is configured separately via ``setup whatsapp``.
-    """
-    from integrations.twilio.setup import TWILIO_SETUP
-
-    _run_spec_setup(TWILIO_SETUP)
-
-
 def _setup_openclaw() -> None:
     from integrations.openclaw.setup import OPENCLAW_SETUP
 
@@ -823,8 +807,6 @@ _HANDLERS: dict[str, Any] = {
     "rocketchat": _setup_rocketchat,
     "buzz": _setup_buzz,
     "smtp": _setup_smtp,
-    "whatsapp": _setup_whatsapp,
-    "twilio": _setup_twilio,
     "openclaw": _setup_openclaw,
     "posthog_mcp": _setup_posthog_mcp,
     "sentry_mcp": _setup_sentry_mcp,

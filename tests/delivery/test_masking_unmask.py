@@ -44,7 +44,7 @@ def test_slack_message_is_unmasked_before_delivery() -> None:
         patch.object(
             pub_node,
             "build_report_messages",
-            return_value=ReportMessages(masked_message, "tg", "wa", []),
+            return_value=ReportMessages(masked_message, "tg", []),
         ),
         patch.object(pub_node, "render_report"),
         patch.object(pub_node, "open_in_editor"),
@@ -77,7 +77,7 @@ def test_empty_masking_map_is_passthrough() -> None:
         patch.object(
             pub_node,
             "build_report_messages",
-            return_value=ReportMessages(message_without_placeholders, "tg", "wa", []),
+            return_value=ReportMessages(message_without_placeholders, "tg", []),
         ),
         patch.object(pub_node, "render_report"),
         patch.object(pub_node, "open_in_editor"),

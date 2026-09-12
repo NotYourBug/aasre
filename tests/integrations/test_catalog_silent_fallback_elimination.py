@@ -4,8 +4,8 @@ Three patterns previously dropped exceptions to ``(None, None)``, ``pass``,
 or ``logger.debug(..., exc_info=True)`` with no Sentry trace:
 
   A. ``_classify_service_instance`` per-vendor ``try/except Exception``
-     blocks (38 sites covering grafana .. whatsapp; bitbucket/signoz/tempo/
-     twilio/whatsapp were fixed in a later pass — see
+     blocks (covering grafana .. yandex_cloud; bitbucket/signoz/tempo were
+     fixed in a later pass — see
      ``integrations._validation_helpers.report_classify_failure``, which now
      centrally wraps ``pydantic.ValidationError`` so no vendor classifier has
      to duplicate that guard itself).
@@ -127,14 +127,11 @@ _CLASSIFY_PATCH_TARGETS: list[tuple[str, str, str]] = [
     ("supabase", "integrations.supabase", "build_supabase_config"),
     ("smtp", "integrations.smtp", "SMTPIntegrationConfig"),
     # Previously silent or partially-reported (bitbucket/signoz/tempo dropped to
-    # (None, None) with no report at all; twilio/whatsapp swallowed ValidationError
-    # specifically). All five now route through report_classify_failure like every
-    # other vendor above.
+    # (None, None) with no report at all). All three now route through
+    # report_classify_failure like every other vendor above.
     ("bitbucket", "integrations.bitbucket.config", "BitbucketConfig"),
     ("signoz", "integrations.signoz", "build_signoz_config"),
     ("tempo", "integrations.tempo", "build_tempo_config"),
-    ("twilio", "integrations.twilio", "TwilioIntegrationConfig"),
-    ("whatsapp", "integrations.whatsapp", "WhatsAppConfig"),
 ]
 
 
@@ -349,21 +346,12 @@ _ENV_LOADER_CASES: list[tuple[str, dict[str, str], str]] = [
         "AWSIntegrationConfig",
     ),
     (
-        "whatsapp",
-        {
-            "TWILIO_ACCOUNT_SID": "sid",
-            "TWILIO_AUTH_TOKEN": "tok",
-            "TWILIO_WHATSAPP_FROM": "+15551234567",
-        },
-        "WhatsAppConfig",
-    ),
-    (
         "splunk",
         {"SPLUNK_URL": "https://s.example", "SPLUNK_TOKEN": "t"},
         "SplunkIntegrationConfig",
     ),
     # Stragglers still on the pre-#1468 swallow pattern: signoz/jenkins/tempo
-    # logged only at debug (exc_info=True); twilio dropped to None silently.
+    # logged only at debug (exc_info=True).
     (
         "signoz",
         {},
@@ -378,15 +366,6 @@ _ENV_LOADER_CASES: list[tuple[str, dict[str, str], str]] = [
         "tempo",
         {},
         "tempo_config_from_env",
-    ),
-    (
-        "twilio",
-        {
-            "TWILIO_ACCOUNT_SID": "sid",
-            "TWILIO_AUTH_TOKEN": "tok",
-            "TWILIO_SMS_FROM": "+15551234567",
-        },
-        "TwilioIntegrationConfig",
     ),
 ]
 

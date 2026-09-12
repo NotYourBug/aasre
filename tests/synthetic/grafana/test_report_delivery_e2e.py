@@ -42,7 +42,6 @@ def _messages() -> ReportMessages:
     return ReportMessages(
         slack_text="Synthetic investigation summary",
         telegram_html="Synthetic investigation summary",
-        whatsapp_text="Synthetic investigation summary",
         slack_blocks=[],
     )
 

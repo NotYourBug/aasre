@@ -233,20 +233,6 @@ _BUILTIN_SPECS: tuple[IntegrationSpec, ...] = (
         verify_order=58,
     ),
     IntegrationSpec(
-        service="whatsapp",
-        has_verifier=True,
-        direct_effective=True,
-        setup_order=27,
-        verify_order=27,
-    ),
-    IntegrationSpec(
-        service="twilio",
-        has_verifier=True,
-        direct_effective=True,
-        setup_order=20,
-        verify_order=28,
-    ),
-    IntegrationSpec(
         service="openclaw",
         has_verifier=True,
         direct_effective=True,
