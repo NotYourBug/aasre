@@ -46,6 +46,7 @@ ignore_imports =
     tools.interactive_shell.implementation.claude_code_executor -> integrations.llm_cli
     tools.investigation.reporting.delivery.bootstrap -> integrations.buzz.reporting_adapter
     tools.investigation.reporting.delivery.bootstrap -> integrations.discord.reporting_adapter
+    tools.investigation.reporting.delivery.bootstrap -> integrations.feishu.reporting_adapter
     tools.investigation.reporting.delivery.bootstrap -> integrations.grafana.reporting_adapter
     tools.investigation.reporting.delivery.bootstrap -> integrations.openclaw.reporting_adapter
     tools.investigation.reporting.delivery.bootstrap -> integrations.rocketchat.reporting_adapter
