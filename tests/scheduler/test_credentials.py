@@ -7,6 +7,7 @@ import pytest
 from infrastructure.scheduling.scheduler.credentials import (
     requires_explicit_chat_id,
     resolve_discord_credentials,
+    resolve_feishu_credentials,
     resolve_rocketchat_credentials,
     resolve_slack_credentials,
     resolve_slack_default_chat_id,
@@ -19,6 +20,15 @@ _ROCKETCHAT_ENV_VARS = (
     "ROCKETCHAT_AUTH_TOKEN",
     "ROCKETCHAT_USER_ID",
     "ROCKETCHAT_WEBHOOK_URL",
+)
+
+# FEISHU_APP_SECRET is absent on purpose: it resolves through
+# ``resolve_env_credential`` (env then the credentials file), so the Feishu
+# tests stub that seam instead of the plain-environment tier.
+_FEISHU_ENV_VARS = (
+    "FEISHU_APP_ID",
+    "FEISHU_CHAT_RECEIVE_ID",
+    "FEISHU_CHAT_RECEIVE_ID_TYPE",
 )
 
 
@@ -462,3 +472,80 @@ class TestRocketChatCredentials:
         )
         creds = resolve_rocketchat_credentials({})
         assert creds == {}
+
+
+class TestFeishuCredentials:
+    """Feishu is not a catalog integration, so there is no store tier to stub."""
+
+    def test_from_params(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for env_var in _FEISHU_ENV_VARS:
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setattr(
+            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            lambda *_args, **_kwargs: "",
+        )
+        creds = resolve_feishu_credentials(
+            {
+                "app_id": "cli_params",
+                "app_secret": "s_params",
+                "receive_id": "oc_params",
+                "receive_id_type": "open_id",
+            }
+        )
+        assert creds == {
+            "app_id": "cli_params",
+            "app_secret": "s_params",
+            "receive_id": "oc_params",
+            "receive_id_type": "open_id",
+        }
+
+    def test_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for env_var in _FEISHU_ENV_VARS:
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setenv("FEISHU_APP_ID", "cli_env")
+        monkeypatch.setenv("FEISHU_CHAT_RECEIVE_ID", "oc_env")
+        monkeypatch.setenv("FEISHU_CHAT_RECEIVE_ID_TYPE", "open_id")
+        monkeypatch.setattr(
+            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            lambda name, **_kwargs: "s_env" if name == "FEISHU_APP_SECRET" else "",
+        )
+        creds = resolve_feishu_credentials({})
+        assert creds == {
+            "app_id": "cli_env",
+            "app_secret": "s_env",
+            "receive_id": "oc_env",
+            "receive_id_type": "open_id",
+        }
+
+    def test_secret_resolves_through_the_credential_resolver(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A secret saved by guided setup lives in the credentials file, not the env."""
+        for env_var in _FEISHU_ENV_VARS:
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setattr(
+            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            lambda name, **_kwargs: "from_file" if name == "FEISHU_APP_SECRET" else "",
+        )
+        assert resolve_feishu_credentials({}) == {"app_secret": "from_file"}
+
+    def test_params_take_priority_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for env_var in _FEISHU_ENV_VARS:
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setenv("FEISHU_APP_ID", "cli_env")
+        monkeypatch.setattr(
+            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            lambda name, **_kwargs: "s_env" if name == "FEISHU_APP_SECRET" else "",
+        )
+        creds = resolve_feishu_credentials({"app_id": "cli_params"})
+        assert creds["app_id"] == "cli_params"
+        assert creds["app_secret"] == "s_env"
+
+    def test_empty_when_nothing_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for env_var in _FEISHU_ENV_VARS:
+            monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setattr(
+            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            lambda *_args, **_kwargs: "",
+        )
+        assert resolve_feishu_credentials({}) == {}
