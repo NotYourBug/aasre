@@ -3,7 +3,9 @@
 - Date: 2026-09-12
 - Status: Draft（待用户评审）
 - 上游 spec: [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
-- Ledger: [`.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md`](../../../.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md)
+- Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
+  artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
+  continues from.
 
 ## 1. 背景与目标
 
