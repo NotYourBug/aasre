@@ -22,14 +22,23 @@ _ROCKETCHAT_ENV_VARS = (
     "ROCKETCHAT_WEBHOOK_URL",
 )
 
-# FEISHU_APP_SECRET is absent on purpose: it resolves through
-# ``resolve_env_credential`` (env then the credentials file), so the Feishu
-# tests stub that seam instead of the plain-environment tier.
+# FEISHU_APP_SECRET is absent on purpose: it resolves through the shared Feishu
+# credential leaf (env then the credentials file), so the Feishu tests stub that
+# seam on its source module instead of the plain-environment tier.
 _FEISHU_ENV_VARS = (
     "FEISHU_APP_ID",
     "FEISHU_CHAT_RECEIVE_ID",
     "FEISHU_CHAT_RECEIVE_ID_TYPE",
 )
+
+
+def _stub_feishu_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate the integration store so the Feishu cases resolve from env only.
+
+    ``resolve_feishu_credentials`` delegates to the shared Feishu credential
+    leaf, which reads the integration store before the environment.
+    """
+    monkeypatch.setattr("integrations.feishu.credentials._feishu_store_config", dict)
 
 
 def _stub_slack_store(monkeypatch: pytest.MonkeyPatch, mapping: dict[str, str]) -> None:
@@ -475,13 +484,14 @@ class TestRocketChatCredentials:
 
 
 class TestFeishuCredentials:
-    """Feishu is not a catalog integration, so there is no store tier to stub."""
+    """Feishu is a catalog integration, so the store tier is stubbed out."""
 
     def test_from_params(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for env_var in _FEISHU_ENV_VARS:
             monkeypatch.delenv(env_var, raising=False)
+        _stub_feishu_store(monkeypatch)
         monkeypatch.setattr(
-            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            "config.llm_credentials.resolve_env_credential",
             lambda *_args, **_kwargs: "",
         )
         creds = resolve_feishu_credentials(
@@ -505,8 +515,9 @@ class TestFeishuCredentials:
         monkeypatch.setenv("FEISHU_APP_ID", "cli_env")
         monkeypatch.setenv("FEISHU_CHAT_RECEIVE_ID", "oc_env")
         monkeypatch.setenv("FEISHU_CHAT_RECEIVE_ID_TYPE", "open_id")
+        _stub_feishu_store(monkeypatch)
         monkeypatch.setattr(
-            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            "config.llm_credentials.resolve_env_credential",
             lambda name, **_kwargs: "s_env" if name == "FEISHU_APP_SECRET" else "",
         )
         creds = resolve_feishu_credentials({})
@@ -523,18 +534,25 @@ class TestFeishuCredentials:
         """A secret saved by guided setup lives in the credentials file, not the env."""
         for env_var in _FEISHU_ENV_VARS:
             monkeypatch.delenv(env_var, raising=False)
+        _stub_feishu_store(monkeypatch)
         monkeypatch.setattr(
-            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            "config.llm_credentials.resolve_env_credential",
             lambda name, **_kwargs: "from_file" if name == "FEISHU_APP_SECRET" else "",
         )
-        assert resolve_feishu_credentials({}) == {"app_secret": "from_file"}
+        # ``receive_id_type`` carries the shared leaf's ``chat_id`` default even
+        # when nothing else is configured; the destination is what gates delivery.
+        assert resolve_feishu_credentials({}) == {
+            "app_secret": "from_file",
+            "receive_id_type": "chat_id",
+        }
 
     def test_params_take_priority_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for env_var in _FEISHU_ENV_VARS:
             monkeypatch.delenv(env_var, raising=False)
         monkeypatch.setenv("FEISHU_APP_ID", "cli_env")
+        _stub_feishu_store(monkeypatch)
         monkeypatch.setattr(
-            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            "config.llm_credentials.resolve_env_credential",
             lambda name, **_kwargs: "s_env" if name == "FEISHU_APP_SECRET" else "",
         )
         creds = resolve_feishu_credentials({"app_id": "cli_params"})
@@ -544,8 +562,10 @@ class TestFeishuCredentials:
     def test_empty_when_nothing_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for env_var in _FEISHU_ENV_VARS:
             monkeypatch.delenv(env_var, raising=False)
+        _stub_feishu_store(monkeypatch)
         monkeypatch.setattr(
-            "infrastructure.scheduling.scheduler.credentials.resolve_env_credential",
+            "config.llm_credentials.resolve_env_credential",
             lambda *_args, **_kwargs: "",
         )
-        assert resolve_feishu_credentials({}) == {}
+        # Only the destination-type default survives; no credential is invented.
+        assert resolve_feishu_credentials({}) == {"receive_id_type": "chat_id"}
