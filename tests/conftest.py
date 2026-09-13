@@ -136,10 +136,12 @@ def _isolate_opensre_home_files(request, monkeypatch, tmp_path) -> None:
     # secret would otherwise land it in the developer's
     # ~/.opensre/credentials.json.
     monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path / "opensre-home")
-    # The store-path override outranks the patched home, so on a machine whose
-    # environment points it at a deployed silo, every test that resolves the
-    # integration store with no argument would read that silo instead of an
-    # empty store. Tests that want a store set it themselves.
+    # Cleared only for the isolated tests — live-LLM tests above deliberately
+    # keep any override: that exemption exists so they run against real,
+    # developer- or CI-provided state, and clearing it would make a configured
+    # live scenario silently skip instead of fail. The override outranks the
+    # patched home, so without this a test resolving the integration store with
+    # no argument reads a deployed silo. Tests that want a store set it.
     monkeypatch.delenv(INTEGRATIONS_STORE_PATH_ENV, raising=False)
 
 

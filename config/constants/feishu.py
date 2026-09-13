@@ -20,6 +20,8 @@ FEISHU_ALARM_RECEIVE_ID_TYPE_ENV = "FEISHU_ALARM_RECEIVE_ID_TYPE"
 #: The ``receive_id_type`` values the Feishu message API accepts. Guided setup
 #: collects this as free text, so without the check a typo reaches the SDK and
 #: is only rejected at delivery time, long after setup reported success.
+#: Mirrors ``lark_oapi``'s ``ReceiveIdType`` literal; this module stays
+#: SDK-free, so the list is copied rather than imported.
 FEISHU_RECEIVE_ID_TYPES = frozenset({"chat_id", "email", "open_id", "union_id", "user_id"})
 
 __all__ = [

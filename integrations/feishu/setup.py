@@ -18,6 +18,7 @@ from config.constants.feishu import (
     FEISHU_APP_SECRET_ENV,
     FEISHU_CHAT_RECEIVE_ID_ENV,
     FEISHU_CHAT_RECEIVE_ID_TYPE_ENV,
+    FEISHU_RECEIVE_ID_TYPES,
 )
 from integrations.feishu.verifier import verify_feishu
 from integrations.setup_flow import IntegrationSetupSpec, SetupField
@@ -27,6 +28,23 @@ APP_SECRET_FIELD = "app_secret"
 RECEIVE_ID_FIELD = "receive_id"
 RECEIVE_ID_TYPE_FIELD = "receive_id_type"
 ALLOWED_OPEN_IDS_FIELD = "allowed_open_ids"
+
+
+def validate_receive_id_type(value: str) -> str | None:
+    """Reject a destination type the message API does not take, at the prompt.
+
+    The verifier probes only the app credentials, so a typo here would pass
+    setup and verification, be stored, and only surface as a delivery failure
+    once something fell back to the configured destination.
+    """
+    text = value.strip()
+    if text in FEISHU_RECEIVE_ID_TYPES:
+        return None
+    return (
+        f"{text!r} is not a Feishu destination type. Use one of: "
+        f"{', '.join(sorted(FEISHU_RECEIVE_ID_TYPES))}."
+    )
+
 
 FEISHU_SETUP = IntegrationSetupSpec(
     service="feishu",
@@ -58,6 +76,7 @@ FEISHU_SETUP = IntegrationSetupSpec(
             env_var=FEISHU_CHAT_RECEIVE_ID_TYPE_ENV,
             default="chat_id",
             required=False,
+            validate=validate_receive_id_type,
         ),
         SetupField(
             name=ALLOWED_OPEN_IDS_FIELD,
@@ -77,4 +96,5 @@ __all__ = [
     "FEISHU_SETUP",
     "RECEIVE_ID_FIELD",
     "RECEIVE_ID_TYPE_FIELD",
+    "validate_receive_id_type",
 ]
