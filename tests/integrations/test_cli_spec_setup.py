@@ -33,6 +33,7 @@ import integrations.cli as cli
 import integrations.coralogix.setup as coralogix_setup
 import integrations.dagster.setup as dagster_setup
 import integrations.datadog.setup as datadog_setup
+import integrations.feishu.setup as feishu_setup
 import integrations.gitlab.setup as gitlab_setup
 import integrations.google_docs as google_docs_setup
 import integrations.grafana.setup as grafana_setup
@@ -267,12 +268,20 @@ _ANSWERS: dict[str, dict[str, str]] = {
         "bot_token": "xoxb-test-bot-token",
         "app_token": "xapp-test-app-token",
     },
+    "feishu": {
+        "app_id": "cli_feishu_1",
+        "app_secret": "feishu-secret-value",
+        "receive_id": "oc_feishu_1",
+        "receive_id_type": "chat_id",
+        "allowed_open_ids": "ou_1,ou_2",
+    },
 }
 
 # (spec module, spec attribute, CLI handler) — the attribute is patched rather
 # than the spec object because ``_setup_*`` imports it inside the function body.
 _CASES = [
     pytest.param(datadog_setup, "DATADOG_SETUP", cli._setup_datadog, id="datadog"),
+    pytest.param(feishu_setup, "FEISHU_SETUP", cli._setup_feishu, id="feishu"),
     pytest.param(honeycomb_setup, "HONEYCOMB_SETUP", cli._setup_honeycomb, id="honeycomb"),
     pytest.param(coralogix_setup, "CORALOGIX_SETUP", cli._setup_coralogix, id="coralogix"),
     pytest.param(groundcover_setup, "GROUNDCOVER_SETUP", cli._setup_groundcover, id="groundcover"),

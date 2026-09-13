@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from config.constants.feishu import FEISHU_APP_ID_ENV
 from config.constants.google_docs import (
     GOOGLE_CREDENTIALS_FILE_ENV,
     GOOGLE_DRIVE_FOLDER_ID_ENV,
@@ -163,6 +164,7 @@ def load_env_integration_services() -> list[str]:
         or _env_is_set("ROCKETCHAT_WEBHOOK_URL"),
     )
     add("buzz", _env_is_set("BUZZ_PRIVATE_KEY"))
+    add("feishu", _env_is_set(FEISHU_APP_ID_ENV))
     add("slack", _any_env("SLACK_BOT_TOKEN", "SLACK_ACCESS_TOKEN"))
     add("smtp", _env_is_set("SMTP_HOST"))
     add(

@@ -67,6 +67,7 @@ class EffectiveIntegrations(StrictConfigModel):
     telegram: EffectiveIntegrationEntry | None = None
     rocketchat: EffectiveIntegrationEntry | None = None
     buzz: EffectiveIntegrationEntry | None = None
+    feishu: EffectiveIntegrationEntry | None = None
     smtp: EffectiveIntegrationEntry | None = None
     openclaw: EffectiveIntegrationEntry | None = None
     posthog_mcp: EffectiveIntegrationEntry | None = None

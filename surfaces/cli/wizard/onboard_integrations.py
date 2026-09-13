@@ -170,6 +170,12 @@ ONBOARD_INTEGRATION_CHOICES: tuple[Choice, ...] = (
         hint="Post findings to a Buzz (Nostr) channel — requires the buzz CLI",
     ),
     Choice(
+        value="feishu",
+        label="Feishu",
+        group="Incident & Comms",
+        hint="Chat, investigate, and post findings in Feishu",
+    ),
+    Choice(
         value="google_docs",
         label="Google Docs",
         group="Incident & Comms",

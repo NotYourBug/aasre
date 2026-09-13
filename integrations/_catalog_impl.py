@@ -74,6 +74,13 @@ from config.constants.discord import (
     DISCORD_DEFAULT_CHANNEL_ID_ENV,
     DISCORD_PUBLIC_KEY_ENV,
 )
+from config.constants.feishu import (
+    FEISHU_ALLOWED_OPEN_IDS_ENV,
+    FEISHU_APP_ID_ENV,
+    FEISHU_APP_SECRET_ENV,
+    FEISHU_CHAT_RECEIVE_ID_ENV,
+    FEISHU_CHAT_RECEIVE_ID_TYPE_ENV,
+)
 from config.constants.github import (
     GITHUB_MCP_ARGS_ENV,
     GITHUB_MCP_AUTH_TOKEN_ENV,
@@ -296,6 +303,7 @@ from integrations.dagster import classify as _classify_dagster
 from integrations.datadog import classify as _classify_datadog
 from integrations.discord import classify as _classify_discord
 from integrations.effective_models import EffectiveIntegrations
+from integrations.feishu.classify import classify as _classify_feishu
 from integrations.github.mcp import build_github_mcp_config
 from integrations.github.mcp import classify as _classify_github
 from integrations.gitlab import DEFAULT_GITLAB_BASE_URL, build_gitlab_config
@@ -517,6 +525,7 @@ _CLASSIFIERS: dict[str, _ClassifyFn] = {
     "telegram": _classify_telegram,
     "rocketchat": _classify_rocketchat,
     "buzz": _classify_buzz,
+    "feishu": _classify_feishu,
     "slack": _classify_slack,
     "openclaw": _classify_openclaw,
     "posthog": _classify_posthog,
@@ -1447,6 +1456,19 @@ def load_env_integrations() -> list[dict[str, Any]]:
         slack_view, _slack_key = _classify_slack(slack_credentials, record_id="env:slack")
         if slack_view is not None:
             integrations.append(_active_env_record("slack", slack_view))
+
+    feishu_app_id = os.getenv(FEISHU_APP_ID_ENV, "").strip()
+    if feishu_app_id:
+        feishu_credentials = {
+            "app_id": feishu_app_id,
+            "app_secret": resolve_env_credential(FEISHU_APP_SECRET_ENV),
+            "receive_id": os.getenv(FEISHU_CHAT_RECEIVE_ID_ENV, "").strip(),
+            "receive_id_type": os.getenv(FEISHU_CHAT_RECEIVE_ID_TYPE_ENV, "").strip(),
+            "allowed_open_ids": os.getenv(FEISHU_ALLOWED_OPEN_IDS_ENV, "").strip(),
+        }
+        feishu_view, _feishu_key = _classify_feishu(feishu_credentials, record_id="env:feishu")
+        if feishu_view is not None:
+            integrations.append(_active_env_record("feishu", feishu_view))
 
     smtp_host = os.getenv(SMTP_HOST_ENV, "").strip()
     if smtp_host:

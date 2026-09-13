@@ -658,6 +658,12 @@ def _setup_buzz() -> None:
     _run_spec_setup(BUZZ_SETUP)
 
 
+def _setup_feishu() -> None:
+    from integrations.feishu.setup import FEISHU_SETUP
+
+    _run_spec_setup(FEISHU_SETUP)
+
+
 def _setup_smtp() -> None:
     from integrations.smtp.setup import SMTP_SETUP
 
@@ -806,6 +812,7 @@ _HANDLERS: dict[str, Any] = {
     "telegram": _setup_telegram,
     "rocketchat": _setup_rocketchat,
     "buzz": _setup_buzz,
+    "feishu": _setup_feishu,
     "smtp": _setup_smtp,
     "openclaw": _setup_openclaw,
     "posthog_mcp": _setup_posthog_mcp,

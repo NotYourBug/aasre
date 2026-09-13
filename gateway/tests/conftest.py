@@ -22,11 +22,17 @@ def _isolate_opensre_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     credential lookup miss ``integrations.json`` and fall through to the OS
     keychain, which blocks on a GUI prompt, so the pair must move together the
     way ``tests/conftest.py`` keeps them.
+
+    The store-path override is cleared for the same reason: it takes precedence
+    over the patched home, so a machine that points it at a deployed silo would
+    have gateway credential tests reading that silo's store instead of an empty
+    one. Tests that want a store set it themselves.
     """
-    from config.constants import paths
+    from config.constants import INTEGRATIONS_STORE_PATH_ENV, paths
 
     monkeypatch.setenv("OPENSRE_DISABLE_KEYRING", "1")
     monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path / "opensre-home")
+    monkeypatch.delenv(INTEGRATIONS_STORE_PATH_ENV, raising=False)
 
 
 @pytest.fixture(autouse=True)

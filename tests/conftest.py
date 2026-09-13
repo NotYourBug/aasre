@@ -9,6 +9,7 @@ import pytest
 
 import config.constants.paths as paths
 from config.constants import (
+    INTEGRATIONS_STORE_PATH_ENV,
     OPENSRE_MEMORY_AUTOEXTRACT_DISABLED_ENV,
     OPENSRE_MEMORY_DIR_ENV,
 )
@@ -135,6 +136,11 @@ def _isolate_opensre_home_files(request, monkeypatch, tmp_path) -> None:
     # secret would otherwise land it in the developer's
     # ~/.opensre/credentials.json.
     monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path / "opensre-home")
+    # The store-path override outranks the patched home, so on a machine whose
+    # environment points it at a deployed silo, every test that resolves the
+    # integration store with no argument would read that silo instead of an
+    # empty store. Tests that want a store set it themselves.
+    monkeypatch.delenv(INTEGRATIONS_STORE_PATH_ENV, raising=False)
 
 
 @pytest.fixture(autouse=True)

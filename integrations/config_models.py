@@ -13,6 +13,7 @@ from config.constants.azure import (
     AZURE_MAX_RESULTS_DEFAULT,
     AZURE_MAX_RESULTS_HARD_LIMIT,
 )
+from config.constants.feishu import FEISHU_RECEIVE_ID_TYPES
 from config.strict_config import StrictConfigModel
 from config.tracer_urls import get_tracer_base_url
 from infrastructure.text.url_validation import validate_https_or_loopback_http_url
@@ -817,6 +818,52 @@ class BuzzConfig(StrictConfigModel):
     @property
     def is_configured(self) -> bool:
         return bool(self.private_key)
+
+
+class FeishuConfig(StrictConfigModel):
+    """Feishu chat-app runtime config.
+
+    Models the interactive chat app only — the app that serves conversations,
+    investigation reports and scheduled tasks. The alert-push app
+    (``ALERTPUSH_*``) is one-way and deliberately has no field here.
+    """
+
+    app_id: str = Field(description="Feishu chat-app id (cli_…).")
+    app_secret: str = Field(
+        default="",
+        repr=False,
+        description="Feishu chat-app secret. Kept out of repr() so it cannot leak into logs.",
+    )
+    receive_id: str = Field(
+        default="",
+        description="Default destination: a chat id (oc_…) for a group, or an open id (ou_…) for a person.",
+    )
+    receive_id_type: str = Field(
+        default="chat_id",
+        description="Type of receive_id — chat_id for a group, open_id for a person.",
+    )
+    allowed_open_ids: str = Field(
+        default="",
+        description="Comma-separated open ids allowed to talk to the bot.",
+    )
+
+    @field_validator("app_id", mode="before")
+    @classmethod
+    def _validate_app_id(cls, value: object) -> str:
+        stripped = str(value or "").strip()
+        if not stripped:
+            raise ValueError("app_id cannot be empty or just whitespace")
+        return stripped
+
+    @field_validator("receive_id_type")
+    @classmethod
+    def _validate_receive_id_type(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized not in FEISHU_RECEIVE_ID_TYPES:
+            raise ValueError(
+                f"receive_id_type must be one of {sorted(FEISHU_RECEIVE_ID_TYPES)}, got {normalized!r}"
+            )
+        return normalized
 
 
 class SlackBotConfig(StrictConfigModel):

@@ -36,6 +36,7 @@ from integrations.betterstack.setup import BETTERSTACK_SETUP
 from integrations.coralogix.setup import CORALOGIX_SETUP
 from integrations.dagster.setup import DAGSTER_SETUP
 from integrations.datadog.setup import DATADOG_SETUP
+from integrations.feishu.setup import FEISHU_SETUP
 from integrations.github.setup import GITHUB_SETUP
 from integrations.gitlab.setup import GITLAB_SETUP
 from integrations.google_docs import GOOGLE_DOCS_SETUP
@@ -301,6 +302,13 @@ _SUBMITTED: dict[str, dict[str, str]] = {
         # Store-only; env bootstrap never writes a username.
         "username": "",
     },
+    "feishu": {
+        "app_id": "cli_feishu_1",
+        "app_secret": "feishu-secret-value",
+        "receive_id": "oc_feishu_1",
+        "receive_id_type": "chat_id",
+        "allowed_open_ids": "ou_1,ou_2",
+    },
     "kubernetes": {
         "kubeconfig_path": "/tmp/opensre-test-kubeconfig",
         "kubeconfig": "",
@@ -320,6 +328,7 @@ _SPECS = [
     CORALOGIX_SETUP,
     DAGSTER_SETUP,
     DATADOG_SETUP,
+    FEISHU_SETUP,
     GITLAB_SETUP,
     GOOGLE_DOCS_SETUP,
     GROUNDCOVER_SETUP,

@@ -1,4 +1,4 @@
-"""Feishu gateway configuration loaded from env."""
+"""Feishu gateway configuration: credentials from the shared leaf, knobs from env."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from config.constants.feishu import (
 from config.strict_config import StrictConfigModel
 from gateway.core.lifecycle.errors import GatewayConfigurationError
 from infrastructure.turn_host.concurrency import turn_limit_for_profile
+from integrations.feishu import load_chat_credentials_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +34,16 @@ class FeishuGatewaySettings(StrictConfigModel):
 
 
 class FeishuGatewayEnv(BaseSettings):
-    """Environment-backed Feishu gateway settings."""
+    """Deployment knobs for the Feishu gateway worker.
+
+    App credentials are deliberately absent: they resolve through
+    :func:`integrations.feishu.load_chat_credentials_from_env` (store first, then
+    environment) so nothing here can read the environment while bypassing the
+    integration store.
+    """
 
     model_config = SettingsConfigDict(env_prefix="FEISHU_", extra="ignore")
 
-    app_id: str = ""
-    app_secret: str = ""
     # NoDecode keeps pydantic-settings from JSON-decoding the env value so the
     # CSV validator below can parse "ou_a,ou_b" instead of raising a SettingsError.
     allowed_open_ids: Annotated[list[str], NoDecode] = Field(default_factory=list)
@@ -48,28 +53,38 @@ class FeishuGatewayEnv(BaseSettings):
     @field_validator("allowed_open_ids", mode="before")
     @classmethod
     def parse_allowed_open_ids(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            return [part.strip() for part in value.split(",") if part.strip()]
-        return value
+        return _split_open_ids(value) if isinstance(value, str) else value
+
+
+def _split_open_ids(value: str) -> list[str]:
+    """Parse a comma-separated open-id list, dropping blanks."""
+    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def load_feishu_gateway_settings() -> FeishuGatewaySettings:
-    """Load Feishu gateway settings, raising when credentials are missing."""
+    """Load Feishu gateway settings, raising when credentials are missing.
+
+    Credentials resolve through the shared leaf — store first, then environment —
+    so ``opensre integrations setup feishu`` is sufficient to start the worker.
+    """
     env = FeishuGatewayEnv()
-    if not env.app_id or not env.app_secret:
+    creds = load_chat_credentials_from_env()
+    if not creds.app_id or not creds.app_secret:
         raise GatewayConfigurationError(
-            f"Feishu app credentials missing. Set {FEISHU_APP_ID_ENV} and {FEISHU_APP_SECRET_ENV}."
+            "Feishu app credentials missing. Run `opensre integrations setup feishu`, "
+            f"or set {FEISHU_APP_ID_ENV} and {FEISHU_APP_SECRET_ENV}."
         )
-    if not env.allowed_open_ids:
+    allowed_open_ids = _split_open_ids(creds.allowed_open_ids) or env.allowed_open_ids
+    if not allowed_open_ids:
         logger.warning(
             "Feishu allowed open_ids are not configured: inbound is deny-all until a "
             "user pairs via /pair or you set %s (comma-separated open_ids).",
             FEISHU_ALLOWED_OPEN_IDS_ENV,
         )
     return FeishuGatewaySettings(
-        app_id=env.app_id,
-        app_secret=env.app_secret,
-        allowed_open_ids=env.allowed_open_ids,
+        app_id=creds.app_id,
+        app_secret=creds.app_secret,
+        allowed_open_ids=allowed_open_ids,
         turn_timeout_seconds=env.gateway_turn_timeout_seconds,
         status_update_interval_seconds=env.gateway_status_update_interval_seconds,
     )

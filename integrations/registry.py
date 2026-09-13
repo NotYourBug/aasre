@@ -233,6 +233,13 @@ _BUILTIN_SPECS: tuple[IntegrationSpec, ...] = (
         verify_order=58,
     ),
     IntegrationSpec(
+        service="feishu",
+        has_verifier=True,
+        direct_effective=True,
+        setup_order=57,
+        verify_order=102,
+    ),
+    IntegrationSpec(
         service="openclaw",
         has_verifier=True,
         direct_effective=True,
