@@ -37,6 +37,19 @@ def test_classifies_chat_app_credentials() -> None:
     }
 
 
+def test_rejects_an_unknown_receive_id_type() -> None:
+    """Guided setup collects this as free text; a typo must not reach delivery."""
+    assert classify({"app_id": "cli_1", "receive_id_type": "chatid"}, "env:feishu") == (None, None)
+
+
+def test_accepts_every_receive_id_type_the_api_takes() -> None:
+    """The guard must not narrow the field to the two values the prompt names."""
+    for name in ("chat_id", "email", "open_id", "union_id", "user_id"):
+        _, service = classify({"app_id": "cli_1", "receive_id_type": name}, "env:feishu")
+
+        assert service == "feishu", name
+
+
 def test_defaults_receive_id_type_to_chat_id() -> None:
     """A record that never set a type delivers to a group, not a person."""
     config, _service = classify({"app_id": "cli_1"}, "env:feishu")

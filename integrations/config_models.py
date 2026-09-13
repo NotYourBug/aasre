@@ -13,6 +13,7 @@ from config.constants.azure import (
     AZURE_MAX_RESULTS_DEFAULT,
     AZURE_MAX_RESULTS_HARD_LIMIT,
 )
+from config.constants.feishu import FEISHU_RECEIVE_ID_TYPES
 from config.strict_config import StrictConfigModel
 from config.tracer_urls import get_tracer_base_url
 from infrastructure.text.url_validation import validate_https_or_loopback_http_url
@@ -853,6 +854,16 @@ class FeishuConfig(StrictConfigModel):
         if not stripped:
             raise ValueError("app_id cannot be empty or just whitespace")
         return stripped
+
+    @field_validator("receive_id_type")
+    @classmethod
+    def _validate_receive_id_type(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized not in FEISHU_RECEIVE_ID_TYPES:
+            raise ValueError(
+                f"receive_id_type must be one of {sorted(FEISHU_RECEIVE_ID_TYPES)}, got {normalized!r}"
+            )
+        return normalized
 
 
 class SlackBotConfig(StrictConfigModel):
