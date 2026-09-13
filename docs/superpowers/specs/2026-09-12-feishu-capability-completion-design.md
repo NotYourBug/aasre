@@ -91,6 +91,8 @@ SDK 请求体已实测：
 - `content` 传**全量文本**而非增量 delta。新文本以旧文本为前缀才有打字机效果；前缀不同则全量直接上屏。
 - 流式与独享卡片模式互斥（`update_multi` 不能为 `false`）。
 - 频控：流式内容接口 **50 次/秒、1000 次/分钟**；**卡片组件追加/更新仅 10 QPS**。
+- **客户端版本要求：飞书客户端 ≥ 7.20。** 低于该版本的客户端无法正确渲染 CardKit 流式卡片 ——
+  这是环境前置，不是代码可绕过的（见 §7 与降级级 4）。
 
 ### 2.5 富文本渲染：`schema 2.0` + `tag: "markdown"`（2026-09-13 调研）
 
@@ -110,7 +112,7 @@ Slack Block Kit 的 markdown 原生渲染，在飞书的对应物是 **CardKit 2
 `11310 card table number over limit`）；表格除表头外最多展示 5 行数据（超出分页）；组件需要
 `element_id`（字母开头，仅字母/数字/下划线，≤20 字符）。
 
-### 2.6 reactions 的两套系统（2026-09-13 调研，详见 `feishu-reactions.md`）
+### 2.6 reactions 的两套系统（2026-09-13 调研）
 
 必须区分两个**完全不同**的机制，不要混淆：
 
@@ -231,6 +233,8 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 | `integrations/cli.py` | 增 | `_setup_feishu` + 映射表条目 |
 | `surfaces/cli/wizard/_integration_configurators.py`、`configurators/chat_notifications.py` | 增 | `_configure_feishu` |
 | `integrations/feishu/{delivery,alarms,background_adapter,scheduled_delivery}.py` | 改 | 凭据改从新三层入口取，不再直接读 `os.environ` |
+| `gateway/transports/feishu/settings.py` | 改 | `load_feishu_gateway_settings` 目前只读 `FeishuGatewayEnv`（纯 env）。必须改为经共享凭据层解析 `app_id`/`app_secret`/`allowed_open_ids`，env 作兜底 |
+| `tests/shared/test_integrations_api_border.py` | 改 | `gateway → integrations` 白名单加 `integrations.feishu.credentials`（`gateway/transports/telegram/turn_output.py` 已有同类先例） |
 
 **YAGNI 裁剪**：不引入 `FEISHU_DEFAULT_CHAT_ID`（`FEISHU_CHAT_RECEIVE_ID` 已是该语义，R23 已定）；
 不做多 bot、多租户。
@@ -273,7 +277,8 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 
 ### 6.6 退出标准
 
-1. `opensre integrations setup feishu` 可交互配置并落库
+1. `opensre integrations setup feishu` 可交互配置并落库，**且配置后网关聊天传输无需 `.env` 即可启动**
+   （即 `load_feishu_gateway_settings` 走共享凭据层；否则 setup 只是半个真话）
 2. `opensre integrations verify feishu` 返回 passed/failed 且不泄漏 app_secret
 3. `opensre integrations list` 出现 feishu
 4. 现有 `.env`-only 部署行为不变（有回归证明）
@@ -288,6 +293,7 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 | boot path 被 lark SDK 污染 | 中 | 有 CI 契约 + 新增存在性测试双重钉死 |
 | **单卡片 30KB 硬上限** | 高 | S3 五级降级保证不丢内容（§4）；超限时结束流式并另发消息 |
 | **卡片组件更新仅 10 QPS**（远紧于流式的 50/s） | 中 | 按钮组件只在流式**结束后**一次性追加，不边流边追加 |
+| **飞书客户端需 ≥ 7.20** 才能渲染 CardKit 流式卡片 | 中 | 环境前置，代码不可绕过；需写入用户文档，并由降级级 4 覆盖旧客户端 |
 | `post`/`md` 静默丢表格、截断代码块 | 高 | §2.5 已定性为**内容丢失**（非渲染问题）；S6 必须修，否则报告表格持续丢失 |
 | 「生成中收到用户 reaction」的状态机 | 中 | R28 已定：reaction 仅作降级捷径；主入口是流式结束后的卡片按钮，天然规避该边缘态 |
 | `sequence` 乱序（`300317`）/ 流式超时（`200850`） | 中 | 每卡片维护单调递增计数器 + `uuid` 幂等；错误码走降级级 3 |
