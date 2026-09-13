@@ -6,6 +6,11 @@
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
   continues from.
+- 性质：**工程面设计产物，不是用户文档。** `docs/superpowers/` 不在 `docs/docs.json` 的站点导航里，
+  Mintlify 不会渲染它 —— 因此本文刻意保留 vendor 端点、SDK 方法名、内部模块路径与调研结论，这些
+  正是 S2–S8 实现时要照着做的东西。同目录的
+  [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
+  是同一体例的既有先例（已在 main 上）。用户可见的说明在 S4/S6 落地时另写。
 
 ## 1. 背景与目标
 
@@ -94,7 +99,8 @@ SDK 请求体已实测：
 - 流式与独享卡片模式互斥（`update_multi` 不能为 `false`）。
 - 频控：流式内容接口 **50 次/秒、1000 次/分钟**；**卡片组件追加/更新仅 10 QPS**。
 - **客户端版本要求：飞书客户端 ≥ 7.20。** 低于该版本的客户端无法正确渲染 CardKit 流式卡片 ——
-  这是环境前置，不是代码可绕过的（见 §7 与降级级 4）。
+  这是环境前置，不是代码可绕过的。**服务端探测不到客户端版本**（事件里没有该字段），所以它不是
+  一条可编程的降级分支，见 §4「不丢内容的边界」与 §7。
 
 ### 2.5 富文本渲染：`schema 2.0` + `tag: "markdown"`（2026-09-13 调研）
 
@@ -166,15 +172,30 @@ Slack Block Kit 的 markdown 原生渲染，在飞书的对应物是 **CardKit 2
 | --- | --- | --- | --- | --- |
 | **S1** | 飞书集成一等公民化（地基） | catalog 接入 + 凭据三层 | 无 | `setup/verify/list feishu` 可用；`.env`-only 部署行为不变 |
 | **S2** | 感知层：附件与图片 | 下载+内联、图片 vision、停止丢弃非文本 | 无（需飞书 `im:resource` 权限） | 发截图/日志文件，agent 能看到内容 |
-| **S3** | **卡片基建层（新地基）** | CardKit 2.0 卡片构建 + `schema 2.0` 的 `tag:"markdown"` 渲染 + CardKit v1 流式 + 五级降级 | 无 | 任意长文本可流式渲染成卡片；超 30KB **不丢内容** |
+| **S3** | **卡片基建层（新地基）** | CardKit 2.0 卡片构建 + `schema 2.0` 的 `tag:"markdown"` 渲染 + CardKit v1 流式 + 五级降级 | 无 | 任意长文本可流式渲染成卡片；超 30KB **不丢内容**（级 0–3，级 4 见下） |
 | **S4** | 对话输出接线 | 把 turn 输出接到 S3：流式卡片 + 长消息分片 + outbound 回复线程 | S3 | 长调查可见进度；超长回答不截断 |
-| **S5** | 卡片交互（审批 + 反馈） | 审批按钮**取代**文本审批；流式结束后追加 ✅采纳/🔄重试 按钮；👀 已读；reaction 事件作降级捷径 | S3、S4；**需控制台订阅 `card.action.trigger` 与 `im.message.reaction.*`** | 按钮审批可用；群聊旁观者无法误触；reaction 可作捷径 |
+| **S5** | 卡片交互（审批 + 反馈） | 审批按钮**取代**文本审批；流式结束后追加 ✅采纳/🔄重试 按钮；👀 已读；reaction 事件作降级捷径 | S3、S4；**需控制台订阅 `card.action.trigger` 与 `im.message.reaction.*`** | 按钮审批可用；**点击者须为原请求者本人**（`open_id`+`chat_id` 双匹配 + 白名单，见下），群聊旁观者无法误触；reaction 可作捷径 |
 | **S6** | 告警与投递卡片化 | watchdog 告警、报告/定时投递改走 S3 的渲染层 | S3 | 告警/报告呈现为卡片且**表格不丢** |
 | **S7** | prompt 片段 | 以「飞书是唯一通讯模块」为前提重写 persona / action / gather / assistant 提示 + `message_context` 渠道前缀 | 无 | agent 在飞书里具备渠道自觉 |
 | **S8** | agent 工具面 | `integrations/feishu/tools/`：`feishu_send_message` 可照抄；读消息/搜消息/列成员/加反应需逐一平台调研 | S1 | agent 能主动发飞书消息 |
 
 **依赖**：S4 / S5 / S6 都依赖 S3 的卡片基建（新增的地基）；S8 依赖 S1 的凭据层；
 S2、S7 完全独立。
+
+**S5 的回调授权（2026-09-13 评审新增）**：`card.action.trigger` 是审批的**授权入口**，不是展示层。
+R27 让卡片按钮取代文本审批，那就必须把文本审批的授权校验一并搬过来 —— 现有实现在 claim 时要求
+「请求者的 `open_id` **且** 提示所在 `chat_id` 双匹配」（`gateway/transports/feishu/pending_approvals.py:84`），
+卡片路径此前在本文里**没有任何等价要求**，"群聊旁观者无法误触"就不成立：群里任何人都能替别人
+批准一次写工具。S5 必须带上：
+
+- 回调带操作者 `open_id` 与 `chat_id`，与 pending 请求比对，**任一不符即拒绝**该次点击；
+  拒绝时只回一条仅点击者可见的提示，**不改卡片状态**（否则旁观者能靠卡片变化探测审批是否存在）。
+- 操作者仍须通过既有入站白名单 `FEISHU_ALLOWED_OPEN_IDS`。
+- 回调体是**外部输入**：按钮 `value` 只放不透明的 `approval_id`，不放工具名、参数或审批内容；
+  授权结论一律服务端按 `approval_id` 重新判定，绝不采信客户端回传的字段。
+
+同一条规则适用于 reaction 捷径（R28(b)）：`im.message.reaction.created_v1` 的 `open_id` 同样要
+过这道校验，不因为"只是个捷径"就放宽。
 
 **S3 的五级降级**（R32）：
 
@@ -184,10 +205,24 @@ S2、S7 完全独立。
 | 1 | 卡片体积逼近 30KB | 关闭流式，卡面保留已输出部分并标注截断 |
 | 2 | 有剩余内容 | **另发**消息承载剩余（按尺寸分片），不再更新原卡 |
 | 3 | 流式错误码（`200850` 流式超时 / `300309` 流式已关 / `300317` sequence 乱序） | 退出流式 → 一次性完整消息 |
-| 4 | 客户端不支持卡片 | 退回现有纯文本路径 |
+| 4 | 客户端 < 7.20（**服务端不可探测**，见下） | 卡片渲染失败。不是一条可编程分支：事件不带客户端版本，服务端无从判断。兜底 = S4 的纯文本**分片**路径 |
 
-**每一级都不丢内容** —— 最差退化回今天的行为（一条纯文本长消息），不会出现「编辑到一半卡住、
-用户拿不到答案」。
+**不丢内容的边界（2026-09-13 评审修正）**：级 0–3 的"不丢内容"成立 —— 卡片承载全部文本；逼近
+30KB 时关闭流式、按尺寸**另发**消息承载剩余；流式错误码则退回一次性完整消息。
+
+**级 4 原本写错了，不能算进这条保证。** 两点：
+
+1. **它不是可探测的降级。** 飞书事件不携带客户端版本或能力字段（现有归一化事件里没有任何版本
+   字段可读），服务端无法判断"对面是不是 7.20 以下"，因此不存在"检测到旧客户端 → 走级 4"这条
+   分支。级 4 是**已记录的环境前置**：旧客户端拿到的就是一张渲染失败的卡片，只能靠升级客户端解决。
+2. **"退回现有纯文本路径"也不等于不丢内容。** 现有路径是**截断**，不是分片：
+   `gateway/transports/feishu/turn_output.py:84` 与投递侧另外三处（`delivery.py`、`alarms.py`、
+   `scheduled_delivery.py`）都以 `truncate(..., MAX_MESSAGE_SIZE)` 收尾，而 `MAX_MESSAGE_SIZE = 4096`
+   （`infrastructure/delivery/notifications/limits.py`），全仓库飞书链路**没有分片实现**。
+   级 4 的真实兜底因此是 **S4 的长消息分片**（S4 范围本就含此项）；S4 落地前，级 4 的上限就是
+   今天的行为 —— 截断。
+
+**→ S3 的退出标准"超 30KB 不丢内容"只覆盖级 0–3，级 4 由 S4 的分片补齐。**
 
 **建议顺序**：S1 → S2 → S3 → S4 → S5 → S6。S7 / S8 无依赖，可随时插入；
 **S7 成本低、价值高，建议提前**（R31 已明确飞书是唯一通讯模块）。
@@ -227,7 +262,7 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 | `integrations/feishu/classify.py` | 新增 | `classify(credentials, record_id)` → `FeishuConfig` 视图（镜像 `slack/classify.py`） |
 | `integrations/feishu/verifier.py` | 新增 | `@register_verifier("feishu")`，lark token 获取做探针；`ObtainAccessTokenException` → `failed`，app_secret 经 `redact_token` 脱敏（telegram 同款） |
 | `integrations/feishu/setup.py` | 新增 | `FEISHU_SETUP: IntegrationSetupSpec`：`app_id`(必需)、`app_secret`(必需, secret)、`receive_id`/`receive_id_type`/`allowed_open_ids`(可选) |
-| `integrations/feishu/credentials.py` | 改 | 三层解析：secret 走 `resolve_env_credential`（env→凭据文件）再进 store/keyring；chat 目标 `override → store → env`。**保持无 lark** |
+| `integrations/feishu/credentials.py` | 改 | 三层解析，**store 永远先于 env**（与 §6.1/§6.3 及 telegram 等同序）：`app_id`/`receive_id`/`receive_id_type`/`allowed_open_ids` 走 `store → env`；`app_secret` 走 `store → resolve_env_credential`（env → 本地凭据文件 → keyring）。即 guided setup 写进 store 的值不会被陈旧的环境变量盖住；调用方另有 `override → store → env` 的目标覆盖。**保持无 lark** |
 | `integrations/registry.py` | 增 | `IntegrationSpec(service="feishu", has_verifier=True, direct_effective=True)` + `setup_order`/`verify_order` 取当前表末之后的下一个可用编号（实现时读取既有条目确定，勿猜） |
 | `integrations/catalog.py` | 增 | env gate `add("feishu", _env_is_set("FEISHU_APP_ID"))` |
 | `integrations/_catalog_impl.py` | 增 | `_classify_feishu` 注册 + env record loader |
@@ -295,7 +330,9 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 | boot path 被 lark SDK 污染 | 中 | 有 CI 契约 + 新增存在性测试双重钉死 |
 | **单卡片 30KB 硬上限** | 高 | S3 五级降级保证不丢内容（§4）；超限时结束流式并另发消息 |
 | **卡片组件更新仅 10 QPS**（远紧于流式的 50/s） | 中 | 按钮组件只在流式**结束后**一次性追加，不边流边追加 |
-| **飞书客户端需 ≥ 7.20** 才能渲染 CardKit 流式卡片 | 中 | 环境前置，代码不可绕过；需写入用户文档，并由降级级 4 覆盖旧客户端 |
+| **飞书客户端需 ≥ 7.20** 才能渲染 CardKit 流式卡片 | 中 | 环境前置，代码不可绕过，需写入用户文档。**服务端无法探测客户端版本**（事件无该字段），故级 4 不是可编程降级；旧客户端只是渲染失败，兜底依赖 S4 的纯文本分片（§4） |
+| **S5 卡片回调是授权入口，漏校验即越权** | **高** | 回调必须复刻文本审批的 `open_id` + `chat_id` 双匹配 + `FEISHU_ALLOWED_OPEN_IDS`（§4「S5 的回调授权」）；否则群里任何人可替他人批准写工具。reaction 捷径同规则 |
+| **纯文本兜底路径会截断**（`turn_output.py:84` 等 4 处 `truncate(..., 4096)`） | 中 | 飞书链路目前无分片；级 4 与超长回答的完整性依赖 S4 的分片落地，S4 前上限即今天的行为 |
 | `post`/`md` 静默丢表格、截断代码块 | 高 | §2.5 已定性为**内容丢失**（非渲染问题）；S6 必须修，否则报告表格持续丢失 |
 | 「生成中收到用户 reaction」的状态机 | 中 | R28 已定：reaction 仅作降级捷径；主入口是流式结束后的卡片按钮，天然规避该边缘态 |
 | `sequence` 乱序（`300317`）/ 流式超时（`200850`） | 中 | 每卡片维护单调递增计数器 + `uuid` 幂等；错误码走降级级 3 |
