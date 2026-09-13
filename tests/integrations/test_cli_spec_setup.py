@@ -473,6 +473,47 @@ def test_failed_verification_exits_without_saving(
     assert (run.store, run.keyring, run.env) == ([], [], [])
 
 
+_REJECTED_ANSWER = "definitely-not-a-valid-value"
+
+
+@pytest.mark.parametrize(("module", "attr", "handler"), _CASES)
+def test_a_rejected_answer_is_asked_again_and_never_saved(
+    monkeypatch: pytest.MonkeyPatch, run: _Run, module: Any, attr: str, handler: Any
+) -> None:
+    """A field's shape check re-asks in place; the rejected value is never saved.
+
+    The check exists so a slip is caught while the user is still at the prompt.
+    Its failure has to stay a re-ask — not an exit, and not a stored value that
+    only breaks later, once setup has already reported success.
+    """
+    spec = getattr(module, attr)
+    checked = next((field for field in _prompted(spec) if field.validate is not None), None)
+    if checked is None:
+        pytest.skip(f"{spec.service} has no shape-checked prompted field")
+
+    _install(monkeypatch, module, attr, run)
+    answers = _ANSWERS[spec.service]
+    queue: list[str] = []
+    for field in _prompted(spec):
+        if field.name == checked.name:
+            queue.append(_REJECTED_ANSWER)
+        queue.append(answers[field.name])
+
+    def _fake_p(label: str, default: str = "", secret: bool = False) -> str:
+        run.asked.append((label, default, secret))
+        return queue.pop(0)
+
+    monkeypatch.setattr(cli, "_p", _fake_p)
+
+    handler()
+
+    # Asked twice for that one field (rejected, then accepted), and the rejected
+    # value never reached the verifier.
+    labels = [label for label, _default, _secret in run.asked]
+    assert labels.count(checked.question) == 2
+    assert all(_REJECTED_ANSWER not in str(config) for config in run.verified)
+
+
 @pytest.mark.parametrize(("module", "attr", "handler"), _CASES)
 def test_blank_required_field_is_asked_again_not_fatal(
     monkeypatch: pytest.MonkeyPatch, run: _Run, module: Any, attr: str, handler: Any

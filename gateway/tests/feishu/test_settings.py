@@ -6,7 +6,7 @@ from config.constants import INTEGRATIONS_STORE_PATH_ENV
 from gateway.core.lifecycle.errors import GatewayConfigurationError
 from gateway.transports.feishu import settings
 from gateway.transports.feishu.settings import load_feishu_gateway_settings
-from integrations.feishu.credentials import FeishuChatCredentials
+from integrations.feishu.credentials import FeishuChatCredentials, load_chat_credentials_from_env
 
 
 def test_missing_credentials_raises(monkeypatch):
@@ -132,6 +132,18 @@ def test_a_store_record_alone_starts_the_worker_end_to_end(monkeypatch, tmp_path
         "FEISHU_CHAT_RECEIVE_ID",
     ):
         monkeypatch.delenv(name, raising=False)
+
+    # The gateway settings surface only three of the five keys, so assert the
+    # leaf directly for the other two — a drift in ``receive_id`` or
+    # ``receive_id_type`` between the classifier and the leaf would otherwise
+    # pass here and fail only at delivery.
+    creds = load_chat_credentials_from_env()
+
+    assert creds.app_id == "cli_from_store"
+    assert creds.app_secret == "s_from_store"
+    assert creds.receive_id == "oc_from_store"
+    assert creds.receive_id_type == "chat_id"
+    assert creds.allowed_open_ids == "ou_from_store"
 
     loaded = load_feishu_gateway_settings()
 
