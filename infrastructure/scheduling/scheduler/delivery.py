@@ -99,9 +99,10 @@ def rocketchat_delivery_ready() -> bool:
 def feishu_delivery_ready() -> bool:
     """Return True when Feishu chat-app credentials are available.
 
-    Feishu is not a catalog integration, so there is no store tier to consult —
-    readiness reads the environment directly. The destination is deliberately
-    not part of readiness: digest tasks always carry an explicit ``--chat-id``.
+    Feishu is a catalog integration, so readiness resolves credentials the same
+    way every other chat transport does — store tier first, environment second.
+    The destination is deliberately not part of readiness: digest tasks always
+    carry an explicit ``--chat-id``.
     """
     creds = resolve_feishu_credentials({})
     return bool(creds.get("app_id") and creds.get("app_secret"))

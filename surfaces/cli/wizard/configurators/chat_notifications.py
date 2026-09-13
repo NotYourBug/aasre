@@ -5,6 +5,7 @@ from __future__ import annotations
 from infrastructure.terminal.theme import SECONDARY
 from integrations.buzz import BUZZ_SETUP
 from integrations.discord import DISCORD_SETUP
+from integrations.feishu.setup import FEISHU_SETUP
 from integrations.rocketchat import ROCKETCHAT_SETUP
 from integrations.slack import SLACK_SETUP
 from integrations.telegram.setup import TELEGRAM_SETUP
@@ -64,6 +65,22 @@ def _configure_buzz() -> tuple[str, str]:
             "Requires the `buzz` CLI on PATH (`cargo install --path crates/buzz-cli` from "
             "https://github.com/block/buzz). Press Ctrl+C to skip Buzz setup; "
             "`opensre integrations setup buzz` picks it up later.[/]\n"
+        ),
+    )
+
+
+def _configure_feishu() -> tuple[str, str]:
+    return configure_from_spec(
+        FEISHU_SETUP,
+        title="Feishu",
+        intro=(
+            "\n[bold]Feishu Integration[/bold]\n"
+            f"[{SECONDARY}]Create a self-built app in the Feishu developer console and enable the "
+            "bot capability. The app ID and secret come from the app's credentials page. Add the "
+            "bot to the group it should post in, then read the group's chat id from a message "
+            "event. Every Feishu variable is listed in `.env.example`.\n"
+            "The app ID and secret are required — Feishu cannot connect without them. Press Ctrl+C "
+            "to skip Feishu setup; `opensre integrations setup feishu` picks it up later.[/]\n"
         ),
     )
 
