@@ -1,5 +1,8 @@
+import json
+
 import pytest
 
+from config.constants import INTEGRATIONS_STORE_PATH_ENV
 from gateway.core.lifecycle.errors import GatewayConfigurationError
 from gateway.transports.feishu import settings
 from gateway.transports.feishu.settings import load_feishu_gateway_settings
@@ -84,3 +87,54 @@ def test_empty_credential_values_raise_instead_of_starting_a_broken_worker(monke
 
     with pytest.raises(GatewayConfigurationError):
         settings.load_feishu_gateway_settings()
+
+
+def test_a_store_record_alone_starts_the_worker_end_to_end(monkeypatch, tmp_path):
+    """The spec's chain on the real store file: record → effective view → leaf → settings.
+
+    Every other test here stubs one hop, so a key-name drift between the
+    classifier, the effective view, and the leaf would pass all of them.
+    """
+    store = tmp_path / "integrations.json"
+    store.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "integrations": [
+                    {
+                        "id": "feishu-e2e",
+                        "service": "feishu",
+                        "status": "active",
+                        "instances": [
+                            {
+                                "name": "default",
+                                "tags": {},
+                                "credentials": {
+                                    "app_id": "cli_from_store",
+                                    "app_secret": "s_from_store",
+                                    "receive_id": "oc_from_store",
+                                    "receive_id_type": "chat_id",
+                                    "allowed_open_ids": "ou_from_store",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(INTEGRATIONS_STORE_PATH_ENV, str(store))
+    for name in (
+        "FEISHU_APP_ID",
+        "FEISHU_APP_SECRET",
+        "FEISHU_ALLOWED_OPEN_IDS",
+        "FEISHU_CHAT_RECEIVE_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    loaded = load_feishu_gateway_settings()
+
+    assert loaded.app_id == "cli_from_store"
+    assert loaded.app_secret == "s_from_store"
+    assert loaded.allowed_open_ids == ["ou_from_store"]

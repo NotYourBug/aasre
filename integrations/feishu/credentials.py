@@ -51,7 +51,11 @@ class FeishuChatCredentials(StrictConfigModel):
 
 
 def _feishu_store_config() -> dict[str, object]:
-    """Read the integration store's Feishu chat-app credentials, or ``{}``.
+    """Return the Feishu integration's effective config (store merged with env), or ``{}``.
+
+    A store read or parse failure degrades to ``{}``; programming errors are
+    deliberately not swallowed, so a broken build fails loudly instead of
+    silently falling back to stale environment credentials.
 
     The ``integrations.catalog`` import is function-local on purpose: that
     module is on the background-notification boot-path forbidden list, so a
