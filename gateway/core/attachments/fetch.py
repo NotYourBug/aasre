@@ -15,6 +15,7 @@ carves out http-to-https redirects, which keep the header.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from http import HTTPStatus
 from urllib.parse import urljoin, urlparse
 
@@ -34,6 +35,15 @@ _REDIRECT_STATUSES = frozenset(
         HTTPStatus.PERMANENT_REDIRECT,
     }
 )
+
+
+@dataclass(frozen=True)
+class DownloadedAttachment:
+    """A fetched attachment's bytes, its declared type, and whether the cap cut it."""
+
+    data: bytes
+    content_type: str
+    truncated: bool
 
 
 def is_allowed_host(url: str, host_suffixes: tuple[str, ...]) -> bool:
@@ -69,20 +79,38 @@ def _next_url(current_url: str, location: str, log_prefix: str) -> str | None:
     return target
 
 
-def _read_capped(response: httpx.Response, max_bytes: int, log_prefix: str) -> bytes | None:
-    """Drain a streamed response, dropping it entirely once it passes the cap."""
+def _read_capped(
+    response: httpx.Response,
+    max_bytes: int,
+    log_prefix: str,
+    *,
+    keep_partial: bool = False,
+) -> tuple[bytes, bool] | None:
+    """Drain a streamed response up to ``max_bytes``; None if the body is dropped.
+
+    Returns ``(data, truncated)``. ``truncated`` is True only when the cap cut the
+    body, never when it happened to end exactly at the cap. With ``keep_partial``
+    the read stops at the cap and keeps the head; otherwise an oversized body is
+    dropped whole.
+    """
     chunks: list[bytes] = []
     total = 0
     for chunk in response.iter_bytes():
         total += len(chunk)
         if total > max_bytes:
-            logger.info("%s payload exceeds %d bytes; skipped", log_prefix, max_bytes)
-            return None
+            if not keep_partial:
+                logger.info("%s payload exceeds %d bytes; skipped", log_prefix, max_bytes)
+                return None
+            remaining = max_bytes - (total - len(chunk))
+            if remaining > 0:
+                chunks.append(chunk[:remaining])
+            logger.info("%s payload exceeds %d bytes; truncated", log_prefix, max_bytes)
+            return b"".join(chunks), True
         chunks.append(chunk)
-    return b"".join(chunks)
+    return b"".join(chunks), False
 
 
-def download_attachment(
+def download_attachment_with_metadata(
     url: str,
     *,
     authorization: str,
@@ -90,13 +118,18 @@ def download_attachment(
     max_bytes: int,
     timeout: float,
     log_prefix: str,
+    keep_partial: bool = False,
     max_redirects: int = _MAX_REDIRECTS,
-) -> bytes | None:
+) -> DownloadedAttachment | None:
     """GET ``url`` with the credential pinned to ``host_suffixes``; None on failure.
 
     The first request is refused unless ``url`` is an https URL on an allowlisted
-    host. Each redirect is followed manually only while its target remains on an
-    allowlisted host. Oversized bodies are dropped rather than truncated.
+    host, and each redirect is followed manually only while its target remains on
+    an allowlisted host. Returns the final hop's body together with its declared
+    ``Content-Type`` — the only mimetype signal for a vendor payload that carries
+    no filename. Set ``keep_partial`` to keep the head of a body that exceeds
+    ``max_bytes`` (useful when the leading bytes are the informative part); the
+    default drops such a body entirely.
     """
     if not (url and authorization):
         return None
@@ -127,7 +160,15 @@ def download_attachment(
                 if response.status_code != HTTPStatus.OK:
                     logger.warning("%s download HTTP %s", log_prefix, response.status_code)
                     return None
-                return _read_capped(response, max_bytes, log_prefix)
+                read = _read_capped(response, max_bytes, log_prefix, keep_partial=keep_partial)
+                if read is None:
+                    return None
+                data, truncated = read
+                return DownloadedAttachment(
+                    data=data,
+                    content_type=response.headers.get("content-type", ""),
+                    truncated=truncated,
+                )
     except httpx.HTTPError as exc:
         logger.warning("%s download failed: %s", log_prefix, type(exc).__name__)
         return None
@@ -135,4 +176,37 @@ def download_attachment(
     return None
 
 
-__all__ = ["download_attachment", "is_allowed_host"]
+def download_attachment(
+    url: str,
+    *,
+    authorization: str,
+    host_suffixes: tuple[str, ...],
+    max_bytes: int,
+    timeout: float,
+    log_prefix: str,
+    max_redirects: int = _MAX_REDIRECTS,
+) -> bytes | None:
+    """GET ``url`` with the credential pinned to ``host_suffixes``; None on failure.
+
+    The first request is refused unless ``url`` is an https URL on an allowlisted
+    host. Each redirect is followed manually only while its target remains on an
+    allowlisted host. Oversized bodies are dropped rather than truncated.
+    """
+    downloaded = download_attachment_with_metadata(
+        url,
+        authorization=authorization,
+        host_suffixes=host_suffixes,
+        max_bytes=max_bytes,
+        timeout=timeout,
+        log_prefix=log_prefix,
+        max_redirects=max_redirects,
+    )
+    return None if downloaded is None else downloaded.data
+
+
+__all__ = [
+    "DownloadedAttachment",
+    "download_attachment",
+    "download_attachment_with_metadata",
+    "is_allowed_host",
+]

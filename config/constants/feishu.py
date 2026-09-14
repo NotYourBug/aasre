@@ -1,4 +1,4 @@
-"""Feishu integration env-var names.
+"""Feishu integration env-var names and inbound-resource constants.
 
 The interactive app (``FEISHU_*``) serves the chat transport and everything
 delivered into a conversation: investigation reports and scheduled tasks, which
@@ -24,6 +24,78 @@ FEISHU_ALARM_RECEIVE_ID_TYPE_ENV = "FEISHU_ALARM_RECEIVE_ID_TYPE"
 #: SDK-free, so the list is copied rather than imported.
 FEISHU_RECEIVE_ID_TYPES = frozenset({"chat_id", "email", "open_id", "union_id", "user_id"})
 
+#: Feishu serves message resources from its own API hosts only. The download
+#: carries a tenant token, so the host is allowlisted before a connection opens.
+FEISHU_RESOURCE_HOST_SUFFIXES = ("open.feishu.cn", "open.larksuite.com")
+
+#: The resource endpoint's ``type`` query parameter. Only these two exist; a
+#: video's cover frame is fetched as ``image``, never as ``file``.
+FEISHU_RESOURCE_TYPE_IMAGE = "image"
+FEISHU_RESOURCE_TYPE_FILE = "file"
+
+#: Per-resource download ceilings. An image must arrive whole or not at all — a
+#: truncated PNG is not a PNG and vision cannot decode it — so it is dropped past
+#: the cap. A text file is the opposite: its head is the useful part, so the read
+#: stops at the cap and keeps what it has. 5 MB matches the vision provider's own
+#: per-image limit; 2 MB is well past a real log while bounding memory.
+FEISHU_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+FEISHU_TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
+FEISHU_RESOURCE_TIMEOUT_SECONDS = 10.0
+
+#: Resources fetched for one message at most. The character budget bounds the
+#: prompt, not the work: a resource that fails or does not render costs no
+#: budget, so a message carrying many of them would otherwise drive an unbounded
+#: sequence of downloads and vision calls while holding a worker slot and the
+#: conversation lock. Real messages carry a handful; this only stops the
+#: pathological case.
+FEISHU_MAX_RESOURCES_PER_MESSAGE = 10
+
+#: Filename suffixes we can read as text, and the ones we know we cannot. An
+#: unknown suffix is treated as text — one bounded read then confirms against the
+#: response Content-Type, which is cheaper than guessing wrong on ``app.log.1``.
+FEISHU_TEXT_FILE_SUFFIXES = frozenset(
+    {
+        ".conf",
+        ".csv",
+        ".env",
+        ".ini",
+        ".json",
+        ".log",
+        ".md",
+        ".ndjson",
+        ".txt",
+        ".xml",
+        ".yaml",
+        ".yml",
+    }
+)
+FEISHU_BINARY_FILE_SUFFIXES = frozenset(
+    {
+        ".7z",
+        ".avi",
+        ".docx",
+        ".gif",
+        ".gz",
+        ".jpeg",
+        ".jpg",
+        ".m4a",
+        ".mkv",
+        ".mov",
+        ".mp3",
+        ".mp4",
+        ".pdf",
+        ".png",
+        ".ppt",
+        ".pptx",
+        ".tar",
+        ".wav",
+        ".webp",
+        ".xls",
+        ".xlsx",
+        ".zip",
+    }
+)
+
 __all__ = [
     "FEISHU_APP_ID_ENV",
     "FEISHU_APP_SECRET_ENV",
@@ -34,5 +106,14 @@ __all__ = [
     "ALERTPUSH_APP_SECRET_ENV",
     "FEISHU_ALARM_RECEIVE_ID_ENV",
     "FEISHU_ALARM_RECEIVE_ID_TYPE_ENV",
+    "FEISHU_BINARY_FILE_SUFFIXES",
+    "FEISHU_IMAGE_MAX_BYTES",
+    "FEISHU_MAX_RESOURCES_PER_MESSAGE",
     "FEISHU_RECEIVE_ID_TYPES",
+    "FEISHU_RESOURCE_HOST_SUFFIXES",
+    "FEISHU_RESOURCE_TIMEOUT_SECONDS",
+    "FEISHU_RESOURCE_TYPE_FILE",
+    "FEISHU_RESOURCE_TYPE_IMAGE",
+    "FEISHU_TEXT_FILE_MAX_BYTES",
+    "FEISHU_TEXT_FILE_SUFFIXES",
 ]

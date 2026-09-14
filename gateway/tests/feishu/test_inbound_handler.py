@@ -24,6 +24,7 @@ from config.constants.gateway import (
 )
 from core.agent_harness.session import SessionCore
 from core.agent_harness.session.persistence.memory import InMemorySessionStore
+from gateway.core.attachments.fetch import DownloadedAttachment
 from gateway.core.billing import turn_metering
 from gateway.core.billing.credits_client import CreditsOutcome
 from gateway.core.middleware.active_turns import ActiveTurnRegistry
@@ -37,6 +38,7 @@ from gateway.transports.feishu.inbound_security import FeishuInboundDecision
 from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
+from integrations.feishu import ResourceRef
 
 TEST_ORG_ID = "org_feishu_turn"
 LOGGER = logging.getLogger("gateway.test")
@@ -95,6 +97,7 @@ def _run(
     settings: FeishuGatewaySettings,
     active_cancels: ActiveTurnRegistry,
     turn_cancel: threading.Event | None = None,
+    downloader: Any = None,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Run one turn synchronously; returns (outbound sends, chat replies)."""
     outbound: list[tuple[str, str]] = []
@@ -120,6 +123,7 @@ def _run(
         handler=handler,
         logger=LOGGER,
         turn_cancel=turn_cancel,
+        downloader=downloader,
     )
     return outbound, replies
 
@@ -375,3 +379,98 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
 
     assert "prompter" in captured
     assert captured["tool_hooks"] is sentinel
+
+
+def test_an_uncaptioned_attachment_turn_hands_the_agent_the_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The S2 exit criterion, end to end: no text at all, only a file."""
+    seen: list[str] = []
+
+    def _download(_url: str, _max_bytes: int, _keep_partial: bool) -> DownloadedAttachment:
+        return DownloadedAttachment(
+            data=b"ERROR boom\n", content_type="text/plain", truncated=False
+        )
+
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="om_1",
+        text="",
+        attachments=(ResourceRef(kind="file", key="file_1", name="app.log"),),
+    )
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+
+    _run(
+        monkeypatch,
+        inbound=inbound,
+        handler=lambda text, *_args: seen.append(text),
+        resolver=resolver,
+        settings=_settings(),
+        active_cancels=ActiveTurnRegistry(),
+        downloader=_download,
+    )
+
+    assert len(seen) == 1
+    assert "ERROR boom" in seen[0]
+
+
+def test_a_failed_attachment_download_still_runs_the_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A download failure is a line in the prompt, never an error reply."""
+    seen: list[str] = []
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="om_1",
+        text="see attached",
+        attachments=(ResourceRef(kind="image", key="img_1"),),
+    )
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+
+    outbound, _replies = _run(
+        monkeypatch,
+        inbound=inbound,
+        handler=lambda text, *_args: seen.append(text),
+        resolver=resolver,
+        settings=_settings(),
+        active_cancels=ActiveTurnRegistry(),
+        downloader=lambda _url, _max_bytes, _keep_partial: None,
+    )
+
+    assert len(seen) == 1
+    assert "could not be downloaded" in seen[0]
+    assert all("error" not in text.lower() for _chat, text in outbound)
+
+
+def test_a_captionless_attachment_never_reaches_the_agent_as_an_empty_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the attachment layer itself fails, the agent still gets a line to read."""
+    seen: list[str] = []
+
+    def _explode(_url: str, _max_bytes: int, _keep_partial: bool) -> DownloadedAttachment:
+        raise RuntimeError("boom")
+
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="om_1",
+        text="",
+        attachments=(ResourceRef(kind="image", key="img_1"),),
+    )
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+
+    _run(
+        monkeypatch,
+        inbound=inbound,
+        handler=lambda text, *_args: seen.append(text),
+        resolver=resolver,
+        settings=_settings(),
+        active_cancels=ActiveTurnRegistry(),
+        downloader=_explode,
+    )
+
+    assert len(seen) == 1
+    assert seen[0].strip() != ""

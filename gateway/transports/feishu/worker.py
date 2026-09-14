@@ -9,6 +9,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from typing import Any
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
@@ -31,6 +32,7 @@ from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import _send_text
 from infrastructure.turn_host.turn_callback import TurnCallback
+from integrations.feishu import TRACKED_MESSAGE_TYPES, flatten_post, resource_refs
 
 _PLATFORM_FEISHU = "feishu"
 
@@ -58,6 +60,56 @@ def strip_leading_feishu_mentions(text: str, bot_mention_keys: frozenset[str]) -
         if not matched:
             break
     return stripped
+
+
+def build_inbound_message(sender: Any, message: Any) -> FeishuInboundMessage | None:
+    """Normalize one raw ``im.message.receive_v1`` message into a turn, or ``None``.
+
+    ``None`` means the message earns no turn at all: an unhandled message type
+    (a sticker, a system notice), or a payload missing the chat, the sender, or
+    both the text and the attachments that would give the agent something to
+    read. Nothing is sent back to the user in that case.
+    """
+    message_type = message.message_type or ""
+    if message_type not in TRACKED_MESSAGE_TYPES:
+        return None
+    chat_id = message.chat_id or ""
+    sender_id = sender.sender_id
+    open_id = (sender_id.open_id or "") if sender_id is not None else ""
+    if not chat_id or not open_id:
+        return None
+    content = _message_content(message)
+    bot_mention_keys = frozenset(
+        mention.key
+        for mention in (message.mentions or [])
+        if mention.mentioned_type == "bot" and mention.key
+    )
+    if message_type == "text":
+        text = strip_leading_feishu_mentions(str(content.get("text", "") or ""), bot_mention_keys)
+    elif message_type == "post":
+        text = flatten_post(content, bot_keys=bot_mention_keys)
+    else:
+        text = ""
+    attachments = resource_refs(message_type, content)
+    if not text and not attachments:
+        return None
+    return FeishuInboundMessage(
+        chat_id=chat_id,
+        open_id=open_id,
+        message_id=message.message_id or "",
+        text=text,
+        parent_id=message.parent_id or "",
+        attachments=attachments,
+    )
+
+
+def _message_content(message: Any) -> dict[str, Any]:
+    """The message's parsed ``content`` object; empty when it is not a JSON object."""
+    try:
+        parsed = json.loads(message.content or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _decision(text: str) -> bool | None:
@@ -315,45 +367,21 @@ def run_feishu_gateway_thread(
         message = event.message
         if message is None:
             return
-        if message.message_type != "text":
-            logger.debug(
-                "[feishu-gateway] dropping non-text message type=%s chat=%s",
-                message.message_type,
+        inbound = build_inbound_message(sender, message)
+        if inbound is None:
+            # INFO, not DEBUG: a message type nobody handles used to be invisible
+            # in a gateway process configured for INFO.
+            logger.info(
+                "[feishu-gateway] no turn for message type=%s chat=%s",
+                message.message_type or "",
                 message.chat_id or "",
             )
             return
-        chat_id = message.chat_id or ""
-        message_id = message.message_id or ""
-        mentions = message.mentions or []
-        bot_mention_keys = frozenset(m.key for m in mentions if m.mentioned_type == "bot" and m.key)
-        text = strip_leading_feishu_mentions(
-            str(json.loads(message.content or "{}").get("text", "") or ""),
-            bot_mention_keys,
-        )
-        parent_id = message.parent_id or ""
-        sender_id = sender.sender_id
-        open_id = (sender_id.open_id or "") if sender_id is not None else ""
-        if not chat_id or not open_id or not text:
-            logger.debug(
-                "[feishu-gateway] dropping incomplete message chat=%s open_id=%s text=%s",
-                chat_id,
-                open_id,
-                bool(text),
-            )
-            return
-
-        inbound = FeishuInboundMessage(
-            chat_id=chat_id,
-            open_id=open_id,
-            message_id=message_id,
-            text=text,
-            parent_id=parent_id,
-        )
-        if parent_id and _resolve_approval_reply(
-            parent_id=parent_id,
-            open_id=open_id,
-            chat_id=chat_id,
-            text=text,
+        if inbound.parent_id and _resolve_approval_reply(
+            parent_id=inbound.parent_id,
+            open_id=inbound.open_id,
+            chat_id=inbound.chat_id,
+            text=inbound.text,
             approvals=approvals,
             pending_approvals=pending_approvals,
             env_allowed_open_ids=settings.allowed_open_ids,
@@ -366,9 +394,9 @@ def run_feishu_gateway_thread(
         # im:message.group_msg, so Feishu already delivers only DMs and group
         # messages that @-mention this bot. A message reaching this point is
         # therefore addressed to the bot.
-        if is_stop_command(text):
+        if is_stop_command(inbound.text):
             if not active_cancels.request_stop(conversation_key(inbound)):
-                send_text(chat_id, NO_ACTIVE_TURN_MESSAGE)
+                send_text(inbound.chat_id, NO_ACTIVE_TURN_MESSAGE)
             return
 
         _dispatch_turn(
@@ -411,6 +439,7 @@ def run_feishu_gateway_thread(
 
 
 __all__ = [
+    "build_inbound_message",
     "run_feishu_gateway_thread",
     "strip_leading_feishu_mentions",
 ]

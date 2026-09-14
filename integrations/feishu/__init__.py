@@ -2,7 +2,8 @@
 
 The interactive app serves everything that belongs in a conversation — the chat
 transport, investigation reports, and scheduled tasks. The alert-push app is
-one-way only: watchdog alarms and background-RCA notices.
+one-way only: watchdog alarms and background-RCA notices. The package also
+parses inbound message content into text and resource references.
 """
 
 from integrations.feishu.credentials import (
@@ -11,10 +12,26 @@ from integrations.feishu.credentials import (
     load_chat_credentials_from_env,
     load_credentials_from_env,
 )
+from integrations.feishu.inbound_content import (
+    TRACKED_MESSAGE_TYPES,
+    ResourceRef,
+    classify_file,
+    flatten_post,
+    is_known_text_file,
+    resource_refs,
+    resource_url,
+)
 
 __all__ = [
     "FeishuAlarmCredentials",
     "FeishuChatCredentials",
+    "ResourceRef",
+    "TRACKED_MESSAGE_TYPES",
+    "classify_file",
+    "flatten_post",
+    "is_known_text_file",
     "load_chat_credentials_from_env",
     "load_credentials_from_env",
+    "resource_refs",
+    "resource_url",
 ]
