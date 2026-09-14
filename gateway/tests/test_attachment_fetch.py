@@ -60,6 +60,20 @@ def _download(*, max_bytes: int = 256, max_redirects: int = 5) -> bytes | None:
     )
 
 
+def _download_with_metadata(
+    *, max_bytes: int = 256, keep_partial: bool = False
+) -> fetch.DownloadedAttachment | None:
+    return fetch.download_attachment_with_metadata(
+        _INITIAL_URL,
+        authorization=_AUTHORIZATION,
+        host_suffixes=_ALLOWED_HOSTS,
+        max_bytes=max_bytes,
+        timeout=10.0,
+        log_prefix="[test-attachment]",
+        keep_partial=keep_partial,
+    )
+
+
 def test_allowed_host_requires_https_and_a_domain_boundary() -> None:
     assert fetch.is_allowed_host(_INITIAL_URL, _ALLOWED_HOSTS)
     assert fetch.is_allowed_host("https://vendor.example/file", _ALLOWED_HOSTS)
@@ -142,3 +156,48 @@ def test_oversized_payload_is_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _download(max_bytes=7)
 
     assert result is None
+
+
+def test_non_200_is_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream = _RecordingStream(_FakeResponse(HTTPStatus.FORBIDDEN))
+    monkeypatch.setattr(fetch.httpx, "stream", stream)
+
+    assert _download() is None
+
+
+def test_metadata_download_reports_the_content_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream = _RecordingStream(
+        _FakeResponse(
+            HTTPStatus.OK,
+            headers={"content-type": "image/jpeg"},
+            chunks=(b"\xff\xd8\xff",),
+        )
+    )
+    monkeypatch.setattr(fetch.httpx, "stream", stream)
+
+    result = _download_with_metadata()
+
+    assert result is not None
+    assert result.content_type == "image/jpeg"
+    assert result.data == b"\xff\xd8\xff"
+    assert result.truncated is False
+
+
+def test_keep_partial_returns_the_head_instead_of_dropping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = _RecordingStream(_FakeResponse(HTTPStatus.OK, chunks=(b"0123", b"4567")))
+    monkeypatch.setattr(fetch.httpx, "stream", stream)
+
+    result = _download_with_metadata(max_bytes=4, keep_partial=True)
+
+    assert result is not None
+    assert result.data == b"0123"
+    assert result.truncated is True
+
+
+def test_the_default_still_drops_an_oversized_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream = _RecordingStream(_FakeResponse(HTTPStatus.OK, chunks=(b"0123", b"4567")))
+    monkeypatch.setattr(fetch.httpx, "stream", stream)
+
+    assert _download_with_metadata(max_bytes=4) is None
