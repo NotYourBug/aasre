@@ -17,6 +17,7 @@ from integrations.feishu.inbound_content import (
     ResourceRef,
     classify_file,
     flatten_post,
+    is_known_text_file,
     resource_refs,
     resource_url,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "TRACKED_MESSAGE_TYPES",
     "classify_file",
     "flatten_post",
+    "is_known_text_file",
     "load_chat_credentials_from_env",
     "load_credentials_from_env",
     "resource_refs",

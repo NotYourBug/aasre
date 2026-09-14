@@ -6,6 +6,7 @@ from integrations.feishu import (
     ResourceRef,
     classify_file,
     flatten_post,
+    is_known_text_file,
     resource_refs,
     resource_url,
 )
@@ -134,3 +135,17 @@ def test_filename_classification_routes_the_captured_samples() -> None:
     assert classify_file("26.mp4") == "binary"
     assert classify_file("unforgettable experience.m4a") == "binary"
     assert classify_file("") == "text"  # unknown -> attempt text, confirm by response
+
+
+def test_known_text_suffixes_are_distinguished_from_guesses() -> None:
+    """The caller only skips the Content-Type check for a suffix it recognises."""
+    assert is_known_text_file("app.log")
+    assert not is_known_text_file("dump.dat")
+    assert not is_known_text_file("")
+
+
+def test_resource_url_encodes_the_event_derived_segments() -> None:
+    """A key carrying ``?`` or ``#`` must not reshape the query string."""
+    url = resource_url("om_abc", ResourceRef(kind="file", key="a?b#c"))
+
+    assert url.endswith("/resources/a%3Fb%23c?type=file")

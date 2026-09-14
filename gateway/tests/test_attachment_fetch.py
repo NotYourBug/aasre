@@ -201,3 +201,17 @@ def test_the_default_still_drops_an_oversized_body(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(fetch.httpx, "stream", stream)
 
     assert _download_with_metadata(max_bytes=4) is None
+
+
+def test_keep_partial_slices_a_chunk_that_straddles_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The head stops exactly at the cap when one chunk overshoots it."""
+    stream = _RecordingStream(_FakeResponse(HTTPStatus.OK, chunks=(b"01", b"23456789")))
+    monkeypatch.setattr(fetch.httpx, "stream", stream)
+
+    result = _download_with_metadata(max_bytes=4, keep_partial=True)
+
+    assert result is not None
+    assert result.data == b"0123"
+    assert result.truncated is True

@@ -34,10 +34,16 @@ from gateway.core.attachments.fetch import (
 )
 from gateway.core.attachments.inline import (
     budgeted_section,
+    is_text_mimetype,
     join_attachment_sections,
     truncate_attachment_text,
 )
-from integrations.feishu import ResourceRef, classify_file, resource_url
+from integrations.feishu import (
+    ResourceRef,
+    classify_file,
+    is_known_text_file,
+    resource_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +77,26 @@ def _policy(kind: str) -> tuple[int, bool] | None:
 
 
 def _decode(data: bytes) -> str:
-    """Decode a text file's bytes, falling back to latin-1 rather than failing."""
+    """Decode a text file's bytes, tolerating a character cut by the byte cap.
+
+    The cap stops wherever the byte count falls, which for non-ASCII text is
+    usually mid-character. One incomplete trailing sequence must not condemn the
+    whole file to a different decoding — latin-1 would reinterpret every
+    multi-byte character, turning a readable log into mojibake — so the strict
+    decode is retried without the tail before latin-1 is accepted as the last
+    resort for a genuinely non-UTF-8 file.
+    """
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
-        return data.decode("latin-1", errors="replace")
+        pass
+    for trim in (1, 2, 3):
+        if len(data) > trim:
+            try:
+                return data[:-trim].decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+    return data.decode("latin-1", errors="replace")
 
 
 def _render_resource(
@@ -111,7 +132,11 @@ def _render_resource(
         return budgeted_section(
             f"--- image: {label} (vision description) ---", description, remaining
         )
-    if kind == "text":
+    # A suffix we know reads as text is trusted outright — Feishu has been seen
+    # serving a plain log as ``application/octet-stream``, and dropping it would
+    # defeat the point. An unrecognised suffix is only a guess, so there the
+    # response has to agree before the bytes are pasted into the prompt.
+    if kind == "text" and (is_known_text_file(ref.name) or is_text_mimetype(content_type)):
         body = truncate_attachment_text(_decode(downloaded.data))
         return budgeted_section(f"--- attached file: {label} ---", body, remaining)
     return f"- {label} ({content_type or 'binary'}) — not readable", 0

@@ -138,3 +138,39 @@ def test_the_download_targets_the_messages_own_resource_endpoint() -> None:
     assert seen == [
         "https://open.feishu.cn/open-apis/im/v1/messages/om_1/resources/file_1?type=file"
     ]
+
+
+def test_an_unrecognised_suffix_needs_the_server_to_call_it_text() -> None:
+    """An unknown extension is only a guess, so the response has to agree."""
+    ctx = build_attachments_context(
+        "om_1",
+        (ResourceRef(kind="file", key="file_3", name="dump.dat"),),
+        downloader=_returns({"file_3": b"\x00\x01\x02\xff\xfe"}, "application/octet-stream"),
+        describer=lambda _d, _m: None,
+    )
+
+    assert "dump.dat" in ctx
+    assert "\x00" not in ctx
+
+
+def test_an_unrecognised_suffix_is_inlined_when_the_server_calls_it_text() -> None:
+    ctx = build_attachments_context(
+        "om_1",
+        (ResourceRef(kind="file", key="file_3", name="dump.dat"),),
+        downloader=_returns({"file_3": b"connection refused"}, "text/plain"),
+        describer=lambda _d, _m: None,
+    )
+
+    assert "connection refused" in ctx
+
+
+def test_a_cap_cut_mid_character_does_not_garble_the_whole_file() -> None:
+    """The byte cap lands wherever it lands; the rest of the log must still read."""
+    ctx = build_attachments_context(
+        "om_1",
+        (TXT,),
+        downloader=_returns({"file_1": "错误日志: 数据库连接失败".encode()[:-1]}, "text/plain"),
+        describer=lambda _d, _m: None,
+    )
+
+    assert "错误日志" in ctx

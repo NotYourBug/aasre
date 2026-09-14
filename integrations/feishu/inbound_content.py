@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 from config.constants.feishu import (
     FEISHU_BINARY_FILE_SUFFIXES,
@@ -98,8 +99,15 @@ def flatten_post(content: dict[str, Any], *, bot_keys: frozenset[str]) -> str:
 
 
 def resource_url(message_id: str, ref: ResourceRef) -> str:
-    """The absolute download URL for ``ref`` inside ``message_id``."""
-    path = _RESOURCE_PATH.format(message_id=message_id, file_key=ref.key)
+    """The absolute download URL for ``ref`` inside ``message_id``.
+
+    Both identifiers come from the event, so each is percent-encoded: a key
+    carrying ``?`` or ``#`` would otherwise reshape the query string and lose the
+    ``type`` parameter the endpoint requires.
+    """
+    path = _RESOURCE_PATH.format(
+        message_id=quote(message_id, safe=""), file_key=quote(ref.key, safe="")
+    )
     return f"{_RESOURCE_HOST}{path}?type={ref.kind}"
 
 
@@ -111,6 +119,16 @@ def classify_file(name: str) -> str:
     if suffix in FEISHU_BINARY_FILE_SUFFIXES:
         return "image" if suffix in _IMAGE_SUFFIXES else "binary"
     return "text"
+
+
+def is_known_text_file(name: str) -> bool:
+    """Whether ``name``'s suffix is one we read as text without corroboration.
+
+    An unrecognised suffix also classifies as text — one bounded read beats
+    guessing wrong on ``app.log.1`` — but the caller has to corroborate those
+    bytes against the response's Content-Type before inlining them.
+    """
+    return _suffix(name) in FEISHU_TEXT_FILE_SUFFIXES
 
 
 def _post_refs(content: dict[str, Any]) -> tuple[ResourceRef, ...]:
@@ -149,6 +167,7 @@ __all__ = [
     "TRACKED_MESSAGE_TYPES",
     "classify_file",
     "flatten_post",
+    "is_known_text_file",
     "resource_refs",
     "resource_url",
 ]
