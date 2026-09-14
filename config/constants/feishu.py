@@ -42,6 +42,14 @@ FEISHU_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 FEISHU_TEXT_FILE_MAX_BYTES = 2 * 1024 * 1024
 FEISHU_RESOURCE_TIMEOUT_SECONDS = 10.0
 
+#: Resources fetched for one message at most. The character budget bounds the
+#: prompt, not the work: a resource that fails or does not render costs no
+#: budget, so a message carrying many of them would otherwise drive an unbounded
+#: sequence of downloads and vision calls while holding a worker slot and the
+#: conversation lock. Real messages carry a handful; this only stops the
+#: pathological case.
+FEISHU_MAX_RESOURCES_PER_MESSAGE = 10
+
 #: Filename suffixes we can read as text, and the ones we know we cannot. An
 #: unknown suffix is treated as text — one bounded read then confirms against the
 #: response Content-Type, which is cheaper than guessing wrong on ``app.log.1``.
@@ -100,6 +108,7 @@ __all__ = [
     "FEISHU_ALARM_RECEIVE_ID_TYPE_ENV",
     "FEISHU_BINARY_FILE_SUFFIXES",
     "FEISHU_IMAGE_MAX_BYTES",
+    "FEISHU_MAX_RESOURCES_PER_MESSAGE",
     "FEISHU_RECEIVE_ID_TYPES",
     "FEISHU_RESOURCE_HOST_SUFFIXES",
     "FEISHU_RESOURCE_TIMEOUT_SECONDS",

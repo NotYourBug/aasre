@@ -21,6 +21,7 @@ from lark_oapi.core.token import TokenManager
 
 from config.constants.feishu import (
     FEISHU_IMAGE_MAX_BYTES,
+    FEISHU_MAX_RESOURCES_PER_MESSAGE,
     FEISHU_RESOURCE_HOST_SUFFIXES,
     FEISHU_RESOURCE_TIMEOUT_SECONDS,
     FEISHU_RESOURCE_TYPE_IMAGE,
@@ -153,21 +154,27 @@ def build_attachments_context(
 
     Text-like files are inlined with secrets scrubbed, images become a one-shot
     vision description, and anything else is named only. Per-file and total
-    character caps bound what is added. ``downloader`` has no default because the
-    real one needs the app's credentials, and a silent no-op default would turn
-    every attachment into a "could not be downloaded" line. Returns "" for no
-    resources.
+    character caps bound what is added, and at most
+    ``FEISHU_MAX_RESOURCES_PER_MESSAGE`` are attempted at all — the character
+    budget cannot bound that, because a resource which fails or does not render
+    costs none of it. ``downloader`` has no default because the real one needs the
+    app's credentials, and a silent no-op default would turn every attachment into
+    a "could not be downloaded" line. Returns "" for no resources.
     """
     if not refs:
         return ""
     sections: list[str] = []
     remaining = ATTACHMENT_MAX_TOTAL_CHARS
-    for ref in refs:
+    attempted = refs[:FEISHU_MAX_RESOURCES_PER_MESSAGE]
+    for ref in attempted:
         section, consumed = _render_resource(
             message_id, ref, remaining, downloader=downloader, describer=describer
         )
         remaining -= consumed
         sections.append(section)
+    skipped = len(refs) - len(attempted)
+    if skipped:
+        sections.append(f"- {skipped} more — omitted (attachment limit reached)")
     return join_attachment_sections(sections)
 
 

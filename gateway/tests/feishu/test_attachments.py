@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from config.constants.feishu import FEISHU_IMAGE_MAX_BYTES, FEISHU_TEXT_FILE_MAX_BYTES
+from config.constants.feishu import (
+    FEISHU_IMAGE_MAX_BYTES,
+    FEISHU_MAX_RESOURCES_PER_MESSAGE,
+    FEISHU_TEXT_FILE_MAX_BYTES,
+)
 from gateway.core.attachments.fetch import DownloadedAttachment
 from gateway.transports.feishu.attachments import Downloader, build_attachments_context
 from integrations.feishu import ResourceRef
@@ -174,3 +178,21 @@ def test_a_cap_cut_mid_character_does_not_garble_the_whole_file() -> None:
     )
 
     assert "错误日志" in ctx
+
+
+def test_a_message_with_too_many_resources_is_bounded_and_says_so() -> None:
+    """The budget bounds characters, not attempts: a failed line costs nothing."""
+    calls: list[str] = []
+
+    def _record(url: str, _max_bytes: int, _keep_partial: bool) -> DownloadedAttachment | None:
+        calls.append(url)
+        return None
+
+    refs = tuple(
+        ResourceRef(kind="file", key=f"file_{index}", name="app.log")
+        for index in range(FEISHU_MAX_RESOURCES_PER_MESSAGE + 3)
+    )
+    ctx = build_attachments_context("om_1", refs, downloader=_record, describer=lambda _d, _m: None)
+
+    assert len(calls) == FEISHU_MAX_RESOURCES_PER_MESSAGE
+    assert "attachment limit reached" in ctx
