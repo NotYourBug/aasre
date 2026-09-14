@@ -36,6 +36,11 @@ from gateway.transports.feishu.turn_output import FeishuTurnOutput
 from infrastructure.analytics.usage_context import UsageSurface, bound_usage_context
 from infrastructure.turn_host.turn_callback import TurnCallback
 
+#: Stands in when the attachment layer fails outright. A caption-less screenshot
+#: has no text of its own, so returning its empty text would hand the agent
+#: nothing at all — the exact outcome this slice exists to remove.
+_UNREADABLE_ATTACHMENT = "- attachment — could not be read"
+
 
 def _with_attachment_context(
     inbound: FeishuInboundMessage,
@@ -57,9 +62,9 @@ def _with_attachment_context(
         logger.warning(
             "[feishu-gateway] attachment context failed chat=%s", inbound.chat_id, exc_info=True
         )
-        return inbound.text
+        section = ""
     if not section:
-        return inbound.text
+        return inbound.text or _UNREADABLE_ATTACHMENT
     return f"{inbound.text}\n\n{section}" if inbound.text else section
 
 

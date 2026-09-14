@@ -442,3 +442,35 @@ def test_a_failed_attachment_download_still_runs_the_turn(
     assert len(seen) == 1
     assert "could not be downloaded" in seen[0]
     assert all("error" not in text.lower() for _chat, text in outbound)
+
+
+def test_a_captionless_attachment_never_reaches_the_agent_as_an_empty_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the attachment layer itself fails, the agent still gets a line to read."""
+    seen: list[str] = []
+
+    def _explode(_url: str, _max_bytes: int, _keep_partial: bool) -> DownloadedAttachment:
+        raise RuntimeError("boom")
+
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="om_1",
+        text="",
+        attachments=(ResourceRef(kind="image", key="img_1"),),
+    )
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+
+    _run(
+        monkeypatch,
+        inbound=inbound,
+        handler=lambda text, *_args: seen.append(text),
+        resolver=resolver,
+        settings=_settings(),
+        active_cancels=ActiveTurnRegistry(),
+        downloader=_explode,
+    )
+
+    assert len(seen) == 1
+    assert seen[0].strip() != ""
