@@ -21,6 +21,11 @@ from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.core.middleware.terminal_outcome import TerminalOutcomeArbiter
 from gateway.core.storage import SessionResolver
 from gateway.transports.feishu.approvals import FeishuApprovalPrompter
+from gateway.transports.feishu.attachments import (
+    Downloader,
+    build_attachments_context,
+    feishu_resource_downloader,
+)
 from gateway.transports.feishu.events import FeishuInboundMessage
 from gateway.transports.feishu.inbound_security import enforce_inbound_feishu_message_security
 from gateway.transports.feishu.pending_approvals import PendingApprovals
@@ -30,6 +35,32 @@ from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import FeishuTurnOutput
 from infrastructure.analytics.usage_context import UsageSurface, bound_usage_context
 from infrastructure.turn_host.turn_callback import TurnCallback
+
+
+def _with_attachment_context(
+    inbound: FeishuInboundMessage,
+    settings: FeishuGatewaySettings,
+    downloader: Downloader | None,
+    logger: logging.Logger,
+) -> str:
+    """The turn's prompt text: the message, plus what its attachments say.
+
+    A failure here degrades to the message alone rather than failing the turn —
+    an attachment the agent cannot read must never surface as an error reply.
+    """
+    build = downloader or feishu_resource_downloader(settings.app_id, settings.app_secret)
+    try:
+        section = build_attachments_context(
+            inbound.message_id, inbound.attachments, downloader=build
+        )
+    except Exception:
+        logger.warning(
+            "[feishu-gateway] attachment context failed chat=%s", inbound.chat_id, exc_info=True
+        )
+        return inbound.text
+    if not section:
+        return inbound.text
+    return f"{inbound.text}\n\n{section}" if inbound.text else section
 
 
 def _run_turn(
@@ -45,6 +76,7 @@ def _run_turn(
     handler: TurnCallback,
     logger: logging.Logger,
     turn_cancel: threading.Event | None = None,
+    downloader: Downloader | None = None,
 ) -> None:
     """Run one inbound Feishu message through the gateway agent callback.
 
@@ -186,7 +218,10 @@ def _run_turn(
                         on_denied=_on_credit_denied,
                     ),
                 ):
-                    handler(inbound.text, session, output, logger)
+                    agent_text = inbound.text
+                    if inbound.attachments:
+                        agent_text = _with_attachment_context(inbound, settings, downloader, logger)
+                    handler(agent_text, session, output, logger)
             except Exception:
                 logger.exception(
                     "[feishu-gateway] turn ERRORED chat=%s session=%s",
