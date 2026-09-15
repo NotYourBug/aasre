@@ -12,6 +12,7 @@ from integrations.feishu.card_document import (
     paginate,
     render_card_spec,
     spec_bytes,
+    table_count,
 )
 from integrations.feishu.credentials import (
     FeishuAlarmCredentials,
@@ -45,4 +46,5 @@ __all__ = [
     "resource_refs",
     "resource_url",
     "spec_bytes",
+    "table_count",
 ]

@@ -10,6 +10,7 @@ from integrations.feishu.card_document import (
     paginate,
     render_card_spec,
     spec_bytes,
+    table_count,
 )
 
 _TABLE = "| a | b |\n| --- | --- |\n| 1 | 2 |"
@@ -80,6 +81,11 @@ def test_table_count_is_a_second_budget_dimension() -> None:
     text = "\n\n".join(_TABLE for _ in range(6))
     pages = paginate(text)
     assert len(pages) >= 2
+
+
+def test_table_count_counts_gfm_tables() -> None:
+    assert table_count("\n\n".join(_TABLE for _ in range(6))) == 6
+    assert table_count("just a paragraph, no pipes here") == 0
 
 
 def test_a_table_is_never_split_across_pages() -> None:

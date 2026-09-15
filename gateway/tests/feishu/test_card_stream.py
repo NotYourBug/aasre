@@ -8,6 +8,8 @@ from config.constants import FEISHU_CARD_TRUNCATED_MARKER
 from gateway.transports.feishu.card_stream import CardStreamSession
 from integrations.feishu.card_client import FeishuStreamRejected
 
+_TABLE = "| a | b |\n| --- | --- |\n| 1 | 2 |"
+
 
 class _FakeClient:
     """Records calls and can be told to reject with a given code."""
@@ -19,6 +21,7 @@ class _FakeClient:
         self.closed: list[tuple[str, int]] = []
         self.received_id_types: list[str] = []
         self.reject_code: int | None = None
+        self.reject_close = False
 
     def create_card(self, spec: dict[str, object]) -> str:
         # A stream error code arrives on element updates, never on card creation,
@@ -33,6 +36,8 @@ class _FakeClient:
 
     def close_streaming(self, card_id: str, sequence: int) -> None:
         self.closed.append((card_id, sequence))
+        if self.reject_close:
+            raise FeishuStreamRejected(300309, "boom")
 
     def send_card(self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id") -> str:
         self.received_id_types.append(receive_id_type)
@@ -115,6 +120,19 @@ def test_overflow_cards_are_not_streaming() -> None:
     assert client.created[1]["config"]["streaming_mode"] is False  # type: ignore[index]
 
 
+def test_six_tables_overflow_the_card_even_though_the_bytes_fit() -> None:
+    """Level 1's table dimension — the byte budget alone would let these through."""
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1)
+    session.start()
+
+    session.update("\n\n".join(_TABLE for _ in range(6)))
+
+    assert session.degraded is True
+    assert len(client.created) > 1, "the tables must go into further cards"
+    assert client.closed, "the streaming card must be closed"
+
+
 def test_a_stream_error_falls_back_to_a_complete_non_streaming_card() -> None:
     """Level 3: the stream is dead, so deliver the whole text another way."""
     client = _FakeClient()
@@ -139,6 +157,22 @@ def test_finish_closes_streaming_exactly_once() -> None:
     session.finish()
 
     assert len(client.closed) == 1
+
+
+def test_a_close_that_fails_at_the_end_does_not_raise_or_redeliver() -> None:
+    """A stream that dies before finish() is cosmetic — never re-send the text."""
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1)
+    session.start()
+    session.update("done")
+    client.reject_close = True
+
+    session.finish()
+    session.finish()
+
+    assert len(client.closed) == 1, "a failed close must terminate, not be retried"
+    assert session.degraded is False, "the text is already on screen; do not re-deliver"
+    assert len(client.created) == 1, "no fallback cards after a failed close"
 
 
 def test_text_survives_the_ladder_without_loss() -> None:

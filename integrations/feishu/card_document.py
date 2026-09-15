@@ -83,6 +83,11 @@ def _blocks(text: str) -> list[str]:
     return blocks
 
 
+def table_count(text: str) -> int:
+    """Return the number of GFM tables in *text*."""
+    return sum(1 for block in _blocks(text) if _is_table(block))
+
+
 def _fits(text: str, budget: int) -> bool:
     return spec_bytes(render_card_spec(text, streaming=False)) <= budget
 

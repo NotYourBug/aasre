@@ -17,12 +17,13 @@ from typing import Any
 
 from config.constants import (
     FEISHU_CARD_BUDGET_BYTES,
+    FEISHU_CARD_MAX_TABLES,
     FEISHU_CARD_TRUNCATED_MARKER,
     FEISHU_STREAM_ELEMENT_ID,
     FEISHU_STREAM_MIN_CHARS,
     FEISHU_STREAM_MIN_INTERVAL_SECONDS,
 )
-from integrations.feishu import paginate, render_card_spec, spec_bytes
+from integrations.feishu import paginate, render_card_spec, spec_bytes, table_count
 from integrations.feishu.card_client import FeishuStreamRejected
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,10 @@ class CardStreamSession:
         self._overflow(full_text)
 
     def _card_fits(self, text: str) -> bool:
-        return spec_bytes(render_card_spec(text, streaming=True)) <= self._budget
+        return (
+            spec_bytes(render_card_spec(text, streaming=True)) <= self._budget
+            and table_count(text) <= FEISHU_CARD_MAX_TABLES
+        )
 
     def _should_flush(self, text: str) -> bool:
         if not self._rendered:
@@ -183,5 +187,8 @@ class CardStreamSession:
             self._flush(self._pending)
         if self._closed:
             return
-        self._close_current()
+        try:
+            self._close_current()
+        except FeishuStreamRejected:
+            logger.warning("Feishu card stream could not be closed")
         self._closed = True
