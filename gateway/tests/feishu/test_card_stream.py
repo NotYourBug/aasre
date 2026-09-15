@@ -1,0 +1,157 @@
+"""The streaming session: throttling, the monotonic sequence, and the ladder."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from config.constants import FEISHU_CARD_TRUNCATED_MARKER
+from gateway.transports.feishu.card_stream import CardStreamSession
+from integrations.feishu.card_client import FeishuStreamRejected
+
+
+class _FakeClient:
+    """Records calls and can be told to reject with a given code."""
+
+    def __init__(self) -> None:
+        self.created: list[dict[str, object]] = []
+        self.updates: list[tuple[str, str, str, int]] = []
+        self.sent: list[tuple[str, str]] = []
+        self.closed: list[tuple[str, int]] = []
+        self.received_id_types: list[str] = []
+        self.reject_code: int | None = None
+
+    def create_card(self, spec: dict[str, object]) -> str:
+        # A stream error code arrives on element updates, never on card creation,
+        # so creating the fallback cards must still succeed.
+        self.created.append(spec)
+        return f"c_{len(self.created)}"
+
+    def update_element(self, card_id: str, element_id: str, content: str, sequence: int) -> None:
+        if self.reject_code is not None:
+            raise FeishuStreamRejected(self.reject_code, "boom")
+        self.updates.append((card_id, element_id, content, sequence))
+
+    def close_streaming(self, card_id: str, sequence: int) -> None:
+        self.closed.append((card_id, sequence))
+
+    def send_card(self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id") -> str:
+        self.received_id_types.append(receive_id_type)
+        self.sent.append((chat_id, card_id))
+        return f"om_{len(self.sent)}"
+
+
+def _session(client: _FakeClient, **kwargs: Any) -> tuple[CardStreamSession, list[float]]:
+    """Build a session whose clock the test can advance."""
+    now = [0.0]
+
+    def _clock() -> float:
+        return now[0]
+
+    session = CardStreamSession(client=client, chat_id="oc_chat", clock=_clock, **kwargs)
+    return session, now
+
+
+def test_start_creates_a_streaming_card_and_sends_it() -> None:
+    client = _FakeClient()
+    session, _now = _session(client)
+    session.start()
+
+    assert client.created[0]["config"]["streaming_mode"] is True  # type: ignore[index]
+    assert client.sent == [("oc_chat", "c_1")]
+    assert session.card_id == "c_1"
+    assert session.message_id == "om_1"
+
+
+def test_updates_are_throttled_and_sequence_is_monotonic() -> None:
+    client = _FakeClient()
+    session, now = _session(client, min_interval=10.0, min_chars=1_000_000)
+    session.start()
+
+    session.update("a")
+    assert len(client.updates) == 1  # the first content appears immediately
+
+    session.update("ab")
+    assert len(client.updates) == 1  # below both thresholds, so throttled
+
+    now[0] = 60.0
+    session.update("abc")
+    assert len(client.updates) == 2
+
+    sequences = [entry[3] for entry in client.updates]
+    assert sequences == sorted(sequences)
+    assert len(sequences) == len(set(sequences))
+
+
+def test_content_is_sent_in_full_not_as_a_delta() -> None:
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1)
+    session.start()
+
+    session.update("hello")
+    assert client.updates[-1][2] == "hello"
+
+
+def test_crossing_the_budget_closes_streaming_and_overflows_into_further_cards() -> None:
+    """Level 1 then level 2 — the exit criterion for content over 30KB."""
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1, budget=2_000)
+    session.start()
+
+    session.update("\n\n".join("x" * 400 for _ in range(40)))
+
+    assert client.closed, "streaming must be closed once the budget is crossed"
+    assert len(client.created) > 1, "the remainder must go into further cards"
+    assert len(client.sent) > 1
+    assert session.degraded is True
+
+
+def test_overflow_cards_are_not_streaming() -> None:
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1, budget=2_000)
+    session.start()
+
+    session.update("\n\n".join("x" * 400 for _ in range(40)))
+
+    assert client.created[1]["config"]["streaming_mode"] is False  # type: ignore[index]
+
+
+def test_a_stream_error_falls_back_to_a_complete_non_streaming_card() -> None:
+    """Level 3: the stream is dead, so deliver the whole text another way."""
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1)
+    session.start()
+    client.reject_code = 300317
+
+    session.update("final answer")
+
+    assert session.degraded is True
+    assert client.closed, "the dead card must still be closed"
+    assert len(client.created) > 1, "the text must be re-delivered as fresh cards"
+
+
+def test_finish_closes_streaming_exactly_once() -> None:
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1)
+    session.start()
+    session.update("done")
+
+    session.finish()
+    session.finish()
+
+    assert len(client.closed) == 1
+
+
+def test_text_survives_the_ladder_without_loss() -> None:
+    """Whatever the path, every character must reach some card."""
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1, budget=2_000)
+    session.start()
+    text = "\n\n".join(f"paragraph {i} " + "z" * 300 for i in range(40))
+
+    session.update(text)
+
+    rendered = "".join(entry[2] for entry in client.updates)
+    overflow = "".join(spec["body"]["elements"][0]["content"] for spec in client.created[1:])  # type: ignore[index]
+    body = rendered.replace(FEISHU_CARD_TRUNCATED_MARKER, "")
+    assert text.startswith(body), "the streamed text must be a prefix of the source"
+    assert len(rendered) + len(overflow) >= len(text)
