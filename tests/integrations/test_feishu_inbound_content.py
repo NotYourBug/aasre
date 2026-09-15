@@ -144,6 +144,18 @@ def test_known_text_suffixes_are_distinguished_from_guesses() -> None:
     assert not is_known_text_file("")
 
 
+def test_a_dotenv_is_read_as_text_but_never_trusted_outright() -> None:
+    """``.env`` is still read, but its bytes must pass the Content-Type check.
+
+    It is the one file whose contents are almost entirely credentials, and the
+    scrubber does not recognise the common shapes, so the force-trust that every
+    other known suffix gets would hand those straight to the model.
+    """
+    assert classify_file(".env") == "text"
+    assert not is_known_text_file(".env")
+    assert not is_known_text_file("prod.env")
+
+
 def test_resource_url_encodes_the_event_derived_segments() -> None:
     """A key carrying ``?`` or ``#`` must not reshape the query string."""
     url = resource_url("om_abc", ResourceRef(kind="file", key="a?b#c"))

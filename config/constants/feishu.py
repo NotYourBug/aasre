@@ -53,11 +53,15 @@ FEISHU_MAX_RESOURCES_PER_MESSAGE = 10
 #: Filename suffixes we can read as text, and the ones we know we cannot. An
 #: unknown suffix is treated as text — one bounded read then confirms against the
 #: response Content-Type, which is cheaper than guessing wrong on ``app.log.1``.
+#:
+#: ``.env`` is deliberately absent. A trusted suffix skips that corroboration, and
+#: ``.env`` is the one file whose contents are almost entirely credentials — the
+#: shapes the scrubber does not recognise (connection URIs, ``AWS_SECRET_ACCESS_KEY``,
+#: provider-prefixed keys). It still reads as text; it just has to earn it.
 FEISHU_TEXT_FILE_SUFFIXES = frozenset(
     {
         ".conf",
         ".csv",
-        ".env",
         ".ini",
         ".json",
         ".log",
