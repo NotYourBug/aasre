@@ -6,7 +6,7 @@
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
   continues from.
-- 性质：**工程面设计产物，不是用户文档。** `docs/superpowers/` 不在 `docs/docs.json` 的站点导航里，
+- 性质：**工程面设计产物，不是用户文档。** `.superpowers/` 不在 `docs/docs.json` 的站点导航里，
   Mintlify 不会渲染它 —— 因此本文刻意保留 vendor 端点、SDK 方法名、内部模块路径与调研结论，这些
   正是 S2–S8 实现时要照着做的东西。同目录的
   [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)

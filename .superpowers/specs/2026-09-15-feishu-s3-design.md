@@ -350,7 +350,7 @@ def _spec_bytes(spec: dict[str, Any]) -> int:
 ## 9. 下一步
 
 1. ~~用户确认 §8~~ → **已完成（2026-09-15）**
-2. **`writing-plans` 出 S3 实现计划**（写入 `docs/superpowers/plans/`，该目录 gitignored）
+2. **`writing-plans` 出 S3 实现计划**（写入 `.superpowers/plans/`，该目录 gitignored）
 3. SDD 派发实现；每个 Task 独立 subagent，Task 之间派 reviewer
 
 **已完成的随附改动**：spec 更正（`im:resource` 权限名 + `post`/`md` 归因 + 级 2/3 承载物追记），
