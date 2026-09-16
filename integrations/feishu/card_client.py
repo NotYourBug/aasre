@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
+from uuid import uuid4
 
 import lark_oapi as lark
 from lark_oapi.api.cardkit.v1 import (
@@ -82,21 +83,40 @@ class FeishuCardClient:
         self._check(response, streaming=False)
         return str(getattr(response.data, "card_id", "") or "")
 
-    def update_element(self, card_id: str, element_id: str, content: str, sequence: int) -> None:
-        """Typewriter-update one element. ``sequence`` must strictly increase."""
+    def update_element(
+        self,
+        card_id: str,
+        element_id: str,
+        content: str,
+        sequence: int,
+        *,
+        uuid: str | None = None,
+    ) -> None:
+        """Typewriter-update one element. ``sequence`` must strictly increase.
+
+        ``uuid`` is CardKit's idempotency key: a retry of the same logical update
+        must pass the value it first sent, or the platform applies it twice.
+        """
         request = (
             ContentCardElementRequest.builder()
             .card_id(card_id)
             .element_id(element_id)
             .request_body(
-                ContentCardElementRequestBody.builder().content(content).sequence(sequence).build()
+                ContentCardElementRequestBody.builder()
+                .content(content)
+                .sequence(sequence)
+                .uuid(uuid or str(uuid4()))
+                .build()
             )
             .build()
         )
         self._check(self._ensure_client().cardkit.v1.card_element.content(request), streaming=True)
 
-    def close_streaming(self, card_id: str, sequence: int) -> None:
-        """Close ``streaming_mode`` so the card stops accepting element updates."""
+    def close_streaming(self, card_id: str, sequence: int, *, uuid: str | None = None) -> None:
+        """Close ``streaming_mode`` so the card stops accepting element updates.
+
+        ``uuid`` follows ``update_element``; see there.
+        """
         request = (
             SettingsCardRequest.builder()
             .card_id(card_id)
@@ -104,6 +124,7 @@ class FeishuCardClient:
                 SettingsCardRequestBody.builder()
                 .settings(json.dumps({"config": {"streaming_mode": False}}))
                 .sequence(sequence)
+                .uuid(uuid or str(uuid4()))
                 .build()
             )
             .build()

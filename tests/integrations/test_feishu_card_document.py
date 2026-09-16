@@ -7,12 +7,21 @@ import pytest
 from integrations.feishu.card_document import (
     CardPage,
     _blocks,
+    _is_table,
     paginate,
     render_card_spec,
     safe_prefix,
     spec_bytes,
     table_count,
 )
+
+_EMPTY_CARD_BYTES = spec_bytes(render_card_spec("", streaming=False))
+
+
+def _budget(headroom: int) -> int:
+    """A budget of one empty card plus *headroom* bytes of content."""
+    return _EMPTY_CARD_BYTES + headroom
+
 
 _TABLE = "| a | b |\n| --- | --- |\n| 1 | 2 |"
 
@@ -95,6 +104,40 @@ def test_a_table_is_never_split_across_pages() -> None:
     assert any(_TABLE in page.text for page in pages)
 
 
+_CODE_LINES = [f"line_{i} = {i}" for i in range(600)]
+_OVERSIZE_FENCE = "```python\n" + "\n".join(_CODE_LINES) + "\n```"
+_TABLE_ROWS = [f"| {i} | {i * 2} |" for i in range(400)]
+_OVERSIZE_TABLE = "\n".join(["| a | b |", "| --- | --- |", *_TABLE_ROWS])
+
+
+def test_an_oversize_code_block_closes_and_reopens_its_fence_on_every_card() -> None:
+    """A byte-wise cut would leave page 1 open and the rest rendering as prose."""
+    pages = paginate(_OVERSIZE_FENCE, budget=_budget(1_000))
+
+    assert len(pages) > 1
+    for page in pages:
+        lines = page.text.splitlines()
+        assert lines[0] == "```python", "every card must reopen the fence"
+        assert lines[-1] == "```", "every card must close its own fence"
+        assert spec_bytes(render_card_spec(page.text, streaming=False)) <= _budget(1_000)
+    carried = [line for page in pages for line in page.text.splitlines()[1:-1]]
+    assert carried == _CODE_LINES, "the code must survive once each, in order"
+
+
+def test_an_oversize_table_repeats_its_header_and_delimiter_on_every_card() -> None:
+    """A continuation without the delimiter row is not a table at all."""
+    pages = paginate(_OVERSIZE_TABLE, budget=_budget(1_000))
+
+    assert len(pages) > 1
+    for page in pages:
+        lines = page.text.splitlines()
+        assert lines[0] == "| a | b |", "every card must repeat the header"
+        assert lines[1] == "| --- | --- |", "every card must repeat the delimiter"
+        assert _is_table(page.text)
+    carried = [line for page in pages for line in page.text.splitlines()[2:]]
+    assert carried == _TABLE_ROWS, "the rows must survive once each, in order"
+
+
 def test_a_single_oversize_block_is_hard_split_and_still_loses_nothing() -> None:
     text = "q" * 200_000
     pages = paginate(text)
@@ -136,3 +179,19 @@ def test_a_budget_that_cannot_hold_a_card_is_rejected() -> None:
     """Below the empty-card overhead the splitter cannot make progress."""
     with pytest.raises(ValueError, match="cannot hold"):
         paginate("abcdef", budget=10)
+
+
+def test_a_budget_that_holds_the_envelope_but_no_content_is_rejected() -> None:
+    """The empty card fits, one character does not — no page may exceed the budget."""
+    with pytest.raises(ValueError, match="cannot hold"):
+        paginate("abcdef", budget=_EMPTY_CARD_BYTES)
+
+
+def test_a_structured_first_block_too_large_for_the_budget_yields_no_prefix() -> None:
+    """A literal cut inside a fence leaves the remainder with an unpaired one.
+
+    Nothing here is lost: an empty prefix routes the caller to `paginate`, which
+    reopens the fence on each card.
+    """
+    assert safe_prefix(_OVERSIZE_FENCE, budget=_budget(1_000)) == ""
+    assert safe_prefix(_OVERSIZE_TABLE, budget=_budget(1_000)) == ""

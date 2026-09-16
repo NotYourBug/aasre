@@ -183,6 +183,29 @@ def test_a_failed_fallback_card_still_leaves_the_session_terminal() -> None:
     assert not client.updates, "a terminal session must not stream again"
 
 
+def test_an_oversize_code_block_first_still_loses_nothing() -> None:
+    """A fence too big to cut literally must reach the cards whole.
+
+    Level 1 gets no prefix for it, so the session drops to level 3 and the
+    paginator reopens the fence on each card instead of shipping a broken one.
+    """
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1, budget=2_000)
+    session.start()
+    code = [f"line_{i} = {i}" for i in range(600)]
+    session.update("```python\n" + "\n".join(code) + "\n```")
+
+    assert session.degraded is True
+    assert client.closed, "the streaming card must be closed"
+    cards = [spec["body"]["elements"][0]["content"] for spec in client.created[1:]]  # type: ignore[index]
+    assert len(cards) > 1
+    for card in cards:
+        lines = card.splitlines()
+        assert lines[0] == "```python", "every card must reopen the fence"
+        assert lines[-1] == "```", "every card must close its own fence"
+    assert [line for card in cards for line in card.splitlines()[1:-1]] == code
+
+
 def test_finish_closes_streaming_exactly_once() -> None:
     client = _FakeClient()
     session, _now = _session(client, min_interval=0.0, min_chars=1)

@@ -123,6 +123,37 @@ def test_update_element_sends_full_text_and_sequence(monkeypatch: pytest.MonkeyP
     assert request.request_body.sequence == 7
 
 
+def test_element_updates_carry_a_fresh_uuid_unless_one_is_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A retry of the same logical update must resend that update's uuid (D8)."""
+    import integrations.feishu.card_client as module
+
+    calls: list[Any] = []
+    _stub_lark(monkeypatch, module, impl=lambda _r: _ok(), calls=calls)
+    client = FeishuCardClient("a", "s")
+
+    client.update_element("c_1", "stream_md", "x", 1)
+    client.update_element("c_1", "stream_md", "xx", 2)
+    client.update_element("c_1", "stream_md", "xx", 2, uuid="fixed")
+
+    first, second, third = (call[1].request_body.uuid for call in calls)
+    assert first and second, "every update must carry an idempotency uuid"
+    assert first != second, "a new logical update must not reuse the previous uuid"
+    assert third == "fixed", "a retry must be able to pin the uuid it first sent"
+
+
+def test_close_streaming_carries_a_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
+    import integrations.feishu.card_client as module
+
+    calls: list[Any] = []
+    _stub_lark(monkeypatch, module, impl=lambda _r: _ok(), calls=calls)
+
+    FeishuCardClient("a", "s").close_streaming("c_1", 9, uuid="fixed")
+
+    assert calls[0][1].request_body.uuid == "fixed"
+
+
 def test_close_streaming_sends_disabled_streaming_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     import integrations.feishu.card_client as module
 

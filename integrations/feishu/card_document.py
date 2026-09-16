@@ -52,10 +52,51 @@ def spec_bytes(spec: dict[str, object]) -> int:
     return len(json.dumps(spec, ensure_ascii=False).encode("utf-8"))
 
 
+@dataclass(frozen=True)
+class _Structure:
+    """A block that can be repeated across cards without breaking its markdown.
+
+    ``head`` opens every card and ``tail`` closes it; ``rows`` carries the body.
+    A fenced code block is ``(opening fence, code lines, closing fence)``, a GFM
+    table is ``(header + delimiter, data rows, nothing)``.
+    """
+
+    head: tuple[str, ...]
+    rows: tuple[str, ...]
+    tail: tuple[str, ...]
+
+    def card(self, rows: tuple[str, ...]) -> str:
+        """Return one card's text, holding *rows* inside the structure."""
+        return "\n".join((*self.head, *rows, *self.tail))
+
+
+def _fence_structure(lines: list[str]) -> _Structure | None:
+    """Return the fenced-code view of *lines*, or ``None`` when it is no fence."""
+    if not lines or not lines[0].lstrip().startswith(_FENCE):
+        return None
+    rows = lines[1:]
+    if rows and rows[-1].strip() == _FENCE:
+        rows = rows[:-1]
+    return _Structure(head=(lines[0],), rows=tuple(rows), tail=(_FENCE,))
+
+
+def _table_structure(lines: list[str]) -> _Structure | None:
+    """Return the GFM-table view of *lines*, or ``None`` when it is no table."""
+    if len(lines) < 2 or _DELIMITER.match(lines[1]) is None:
+        return None
+    return _Structure(head=(lines[0], lines[1]), rows=tuple(lines[2:]), tail=())
+
+
+def _structure(block: str) -> _Structure | None:
+    """Return the repeatable view of *block*, or ``None`` when it has none."""
+    lines = block.splitlines()
+    fence = _fence_structure(lines)
+    return fence if fence is not None else _table_structure(lines)
+
+
 def _is_table(block: str) -> bool:
     """Return whether *block* is a GFM table."""
-    lines = block.splitlines()
-    return len(lines) >= 2 and _DELIMITER.match(lines[1]) is not None
+    return _table_structure(block.splitlines()) is not None
 
 
 #: Every terminator ``str.splitlines`` splits on. ``splitlines(keepends=True)``
@@ -111,7 +152,7 @@ def _fits(text: str, budget: int) -> bool:
 
 
 def _largest_prefix(text: str, budget: int) -> int:
-    """Return the longest character count whose card fits, never below one."""
+    """Return the longest character count whose card fits, or 0 when none does."""
     low, high = 1, len(text)
     while low < high:
         mid = (low + high + 1) // 2
@@ -119,15 +160,61 @@ def _largest_prefix(text: str, budget: int) -> int:
             low = mid
         else:
             high = mid - 1
+    return low if _fits(text[:low], budget) else 0
+
+
+def _largest_row_run(structure: _Structure, start: int, budget: int) -> int:
+    """Return the largest exclusive end whose rows still fit one card."""
+    low, high = start, len(structure.rows)
+    while low < high:
+        mid = (low + high + 1) // 2
+        if _fits(structure.card(structure.rows[start:mid]), budget):
+            low = mid
+        else:
+            high = mid - 1
     return low
 
 
+def _split_structured(structure: _Structure, budget: int) -> list[str] | None:
+    """Split *structure* across cards, reopening its markdown on each one.
+
+    Returns ``None`` when not even one row fits alongside the wrapper, which
+    leaves the caller a byte-wise cut as its last resort.
+    """
+    if not structure.rows:
+        return None
+    pages: list[str] = []
+    start = 0
+    while start < len(structure.rows):
+        end = _largest_row_run(structure, start, budget)
+        if end == start:
+            return None
+        pages.append(structure.card(structure.rows[start:end]))
+        start = end
+    return pages
+
+
 def _hard_split(block: str, budget: int) -> list[str]:
-    """Split a block too large to fit any single card, preserving every character."""
+    """Split a block too large for any single card, preserving every character.
+
+    A fence or table is split at its own row boundaries and rewrapped, so each
+    card is well-formed on its own; anything else can only be cut byte-wise.
+    """
+    structure = _structure(block)
+    if structure is not None:
+        structured = _split_structured(structure, budget)
+        if structured is not None:
+            return structured
     pieces: list[str] = []
     remaining = block
     while remaining and not _fits(remaining, budget):
         cut = _largest_prefix(remaining, budget)
+        if cut == 0:
+            raise ValueError(
+                f"card budget {budget} cannot hold even the first character of a "
+                f"{len(block)}-character block; minimum is "
+                f"{spec_bytes(render_card_spec(block[:1], streaming=False))} bytes"
+            )
         pieces.append(remaining[:cut])
         remaining = remaining[cut:]
     if remaining:
@@ -140,8 +227,11 @@ def safe_prefix(
 ) -> str:
     """Return the longest block-aligned prefix of *text* whose card fits.
 
-    Falls back to a byte-wise cut when not even the first block fits, where no
-    block boundary exists to fall back to.
+    The result is always a literal prefix, because the caller slices the
+    remainder off by its length. A fence or a table that cannot fit on its own
+    gets no prefix at all: any literal cut inside it would leave the remainder
+    holding an unpaired fence or a headerless table, so the caller is better
+    served by the paginator, which rewraps both.
     """
     spans = _block_spans(text)
     best = ""
@@ -153,7 +243,7 @@ def safe_prefix(
         best, tables = text[:end], next_tables
     if best:
         return best
-    if not spans:
+    if not spans or _structure(spans[0][1]) is not None:
         return ""
     cut = text[: _largest_prefix(text, budget)]
     if not _fits(cut, budget) or table_count(cut) > max_tables:
