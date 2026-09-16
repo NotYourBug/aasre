@@ -24,12 +24,18 @@ class _FakeClient:
         self.reject_close = False
         self.reject_update = False
         self.reject_create = False
+        self.reject_create_at: int | None = None
 
     def create_card(self, spec: dict[str, object]) -> str:
         # A stream error code arrives on element updates, never on card creation,
         # so creating the fallback cards must still succeed.
         if self.reject_create:
             raise RuntimeError("cardkit create failed")
+        if self.reject_create_at is not None and len(self.created) == self.reject_create_at:
+            self.reject_create_at = None  # transient: only this one page fails
+            raise RuntimeError("cardkit create failed part way")
+        self.created.append(spec)
+        return f"c_{len(self.created)}"
         self.created.append(spec)
         return f"c_{len(self.created)}"
 
@@ -181,6 +187,27 @@ def test_a_failed_fallback_card_still_leaves_the_session_terminal() -> None:
     del client.updates[:]
     session.update("more")
     assert not client.updates, "a terminal session must not stream again"
+
+
+def test_a_batch_that_fails_part_way_is_not_recorded_as_delivered() -> None:
+    """The cursor must not advance past pages that never left the building.
+
+    It used to move in a `finally`, so one failed page mid-batch left it at the
+    batch's end and every later slice skipped the pages that never landed. The
+    session now stops instead of resuming past a hole.
+    """
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1, budget=2_000)
+    session.start()
+    text = "\n\n".join("x" * 400 for _ in range(40))
+    client.reject_create_at = 2  # the streaming card and page one land, page two does not
+
+    session.update(text)
+    landed = len(client.created)
+    session.update(text + "\n\n" + "\n\n".join("y" * 400 for _ in range(20)))
+
+    assert session.degraded is True
+    assert len(client.created) == landed, "the session resumed past a hole"
 
 
 def test_an_oversize_code_block_first_still_loses_nothing() -> None:

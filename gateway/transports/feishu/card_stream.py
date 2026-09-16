@@ -76,6 +76,7 @@ class CardStreamSession:
         self._started = False
         self._closed = False
         self._degraded = False
+        self._delivery_failed = False
 
     @property
     def card_id(self) -> str:
@@ -129,6 +130,8 @@ class CardStreamSession:
         one small card per delta. Whatever is left over at the end is not
         stranded: ``finish()`` flushes it.
         """
+        if self._delivery_failed:
+            return
         tail = full_text[self._delivered :]
         if spec_bytes(render_card_spec(tail, streaming=False)) < self._budget:
             return
@@ -201,7 +204,9 @@ class CardStreamSession:
         The stream is already closed by the time this runs, so the session is
         over whatever happens next — a page that cannot be created is logged,
         not retried, and never leaves the session looking alive. ``upto`` is how
-        much of the document this call settles, so nothing is sent twice.
+        much of the document this call settles; the cursor moves only once every
+        page has landed, so a half-delivered batch is never mistaken for a
+        delivered one and sliced past on the next drain.
         """
         try:
             for page in paginate(remainder, budget=self._budget):
@@ -212,8 +217,10 @@ class CardStreamSession:
                 )
         except Exception:
             logger.exception("Feishu overflow cards could not all be delivered")
-        finally:
+            self._delivery_failed = True
+        else:
             self._delivered = upto
+        finally:
             self._degraded = True
             self._closed = True
 
@@ -254,6 +261,8 @@ class CardStreamSession:
         Without this the last few kilobytes of a long answer — too small to have
         triggered a drain — would never be sent at all.
         """
+        if self._delivery_failed:
+            return
         tail = self._pending[self._delivered :]
         if tail.strip():
             self._send_overflow(tail, upto=len(self._pending))
