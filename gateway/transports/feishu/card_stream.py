@@ -71,6 +71,7 @@ class CardStreamSession:
         self._sequence = 0
         self._rendered = ""
         self._pending = ""
+        self._delivered = 0
         self._last_flush = 0.0
         self._started = False
         self._closed = False
@@ -103,15 +104,35 @@ class CardStreamSession:
         self._last_flush = self._clock()
 
     def update(self, full_text: str) -> None:
-        """Render *full_text*, throttled; degrade when it no longer fits."""
-        if not self._started or self._closed:
+        """Render *full_text*, throttled; degrade when it no longer fits.
+
+        After the card fills, later text is not dropped — a turn keeps producing
+        past the trip, and that is most of a long answer. It is delivered as
+        further cards instead, in whole-card batches.
+        """
+        if not self._started:
             return
         self._pending = full_text
+        if self._closed:
+            self._drain(full_text)
+            return
         if self._card_fits(full_text):
             if self._should_flush(full_text):
                 self._flush(full_text)
             return
         self._overflow(full_text)
+
+    def _drain(self, full_text: str) -> None:
+        """Send text that arrived after the stream was closed, once a card is worth it.
+
+        Waiting for a whole budget keeps the continuation page-sized rather than
+        one small card per delta. Whatever is left over at the end is not
+        stranded: ``finish()`` flushes it.
+        """
+        tail = full_text[self._delivered :]
+        if spec_bytes(render_card_spec(tail, streaming=False)) < self._budget:
+            return
+        self._send_overflow(tail, upto=len(full_text))
 
     def _card_fits(self, text: str) -> bool:
         return (
@@ -140,6 +161,10 @@ class CardStreamSession:
             self._render_error_fallback(text)
             return
         self._rendered = text
+        # The card now shows this much, which is what the cursor tracks: a plain
+        # close delivers everything on the card, so `_flush_tail` must find
+        # nothing left once it lands.
+        self._delivered = len(text)
         self._last_flush = self._clock()
 
     def _safe_cut(self, text: str) -> str:
@@ -168,14 +193,15 @@ class CardStreamSession:
             self._render_error_fallback(text)
             return
         self._rendered = kept
-        self._send_overflow(text[len(kept) :])
+        self._send_overflow(text[len(kept) :], upto=len(text))
 
-    def _send_overflow(self, remainder: str) -> None:
-        """Deliver *remainder* as complete cards and leave the session terminal.
+    def _send_overflow(self, remainder: str, *, upto: int) -> None:
+        """Deliver *remainder* as complete cards and advance the delivery cursor.
 
         The stream is already closed by the time this runs, so the session is
         over whatever happens next — a page that cannot be created is logged,
-        not retried, and never leaves the session looking alive.
+        not retried, and never leaves the session looking alive. ``upto`` is how
+        much of the document this call settles, so nothing is sent twice.
         """
         try:
             for page in paginate(remainder, budget=self._budget):
@@ -187,6 +213,7 @@ class CardStreamSession:
         except Exception:
             logger.exception("Feishu overflow cards could not all be delivered")
         finally:
+            self._delivered = upto
             self._degraded = True
             self._closed = True
 
@@ -196,7 +223,7 @@ class CardStreamSession:
             self._close_current()
         except Exception:
             logger.exception("Feishu card stream could not even be closed")
-        self._send_overflow(text)
+        self._send_overflow(text, upto=len(text))
 
     def _close_current(self) -> None:
         if not self._card_id:
@@ -205,14 +232,28 @@ class CardStreamSession:
 
     def finish(self) -> None:
         """Flush the last text and close streaming, exactly once."""
-        if not self._started or self._closed:
+        if not self._started:
+            return
+        if self._closed:
+            self._flush_tail()
             return
         if self._pending and self._pending != self._rendered and self._card_fits(self._pending):
             self._flush(self._pending)
         if self._closed:
+            self._flush_tail()
             return
         try:
             self._close_current()
         except FeishuStreamRejected:
             logger.warning("Feishu card stream could not be closed")
         self._closed = True
+
+    def _flush_tail(self) -> None:
+        """Deliver the sub-card remainder the drain deliberately held back.
+
+        Without this the last few kilobytes of a long answer — too small to have
+        triggered a drain — would never be sent at all.
+        """
+        tail = self._pending[self._delivered :]
+        if tail.strip():
+            self._send_overflow(tail, upto=len(self._pending))

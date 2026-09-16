@@ -206,6 +206,51 @@ def test_an_oversize_code_block_first_still_loses_nothing() -> None:
     assert [line for card in cards for line in card.splitlines()[1:-1]] == code
 
 
+def test_text_arriving_after_the_budget_trips_still_reaches_the_user() -> None:
+    """A turn streams tokens, so most of a long answer arrives *after* the trip.
+
+    Every other test here hands `update` the whole document at once — the one
+    shape where nothing is left to arrive once the card fills.
+    """
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1, budget=2_000)
+    session.start()
+    text = "\n\n".join("x" * 400 for _ in range(40))
+
+    for end in range(400, len(text), 400):
+        session.update(text[:end])
+    session.update(text)
+    session.finish()
+
+    streamed = client.updates[-1][2] if client.updates else ""
+    body = streamed.replace(FEISHU_CARD_TRUNCATED_MARKER, "")
+    overflow = "".join(
+        spec["body"]["elements"][0]["content"]
+        for spec in client.created[1:]  # type: ignore[index]
+    )
+    assert "".join((body + overflow).split()) == "".join(text.split())
+
+
+def test_the_overflow_continuation_is_paginated_not_dribbled() -> None:
+    """Delivering each delta as its own card would work and read terribly.
+
+    The text is 40 deltas against a 2,000-byte budget, so one card per delta
+    would be ~40 cards. Whole cards are an order of magnitude fewer, and the
+    bound is loose on purpose — this pins the shape, not the exact packing.
+    """
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1, budget=2_000)
+    session.start()
+    text = "\n\n".join("x" * 400 for _ in range(40))
+
+    for end in range(400, len(text), 400):
+        session.update(text[:end])
+    session.update(text)
+    session.finish()
+
+    assert len(client.created) < 20, f"continuation dribbled into {len(client.created)} cards"
+
+
 def test_finish_closes_streaming_exactly_once() -> None:
     client = _FakeClient()
     session, _now = _session(client, min_interval=0.0, min_chars=1)
