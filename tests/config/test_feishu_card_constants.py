@@ -13,8 +13,14 @@ from config.constants import (
 )
 
 
-def test_budget_leaves_headroom_under_the_hard_cap() -> None:
+def test_budget_clears_both_ceilings_the_platform_applies() -> None:
+    """Byte size is one ceiling; the streaming element's 100k characters the other.
+
+    An ASCII document is the worst case for the second one — a character costs
+    a byte there, so the byte budget doubles as its character count.
+    """
     assert FEISHU_CARD_BUDGET_BYTES < FEISHU_CARD_MAX_BYTES
+    assert FEISHU_CARD_BUDGET_BYTES < 100_000
 
 
 def test_schema_is_the_version_that_renders_tables() -> None:

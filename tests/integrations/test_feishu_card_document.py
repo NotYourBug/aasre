@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from config.constants import FEISHU_CARD_BUDGET_BYTES
 from integrations.feishu.card_document import (
     CardPage,
     _blocks,
@@ -57,24 +58,29 @@ def test_blank_text_is_no_pages() -> None:
 
 def test_pagination_loses_no_content() -> None:
     """The exit criterion, encoded directly."""
-    text = "\n\n".join(f"paragraph {i} " + "x" * 300 for i in range(200))
+    text = "\n\n".join(f"paragraph {i} " + "x" * 300 for i in range(600))
     pages = paginate(text)
     assert len(pages) > 1
     assert "\n\n".join(page.text for page in pages) == text
 
 
 def test_every_page_fits_the_budget() -> None:
-    text = "\n\n".join("y" * 400 for _ in range(200))
+    text = "\n\n".join("y" * 400 for _ in range(400))
     for page in paginate(text):
-        assert spec_bytes(render_card_spec(page.text, streaming=False)) <= 28 * 1024
+        spec = render_card_spec(page.text, streaming=False)
+        assert spec_bytes(spec) <= FEISHU_CARD_BUDGET_BYTES
+        # The streaming element's ceiling is characters, not bytes.
+        assert len(page.text) <= 100_000
 
 
 def test_a_fenced_code_block_is_never_split_across_pages() -> None:
     fence = "```python\n" + "\n".join(f"line_{i} = {i}" for i in range(40)) + "\n```"
     text = ("z" * 3000 + "\n\n") * 20 + fence
-    pages = paginate(text)
-    joined = [page.text for page in pages]
-    assert any(fence in page for page in joined)
+
+    pages = paginate(text, budget=_budget(4_000))
+
+    assert len(pages) > 1, "a single page would make the assertion below vacuous"
+    assert any(fence in page.text for page in pages), "the fence must survive whole"
 
 
 def test_blocks_keeps_a_fenced_code_block_with_internal_blank_lines_whole() -> None:
@@ -100,8 +106,11 @@ def test_table_count_counts_gfm_tables() -> None:
 
 def test_a_table_is_never_split_across_pages() -> None:
     text = ("w" * 3000 + "\n\n") * 10 + _TABLE
-    pages = paginate(text)
-    assert any(_TABLE in page.text for page in pages)
+
+    pages = paginate(text, budget=_budget(4_000))
+
+    assert len(pages) > 1, "a single page would make the assertion below vacuous"
+    assert any(_TABLE in page.text for page in pages), "the table must survive whole"
 
 
 _CODE_LINES = [f"line_{i} = {i}" for i in range(600)]

@@ -200,11 +200,21 @@ def _spec_bytes(spec: dict[str, Any]) -> int:
     return len(json.dumps(spec, ensure_ascii=False).encode("utf-8"))
 ```
 
-常量 `FEISHU_CARD_MAX_BYTES = 30 * 1024`，可用预算留安全边际（`FEISHU_CARD_BUDGET_BYTES`，默认 28KB）。
+常量 `FEISHU_CARD_MAX_BYTES = 150 * 1024`，可用预算留安全边际
+（`FEISHU_CARD_BUDGET_BYTES = 64 * 1024`）。
 
-> **未决的实证问题**：飞书 30KB 量的是**卡片 JSON 本身**，还是**外层转义后的信封**
-> （`{"type":"card_json","data":"<被再次转义的 JSON>"}`，引号与反斜杠会被二次转义，体积可能翻倍）。
-> 设计上把预算做成**单一常量**，由 §7 的边界探针在真机上定值。**不要靠猜。**
+> **已由 §7 探针定值（2026-09-16）。**原 D5 问题问的是"30KB 量的是内层 JSON 还是
+> 外层信封" —— 实测发现**该问题的前提不成立**：平台并非只有一个 30KB 上限，而是
+> 两条路径各一个，且单位不同。
+>
+> | 路径 | 实测上限 | 错误码 |
+> | --- | --- | --- |
+> | `create_card` 建卡实体 | 151,721 字节通过 / 155,817 失败 → **约 150 KiB**（卡片 JSON 字节数） | `200860` card over max size |
+> | `update_element` 流式元素 | **恰好 100,000 个字符**（内容字符数，非字节） | `99992402` field validation failed |
+>
+> 元素路的字符上限意味着**字节预算不等于安全**：纯 ASCII 文档里 1 字符 = 1 字节，
+> 预算取 100KB 就会正好顶到 10 万字符。64 KiB 对两条路都留足余量
+> （建卡余 57%，ASCII 字符数余 35%，CJK 字符数余 78%）。
 
 ### D6 · 切分必须落在 markdown 块边界
 
@@ -288,8 +298,8 @@ def _spec_bytes(spec: dict[str, Any]) -> int:
 | 常量 | 值 | 说明 |
 | --- | --- | --- |
 | `FEISHU_CARD_SCHEMA` | `"2.0"` | §2.5：1.0 不支持 GFM 表格 |
-| `FEISHU_CARD_MAX_BYTES` | `30 * 1024` | 硬上限 |
-| `FEISHU_CARD_BUDGET_BYTES` | `28 * 1024` | 实际预算，留边际；由 §7 探针定值 |
+| `FEISHU_CARD_MAX_BYTES` | `150 * 1024` | 建卡实测硬上限（§7） |
+| `FEISHU_CARD_BUDGET_BYTES` | `64 * 1024` | 实际预算，对两条实测上限都留足余量（§7） |
 | `FEISHU_CARD_MAX_TABLES` | `5` | D7 |
 | `FEISHU_STREAM_ELEMENT_ID` | `"stream_md"` | 与 SDK 一致，字母开头、≤20 字符 |
 | `FEISHU_STREAM_ERROR_CODES` | `frozenset({200850, 300309, 300317})` | 级 3 判定 |
@@ -315,9 +325,15 @@ def _spec_bytes(spec: dict[str, Any]) -> int:
 - `sequence` 单调：单独断言每张卡片各自递增。
 - 字节预算在**中文**下正确（3 字节/字），不是按 `len(str)`。
 
-**真机边界探针**（一次性脚本，不入库）：
-定出 D5 未决的"30KB 量的是内层 JSON 还是外层信封"，据此定 `FEISHU_CARD_BUDGET_BYTES`。
-用户客户端 ≥ 7.20、控制台已配置，可直接跑。
+**真机边界探针**（一次性脚本，不入库 —— **已跑完**，2026-09-16）：
+对 `create_card` 与 `update_element` 各爬一遍尺寸阶梯，定出两条路径的真实上限，
+据此定 `FEISHU_CARD_BUDGET_BYTES`。结论见 D5。
+
+探针只印尺寸与错误码，凭据从环境读；跑完即删，`git log -- scripts/` 为空。
+
+> **尚未验证的一项**：探针只能证明**服务端不拒绝**，证明不了飞书**客户端**渲染
+> 64 KiB 卡片时不卡顿、不截断。合并前需在真实客户端里肉眼看一次长回复。
+> 若渲染有问题，`FEISHU_CARD_BUDGET_BYTES` 是回到 28KB 的唯一开关。
 
 > ⚠️ 探针脚本**不得共用工作树**（S2 教训 1：两个探针互相还原文件，产出了假"通过"）。
 > 串行执行，并在开始前断言工作树完整。

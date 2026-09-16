@@ -101,12 +101,27 @@ FEISHU_BINARY_FILE_SUFFIXES = frozenset(
 )
 
 #: CardKit 2.0 is the only schema version that renders GFM tables; 1.0 silently
-#: drops them. The card envelope is capped by the platform at 30KB, and the
-#: budget keeps headroom so a card that measures just under the cap still lands.
-#: Both are byte counts, not character counts — a CJK character is three bytes.
+#: drops them.
 FEISHU_CARD_SCHEMA = "2.0"
-FEISHU_CARD_MAX_BYTES = 30 * 1024
-FEISHU_CARD_BUDGET_BYTES = 28 * 1024
+
+#: The platform applies **two** ceilings, measured against the live API
+#: (2026-09-16), and they are in *different units* — a card can clear one and
+#: hit the other:
+#:
+#: - Creating a card entity rejects card JSON past ~150 KiB with ``200860``
+#:   ("card over max size"): 148 KiB passed, 152 KiB failed.
+#: - Updating a streaming element rejects content past 100_000 **characters**
+#:   with ``99992402``: 100,000 ASCII and 100,000 CJK (300 KB of them) both
+#:   passed; 100,001 of either failed. So this ceiling is not a byte count — a
+#:   CJK character spends three bytes of one budget and one unit of the other.
+FEISHU_CARD_MAX_BYTES = 150 * 1024
+
+#: What every card ``paginate`` emits and every streamed element stays under.
+#: 64 KiB sits ~57% below the create ceiling and, counted in characters, ~35%
+#: below the element ceiling for ASCII and ~78% for CJK. ASCII is the tight
+#: side: one character is one byte, so the byte budget *is* the worst-case
+#: character count.
+FEISHU_CARD_BUDGET_BYTES = 64 * 1024
 
 #: Tables per card. Exceeding it fails the whole update with
 #: ``11310 card table number over limit`` — a byte-only budget would miss this.
