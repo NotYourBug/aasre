@@ -9,6 +9,7 @@ from integrations.feishu.card_document import (
     _blocks,
     paginate,
     render_card_spec,
+    safe_prefix,
     spec_bytes,
     table_count,
 )
@@ -99,6 +100,31 @@ def test_a_single_oversize_block_is_hard_split_and_still_loses_nothing() -> None
     pages = paginate(text)
     assert len(pages) > 1
     assert "".join(page.text for page in pages) == text
+
+
+def test_the_prefix_stops_at_a_block_boundary_rather_than_inside_a_fence() -> None:
+    """A byte cut would land mid-fence; the remainder would then re-pair the fence."""
+    fence = "```python\n" + "\n\n".join(f"line_{i} = {i}" for i in range(40)) + "\n```"
+    text = "p" * 300 + "\n\n\n\n" + fence + "\n\n" + "z" * 300
+    budget = spec_bytes(render_card_spec("", streaming=False)) + 300 + 100
+
+    prefix = safe_prefix(text, budget=budget)
+
+    assert text.startswith(prefix), "the prefix must be literal, not content-equivalent"
+    assert prefix == "p" * 300, "the cut must back off to the blank line before the fence"
+    assert fence in text[len(prefix) :], "the fence must survive whole in the remainder"
+
+
+def test_a_first_block_too_large_for_the_budget_still_yields_a_prefix() -> None:
+    """No block boundary exists inside one block, so the cut has to be byte-wise."""
+    text = "q" * 5_000
+
+    prefix = safe_prefix(text, budget=1_000)
+
+    assert prefix, "an empty result would leave the caller no way to make progress"
+    assert prefix != text
+    assert text.startswith(prefix)
+    assert spec_bytes(render_card_spec(prefix, streaming=False)) <= 1_000
 
 
 def test_indices_are_one_based_and_contiguous() -> None:

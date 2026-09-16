@@ -22,16 +22,22 @@ class _FakeClient:
         self.received_id_types: list[str] = []
         self.reject_code: int | None = None
         self.reject_close = False
+        self.reject_update = False
+        self.reject_create = False
 
     def create_card(self, spec: dict[str, object]) -> str:
         # A stream error code arrives on element updates, never on card creation,
         # so creating the fallback cards must still succeed.
+        if self.reject_create:
+            raise RuntimeError("cardkit create failed")
         self.created.append(spec)
         return f"c_{len(self.created)}"
 
     def update_element(self, card_id: str, element_id: str, content: str, sequence: int) -> None:
         if self.reject_code is not None:
             raise FeishuStreamRejected(self.reject_code, "boom")
+        if self.reject_update:
+            raise RuntimeError("cardkit update failed")
         self.updates.append((card_id, element_id, content, sequence))
 
     def close_streaming(self, card_id: str, sequence: int) -> None:
@@ -147,6 +153,36 @@ def test_a_stream_error_falls_back_to_a_complete_non_streaming_card() -> None:
     assert len(client.created) > 1, "the text must be re-delivered as fresh cards"
 
 
+def test_a_plain_cardkit_error_degrades_instead_of_escaping() -> None:
+    """An oversize card or Feishu's table cap 11310 is a plain error, not a stream code."""
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1)
+    session.start()
+    client.reject_update = True
+
+    session.update("final answer")
+
+    assert session.degraded is True
+    assert client.closed, "the stream must still be closed"
+    assert len(client.created) > 1, "the text must be re-delivered as fresh cards"
+
+
+def test_a_failed_fallback_card_still_leaves_the_session_terminal() -> None:
+    """Losing the last-resort card must not leave a session that looks alive."""
+    client = _FakeClient()
+    session, _now = _session(client, min_interval=0.0, min_chars=1, budget=2_000)
+    session.start()
+    client.reject_create = True
+
+    session.update("\n\n".join("x" * 400 for _ in range(40)))
+
+    assert session.degraded is True
+    assert client.closed, "the streaming card was already closed before the overflow"
+    del client.updates[:]
+    session.update("more")
+    assert not client.updates, "a terminal session must not stream again"
+
+
 def test_finish_closes_streaming_exactly_once() -> None:
     client = _FakeClient()
     session, _now = _session(client, min_interval=0.0, min_chars=1)
@@ -188,4 +224,7 @@ def test_text_survives_the_ladder_without_loss() -> None:
     overflow = "".join(spec["body"]["elements"][0]["content"] for spec in client.created[1:])  # type: ignore[index]
     body = rendered.replace(FEISHU_CARD_TRUNCATED_MARKER, "")
     assert text.startswith(body), "the streamed text must be a prefix of the source"
-    assert len(rendered) + len(overflow) >= len(text)
+    # Whitespace-free: paginate drops the "\n\n" between pages, so a token
+    # comparison would see merged neighbours. This form catches loss *and*
+    # duplication, which the old length check could not.
+    assert "".join((body + overflow).split()) == "".join(text.split())

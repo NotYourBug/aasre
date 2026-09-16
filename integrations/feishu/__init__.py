@@ -11,6 +11,7 @@ from integrations.feishu.card_document import (
     CardPage,
     paginate,
     render_card_spec,
+    safe_prefix,
     spec_bytes,
     table_count,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "render_card_spec",
     "resource_refs",
     "resource_url",
+    "safe_prefix",
     "spec_bytes",
     "table_count",
 ]

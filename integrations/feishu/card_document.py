@@ -58,29 +58,47 @@ def _is_table(block: str) -> bool:
     return len(lines) >= 2 and _DELIMITER.match(lines[1]) is not None
 
 
+#: Every terminator ``str.splitlines`` splits on. ``splitlines(keepends=True)``
+#: is the only way to keep offsets into the original text, so each raw line is
+#: stripped of exactly what the splitter left on it.
+_LINE_TERMINATORS = "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+
+
+def _block_spans(text: str) -> list[tuple[int, str]]:
+    """Return ``(end, block)`` for each block of *text*, in order.
+
+    ``end`` is the offset just past the block's last line, so ``text[:end]`` is
+    a literal prefix holding that block whole and nothing after it.
+    """
+    spans: list[tuple[int, str]] = []
+    current: list[str] = []
+    in_fence = False
+    offset = 0
+    end = 0
+    for raw in text.splitlines(keepends=True):
+        line = raw.rstrip(_LINE_TERMINATORS)
+        start, offset = offset, offset + len(raw)
+        if line.lstrip().startswith(_FENCE):
+            in_fence = not in_fence
+        elif not in_fence and not line.strip():
+            if current:
+                spans.append((end, "\n".join(current)))
+                current = []
+            continue
+        current.append(line)
+        end = start + len(line)
+    if current:
+        spans.append((end, "\n".join(current)))
+    return spans
+
+
 def _blocks(text: str) -> list[str]:
     """Split markdown into units that must not break across cards.
 
     A fenced code block is one unit even when it contains blank lines; outside a
     fence, a blank line ends the unit.
     """
-    blocks: list[str] = []
-    current: list[str] = []
-    in_fence = False
-    for line in text.splitlines():
-        if line.lstrip().startswith(_FENCE):
-            in_fence = not in_fence
-            current.append(line)
-            continue
-        if not in_fence and not line.strip():
-            if current:
-                blocks.append("\n".join(current))
-                current = []
-            continue
-        current.append(line)
-    if current:
-        blocks.append("\n".join(current))
-    return blocks
+    return [block for _end, block in _block_spans(text)]
 
 
 def table_count(text: str) -> int:
@@ -115,6 +133,32 @@ def _hard_split(block: str, budget: int) -> list[str]:
     if remaining:
         pieces.append(remaining)
     return pieces
+
+
+def safe_prefix(
+    text: str, *, budget: int = FEISHU_CARD_BUDGET_BYTES, max_tables: int = FEISHU_CARD_MAX_TABLES
+) -> str:
+    """Return the longest block-aligned prefix of *text* whose card fits.
+
+    Falls back to a byte-wise cut when not even the first block fits, where no
+    block boundary exists to fall back to.
+    """
+    spans = _block_spans(text)
+    best = ""
+    tables = 0
+    for end, block in spans:
+        next_tables = tables + (1 if _is_table(block) else 0)
+        if next_tables > max_tables or not _fits(text[:end], budget):
+            break
+        best, tables = text[:end], next_tables
+    if best:
+        return best
+    if not spans:
+        return ""
+    cut = text[: _largest_prefix(text, budget)]
+    if not _fits(cut, budget) or table_count(cut) > max_tables:
+        return ""
+    return cut
 
 
 def paginate(

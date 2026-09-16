@@ -23,7 +23,13 @@ from config.constants import (
     FEISHU_STREAM_MIN_CHARS,
     FEISHU_STREAM_MIN_INTERVAL_SECONDS,
 )
-from integrations.feishu import paginate, render_card_spec, spec_bytes, table_count
+from integrations.feishu import (
+    paginate,
+    render_card_spec,
+    safe_prefix,
+    spec_bytes,
+    table_count,
+)
 from integrations.feishu.card_client import FeishuStreamRejected
 
 logger = logging.getLogger(__name__)
@@ -34,6 +40,11 @@ class CardStreamSession:
 
     One session drives one reply. ``update`` takes the whole text so far, not a
     delta — CardKit replaces element content rather than appending to it.
+
+    A cardkit failure never propagates out of ``update``: whatever the API
+    rejects, the session closes the stream and re-delivers the text as complete
+    non-streaming cards, reporting ``degraded``. ``finish()`` stays the caller's
+    obligation — nothing here closes a healthy stream on its own.
     """
 
     def __init__(
@@ -124,19 +135,16 @@ class CardStreamSession:
             logger.warning("Feishu card stream rejected; falling back to complete cards")
             self._render_error_fallback(text)
             return
+        except Exception:
+            logger.exception("Feishu card update failed; falling back to complete cards")
+            self._render_error_fallback(text)
+            return
         self._rendered = text
         self._last_flush = self._clock()
 
     def _safe_cut(self, text: str) -> str:
-        """Longest prefix of *text* that still fits the card."""
-        low, high = 0, len(text)
-        while low < high:
-            mid = (low + high + 1) // 2
-            if self._card_fits(text[:mid]):
-                low = mid
-            else:
-                high = mid - 1
-        return text[:low]
+        """Longest prefix of *text* that fits, backed off to a markdown block boundary."""
+        return safe_prefix(text, budget=self._budget, max_tables=FEISHU_CARD_MAX_TABLES)
 
     def _overflow(self, text: str) -> None:
         """Level 1 then level 2: close the card, send the remainder as cards."""
@@ -155,23 +163,39 @@ class CardStreamSession:
         except FeishuStreamRejected:
             self._render_error_fallback(text)
             return
+        except Exception:
+            logger.exception("Feishu card overflow failed; falling back to complete cards")
+            self._render_error_fallback(text)
+            return
         self._rendered = kept
         self._send_overflow(text[len(kept) :])
 
     def _send_overflow(self, remainder: str) -> None:
-        for page in paginate(remainder, budget=self._budget):
-            spec = render_card_spec(page.text, streaming=False)
-            card_id = self._client.create_card(spec)
-            self._client.send_card(self._chat_id, card_id, receive_id_type=self._receive_id_type)
-        self._degraded = True
-        self._closed = True
+        """Deliver *remainder* as complete cards and leave the session terminal.
+
+        The stream is already closed by the time this runs, so the session is
+        over whatever happens next — a page that cannot be created is logged,
+        not retried, and never leaves the session looking alive.
+        """
+        try:
+            for page in paginate(remainder, budget=self._budget):
+                spec = render_card_spec(page.text, streaming=False)
+                card_id = self._client.create_card(spec)
+                self._client.send_card(
+                    self._chat_id, card_id, receive_id_type=self._receive_id_type
+                )
+        except Exception:
+            logger.exception("Feishu overflow cards could not all be delivered")
+        finally:
+            self._degraded = True
+            self._closed = True
 
     def _render_error_fallback(self, text: str) -> None:
         """Level 3: the stream is unusable — deliver everything as plain cards."""
         try:
             self._close_current()
-        except FeishuStreamRejected:
-            logger.warning("Feishu card stream could not even be closed")
+        except Exception:
+            logger.exception("Feishu card stream could not even be closed")
         self._send_overflow(text)
 
     def _close_current(self) -> None:
