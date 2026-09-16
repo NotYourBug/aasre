@@ -30,6 +30,7 @@ _ALLOWED: dict[str, frozenset[str]] = {
     "infrastructure": frozenset({}),
     "gateway": frozenset(
         {
+            "integrations.feishu.card_client",
             "integrations.telegram.delivery",
             "integrations.telegram.formatting",
         }

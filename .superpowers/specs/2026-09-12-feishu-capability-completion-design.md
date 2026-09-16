@@ -6,7 +6,7 @@
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
   continues from.
-- 性质：**工程面设计产物，不是用户文档。** `docs/superpowers/` 不在 `docs/docs.json` 的站点导航里，
+- 性质：**工程面设计产物，不是用户文档。** `.superpowers/` 不在 `docs/docs.json` 的站点导航里，
   Mintlify 不会渲染它 —— 因此本文刻意保留 vendor 端点、SDK 方法名、内部模块路径与调研结论，这些
   正是 S2–S8 实现时要照着做的东西。同目录的
   [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
@@ -93,7 +93,14 @@ SDK 请求体已实测：
 
 **硬限制**：
 
-- **单卡片体积 30KB** —— 超出即失败。这是流式长度的实际上限。
+- **单卡片体积** —— 平台对**两条路径各设一个上限**，单位还不一样（2026-09-16 实测）：
+  建卡实体超过约 **150 KiB** 报 `200860`（"card over max size"）；流式元素更新超过
+  **100,000 个字符**报 `99992402`。后者是**字符数**不是字节数 —— 10 万个 CJK 字符
+  （30 万字节）通过，100,001 个 ASCII 字符失败。
+
+  > 本节原先写的是"单卡片体积 30KB —— 超出即失败，这是流式长度的实际上限"。
+  > 该数字在整条设计链里被反复引用，但**从无测量或引用支撑**，实测后被推翻
+  > （低估约 5 倍）。S3 的实现预算据此定为 64 KiB，见 S3 设计 §7。
 - **`sequence` 必须严格递增**（否则错误码 `300317`）；`uuid` 提供幂等重试。
 - `content` 传**全量文本**而非增量 delta。新文本以旧文本为前缀才有打字机效果；前缀不同则全量直接上屏。
 - 流式与独享卡片模式互斥（`update_multi` 不能为 `false`）。

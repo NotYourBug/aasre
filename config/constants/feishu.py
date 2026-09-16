@@ -100,6 +100,51 @@ FEISHU_BINARY_FILE_SUFFIXES = frozenset(
     }
 )
 
+#: CardKit 2.0 is the only schema version that renders GFM tables; 1.0 silently
+#: drops them.
+FEISHU_CARD_SCHEMA = "2.0"
+
+#: The platform applies **two** ceilings, measured against the live API
+#: (2026-09-16), and they are in *different units* — a card can clear one and
+#: hit the other:
+#:
+#: - Creating a card entity rejects card JSON past ~150 KiB with ``200860``
+#:   ("card over max size"): 148 KiB passed, 152 KiB failed.
+#: - Updating a streaming element rejects content past 100_000 **characters**
+#:   with ``99992402``: 100,000 ASCII and 100,000 CJK (300 KB of them) both
+#:   passed; 100,001 of either failed. So this ceiling is not a byte count — a
+#:   CJK character spends three bytes of one budget and one unit of the other.
+FEISHU_CARD_MAX_BYTES = 150 * 1024
+
+#: What every card ``paginate`` emits and every streamed element stays under.
+#: 64 KiB sits ~57% below the create ceiling and, counted in characters, ~35%
+#: below the element ceiling for ASCII and ~78% for CJK. ASCII is the tight
+#: side: one character is one byte, so the byte budget *is* the worst-case
+#: character count.
+FEISHU_CARD_BUDGET_BYTES = 64 * 1024
+
+#: Tables per card. Exceeding it fails the whole update with
+#: ``11310 card table number over limit`` — a byte-only budget would miss this.
+FEISHU_CARD_MAX_TABLES = 5
+
+#: The markdown element the streaming session updates. CardKit requires the id
+#: to start with a letter and use only alphanumerics/underscores, max 20 chars.
+FEISHU_STREAM_ELEMENT_ID = "stream_md"
+
+#: Streaming failures that mean "stop streaming, deliver the rest another way":
+#: 200850 stream timed out, 300309 streaming already closed, 300317 sequence
+#: out of order. None is worth retrying on the same card.
+FEISHU_STREAM_ERROR_CODES = frozenset({200850, 300309, 300317})
+
+#: Streaming is throttled well under the endpoint's 50/s: one flush per interval,
+#: or sooner once this many characters have accumulated.
+FEISHU_STREAM_MIN_INTERVAL_SECONDS = 1.5
+FEISHU_STREAM_MIN_CHARS = 200
+
+#: Level 1 marks the card as continuing elsewhere. A bare "…" would read as
+#: "the answer ended here", which is the opposite of the truth.
+FEISHU_CARD_TRUNCATED_MARKER = "\n\n> _内容较长，后续见下方卡片。_"
+
 __all__ = [
     "FEISHU_APP_ID_ENV",
     "FEISHU_APP_SECRET_ENV",
@@ -111,6 +156,11 @@ __all__ = [
     "FEISHU_ALARM_RECEIVE_ID_ENV",
     "FEISHU_ALARM_RECEIVE_ID_TYPE_ENV",
     "FEISHU_BINARY_FILE_SUFFIXES",
+    "FEISHU_CARD_BUDGET_BYTES",
+    "FEISHU_CARD_MAX_BYTES",
+    "FEISHU_CARD_MAX_TABLES",
+    "FEISHU_CARD_SCHEMA",
+    "FEISHU_CARD_TRUNCATED_MARKER",
     "FEISHU_IMAGE_MAX_BYTES",
     "FEISHU_MAX_RESOURCES_PER_MESSAGE",
     "FEISHU_RECEIVE_ID_TYPES",
@@ -118,6 +168,10 @@ __all__ = [
     "FEISHU_RESOURCE_TIMEOUT_SECONDS",
     "FEISHU_RESOURCE_TYPE_FILE",
     "FEISHU_RESOURCE_TYPE_IMAGE",
+    "FEISHU_STREAM_ELEMENT_ID",
+    "FEISHU_STREAM_ERROR_CODES",
+    "FEISHU_STREAM_MIN_CHARS",
+    "FEISHU_STREAM_MIN_INTERVAL_SECONDS",
     "FEISHU_TEXT_FILE_MAX_BYTES",
     "FEISHU_TEXT_FILE_SUFFIXES",
 ]
