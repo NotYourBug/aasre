@@ -18,7 +18,7 @@ from config.constants import (
     FEISHU_STREAM_ELEMENT_ID,
 )
 
-_FENCE = "```"
+_FENCE_OPEN = re.compile(r"^(?P<indent> {0,3})(?P<marker>`{3,}|~{3,})(?P<info>.*)$")
 
 #: A GFM delimiter row — pipes, dashes, optional alignment colons.
 _DELIMITER = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$")
@@ -70,14 +70,49 @@ class _Structure:
         return "\n".join((*self.head, *rows, *self.tail))
 
 
+@dataclass(frozen=True)
+class _BlockSpan:
+    """One semantic markdown block and its literal offsets in the source."""
+
+    start: int
+    end: int
+    text: str
+
+
+def _opening_fence(line: str) -> tuple[str, int] | None:
+    """Return the fence character and width for a valid opening fence."""
+    match = _FENCE_OPEN.match(line)
+    if match is None:
+        return None
+    marker = match.group("marker")
+    if marker[0] == "`" and "`" in match.group("info"):
+        return None
+    return marker[0], len(marker)
+
+
+def _closes_fence(line: str, fence: tuple[str, int]) -> bool:
+    """Return whether *line* closes *fence* under the GFM fence rules."""
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return False
+    marker = stripped.rstrip(" ")
+    char, width = fence
+    return len(marker) >= width and set(marker) == {char}
+
+
 def _fence_structure(lines: list[str]) -> _Structure | None:
     """Return the fenced-code view of *lines*, or ``None`` when it is no fence."""
-    if not lines or not lines[0].lstrip().startswith(_FENCE):
+    if not lines:
+        return None
+    fence = _opening_fence(lines[0])
+    if fence is None:
         return None
     rows = lines[1:]
-    if rows and rows[-1].strip() == _FENCE:
+    closing = fence[0] * fence[1]
+    if rows and _closes_fence(rows[-1], fence):
+        closing = rows[-1]
         rows = rows[:-1]
-    return _Structure(head=(lines[0],), rows=tuple(rows), tail=(_FENCE,))
+    return _Structure(head=(lines[0],), rows=tuple(rows), tail=(closing,))
 
 
 def _table_structure(lines: list[str]) -> _Structure | None:
@@ -105,31 +140,34 @@ def _is_table(block: str) -> bool:
 _LINE_TERMINATORS = "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 
 
-def _block_spans(text: str) -> list[tuple[int, str]]:
-    """Return ``(end, block)`` for each block of *text*, in order.
+def _block_spans(text: str) -> list[_BlockSpan]:
+    """Return semantic blocks with literal source offsets, in order.
 
-    ``end`` is the offset just past the block's last line, so ``text[:end]`` is
-    a literal prefix holding that block whole and nothing after it.
+    Separating whitespace is deliberately absent from the block text but remains
+    recoverable from adjacent offsets, so pagination can preserve it byte-for-byte.
     """
-    spans: list[tuple[int, str]] = []
-    current: list[str] = []
-    in_fence = False
+    spans: list[_BlockSpan] = []
+    start: int | None = None
+    fence: tuple[str, int] | None = None
     offset = 0
     end = 0
     for raw in text.splitlines(keepends=True):
         line = raw.rstrip(_LINE_TERMINATORS)
-        start, offset = offset, offset + len(raw)
-        if line.lstrip().startswith(_FENCE):
-            in_fence = not in_fence
-        elif not in_fence and not line.strip():
-            if current:
-                spans.append((end, "\n".join(current)))
-                current = []
+        line_start, offset = offset, offset + len(raw)
+        if fence is None and not line.strip():
+            if start is not None:
+                spans.append(_BlockSpan(start=start, end=end, text=text[start:end]))
+                start = None
             continue
-        current.append(line)
-        end = start + len(line)
-    if current:
-        spans.append((end, "\n".join(current)))
+        if start is None:
+            start = line_start
+        if fence is None:
+            fence = _opening_fence(line)
+        elif _closes_fence(line, fence):
+            fence = None
+        end = line_start + len(line)
+    if start is not None:
+        spans.append(_BlockSpan(start=start, end=end, text=text[start:end]))
     return spans
 
 
@@ -139,7 +177,7 @@ def _blocks(text: str) -> list[str]:
     A fenced code block is one unit even when it contains blank lines; outside a
     fence, a blank line ends the unit.
     """
-    return [block for _end, block in _block_spans(text)]
+    return [span.text for span in _block_spans(text)]
 
 
 def table_count(text: str) -> int:
@@ -147,20 +185,20 @@ def table_count(text: str) -> int:
     return sum(1 for block in _blocks(text) if _is_table(block))
 
 
-def _fits(text: str, budget: int) -> bool:
-    return spec_bytes(render_card_spec(text, streaming=False)) <= budget
+def _fits(text: str, budget: int, *, streaming: bool = False) -> bool:
+    return spec_bytes(render_card_spec(text, streaming=streaming)) <= budget
 
 
-def _largest_prefix(text: str, budget: int) -> int:
+def _largest_prefix(text: str, budget: int, *, suffix: str = "", streaming: bool = False) -> int:
     """Return the longest character count whose card fits, or 0 when none does."""
     low, high = 1, len(text)
     while low < high:
         mid = (low + high + 1) // 2
-        if _fits(text[:mid], budget):
+        if _fits(text[:mid] + suffix, budget, streaming=streaming):
             low = mid
         else:
             high = mid - 1
-    return low if _fits(text[:low], budget) else 0
+    return low if _fits(text[:low] + suffix, budget, streaming=streaming) else 0
 
 
 def _largest_row_run(structure: _Structure, start: int, budget: int) -> int:
@@ -223,7 +261,12 @@ def _hard_split(block: str, budget: int) -> list[str]:
 
 
 def safe_prefix(
-    text: str, *, budget: int = FEISHU_CARD_BUDGET_BYTES, max_tables: int = FEISHU_CARD_MAX_TABLES
+    text: str,
+    *,
+    budget: int = FEISHU_CARD_BUDGET_BYTES,
+    max_tables: int = FEISHU_CARD_MAX_TABLES,
+    suffix: str = "",
+    streaming: bool = False,
 ) -> str:
     """Return the longest block-aligned prefix of *text* whose card fits.
 
@@ -236,17 +279,19 @@ def safe_prefix(
     spans = _block_spans(text)
     best = ""
     tables = 0
-    for end, block in spans:
-        next_tables = tables + (1 if _is_table(block) else 0)
-        if next_tables > max_tables or not _fits(text[:end], budget):
+    for span in spans:
+        next_tables = tables + (1 if _is_table(span.text) else 0)
+        if next_tables > max_tables or not _fits(
+            text[: span.end] + suffix, budget, streaming=streaming
+        ):
             break
-        best, tables = text[:end], next_tables
+        best, tables = text[: span.end], next_tables
     if best:
         return best
-    if not spans or _structure(spans[0][1]) is not None:
+    if not spans or _structure(spans[0].text) is not None:
         return ""
-    cut = text[: _largest_prefix(text, budget)]
-    if not _fits(cut, budget) or table_count(cut) > max_tables:
+    cut = text[: _largest_prefix(text, budget, suffix=suffix, streaming=streaming)]
+    if not _fits(cut + suffix, budget, streaming=streaming) or table_count(cut) > max_tables:
         return ""
     return cut
 
@@ -266,28 +311,49 @@ def paginate(
     if not text.strip():
         return []
 
-    pages: list[list[str]] = []
-    current: list[str] = []
+    pages: list[str] = []
+    current = ""
     tables = 0
+    cursor = 0
 
-    for block in _blocks(text):
+    for span in _block_spans(text):
+        gap = text[cursor : span.start]
+        block = span.text
+        cursor = span.end
         if not _fits(block, budget):
             if current:
                 pages.append(current)
-                current, tables = [], 0
+                current, tables = "", 0
+            if gap:
+                pages.extend(_hard_split(gap, budget))
             for piece in _hard_split(block, budget):
-                pages.append([piece])
+                pages.append(piece)
             continue
 
         next_tables = tables + (1 if _is_table(block) else 0)
-        candidate = current + [block]
-        fits = _fits("\n\n".join(candidate), budget)
-        if current and (not fits or next_tables > max_tables):
-            pages.append(current)
-            current, tables = [block], 1 if _is_table(block) else 0
+        unit = gap + block
+        candidate = current + unit
+        fits = _fits(candidate, budget)
+        if not fits or (current and next_tables > max_tables):
+            if current:
+                pages.append(current)
+            if not _fits(unit, budget):
+                if gap:
+                    pages.extend(_hard_split(gap, budget))
+                unit = block
+            current, tables = unit, 1 if _is_table(block) else 0
             continue
         current, tables = candidate, next_tables
 
+    tail = text[cursor:]
+    if tail:
+        if _fits(current + tail, budget):
+            current += tail
+        else:
+            if current:
+                pages.append(current)
+                current = ""
+            pages.extend(_hard_split(tail, budget))
     if current:
         pages.append(current)
-    return [CardPage(text="\n\n".join(parts), index=i) for i, parts in enumerate(pages, 1)]
+    return [CardPage(text=page, index=i) for i, page in enumerate(pages, 1)]

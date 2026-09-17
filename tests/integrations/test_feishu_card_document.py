@@ -61,7 +61,27 @@ def test_pagination_loses_no_content() -> None:
     text = "\n\n".join(f"paragraph {i} " + "x" * 300 for i in range(600))
     pages = paginate(text)
     assert len(pages) > 1
-    assert "\n\n".join(page.text for page in pages) == text
+    assert "".join(page.text for page in pages) == text
+
+
+def test_pagination_preserves_whitespace_runs_at_page_boundaries() -> None:
+    first = "a" * 500
+    text = first + "\n\n\n\n" + "b" * 500
+
+    pages = paginate(text, budget=_budget(550))
+
+    assert len(pages) == 2
+    assert "".join(page.text for page in pages) == text
+
+
+def test_a_large_leading_whitespace_run_still_respects_every_page_budget() -> None:
+    budget = _budget(100)
+    text = "\n" * 500 + "body"
+
+    pages = paginate(text, budget=budget)
+
+    assert "".join(page.text for page in pages) == text
+    assert all(spec_bytes(render_card_spec(page.text, streaming=False)) <= budget for page in pages)
 
 
 def test_every_page_fits_the_budget() -> None:
@@ -131,6 +151,20 @@ def test_an_oversize_code_block_closes_and_reopens_its_fence_on_every_card() -> 
         assert spec_bytes(render_card_spec(page.text, streaming=False)) <= _budget(1_000)
     carried = [line for page in pages for line in page.text.splitlines()[1:-1]]
     assert carried == _CODE_LINES, "the code must survive once each, in order"
+
+
+def test_an_oversize_tilde_fence_is_reopened_with_its_original_delimiter() -> None:
+    code = [f"line_{i} = {i}" for i in range(600)]
+    text = "~~~~python\n" + "\n".join(code) + "\n~~~~"
+
+    pages = paginate(text, budget=_budget(1_000))
+
+    assert len(pages) > 1
+    for page in pages:
+        lines = page.text.splitlines()
+        assert lines[0] == "~~~~python"
+        assert lines[-1] == "~~~~"
+    assert [line for page in pages for line in page.text.splitlines()[1:-1]] == code
 
 
 def test_an_oversize_table_repeats_its_header_and_delimiter_on_every_card() -> None:

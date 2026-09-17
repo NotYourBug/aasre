@@ -172,7 +172,13 @@ class CardStreamSession:
 
     def _safe_cut(self, text: str) -> str:
         """Longest prefix of *text* that fits, backed off to a markdown block boundary."""
-        return safe_prefix(text, budget=self._budget, max_tables=FEISHU_CARD_MAX_TABLES)
+        return safe_prefix(
+            text,
+            budget=self._budget,
+            max_tables=FEISHU_CARD_MAX_TABLES,
+            suffix=FEISHU_CARD_TRUNCATED_MARKER,
+            streaming=True,
+        )
 
     def _overflow(self, text: str) -> None:
         """Level 1 then level 2: close the card, send the remainder as cards."""
@@ -251,9 +257,10 @@ class CardStreamSession:
             return
         try:
             self._close_current()
-        except FeishuStreamRejected:
-            logger.warning("Feishu card stream could not be closed")
-        self._closed = True
+        except Exception:
+            logger.exception("Feishu card stream could not be closed")
+        finally:
+            self._closed = True
 
     def _flush_tail(self) -> None:
         """Deliver the sub-card remainder the drain deliberately held back.
