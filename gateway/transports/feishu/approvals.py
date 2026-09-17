@@ -1,8 +1,8 @@
 """Feishu text-reply approval prompt for write tools.
 
-Feishu has no interactive buttons, so a write tool that needs approval posts a
-plain text prompt and waits for the requester to reply ``approve``/``deny`` to
-it. The WS event handler (:mod:`gateway.transports.feishu.worker`) recognizes a
+Write-tool approval remains a plain-text reply flow until the separate S5 card
+interaction work replaces it. The requester replies ``approve``/``deny`` and
+the WS event handler (:mod:`gateway.transports.feishu.worker`) recognizes a
 reply to a pending approval prompt via its ``parent_id`` — shared through
 :class:`gateway.transports.feishu.pending_approvals.PendingApprovals` — and
 resolves it directly instead of starting a new turn.

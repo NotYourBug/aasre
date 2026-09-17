@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from config.constants.gateway import DEFAULT_STOP_TIMEOUT_SECONDS
 from gateway.core.storage.session.binding_store import BindingStore, open_binding_store
 from gateway.transports.feishu.settings import FeishuGatewaySettings
+from gateway.transports.feishu.turn_output import FeishuTurnOutputRegistry
 from gateway.transports.feishu.worker import (
     _verify_feishu_credentials,
     run_feishu_gateway_thread,
@@ -27,15 +28,18 @@ class FeishuGatewayBackground:
         ready_event: threading.Event,
         bindings: BindingStore,
         executor: ThreadPoolExecutor,
+        output_registry: FeishuTurnOutputRegistry,
     ) -> None:
         self._thread = thread
         self._stop_event = stop_event
         self._ready_event = ready_event
         self._bindings = bindings
         self._executor = executor
+        self._output_registry = output_registry
 
     def stop(self, *, timeout: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> bool:
         self._stop_event.set()
+        self._output_registry.shutdown()
         self._thread.join(timeout=timeout)
         self._executor.shutdown(wait=False, cancel_futures=False)
         try:
@@ -71,6 +75,7 @@ def start_feishu_gateway_background(
     )
     stop_event = threading.Event()
     ready_event = threading.Event()
+    output_registry = FeishuTurnOutputRegistry()
     thread = threading.Thread(
         target=run_feishu_gateway_thread,
         kwargs={
@@ -81,6 +86,7 @@ def start_feishu_gateway_background(
             "executor": executor,
             "stop_event": stop_event,
             "ready_event": ready_event,
+            "output_registry": output_registry,
         },
         name="FeishuGatewayThread",
         daemon=True,
@@ -92,6 +98,7 @@ def start_feishu_gateway_background(
         ready_event=ready_event,
         bindings=bindings,
         executor=executor,
+        output_registry=output_registry,
     )
 
 

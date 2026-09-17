@@ -32,7 +32,7 @@ from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.principal import PrincipalResolutionError, resolve_feishu_scope
 from gateway.transports.feishu.session_rotation import conversation_key, resolve_or_rotate_session
 from gateway.transports.feishu.settings import FeishuGatewaySettings
-from gateway.transports.feishu.turn_output import FeishuTurnOutput
+from gateway.transports.feishu.turn_output import FeishuTurnOutput, FeishuTurnOutputRegistry
 from infrastructure.analytics.usage_context import UsageSurface, bound_usage_context
 from infrastructure.turn_host.turn_callback import TurnCallback
 
@@ -82,6 +82,7 @@ def _run_turn(
     logger: logging.Logger,
     turn_cancel: threading.Event | None = None,
     downloader: Downloader | None = None,
+    output_registry: FeishuTurnOutputRegistry | None = None,
 ) -> None:
     """Run one inbound Feishu message through the gateway agent callback.
 
@@ -138,10 +139,13 @@ def _run_turn(
             preview,
         )
 
+        terminal = TerminalOutcomeArbiter(turn_cancel)
         output = FeishuTurnOutput(
             app_id=settings.app_id,
             app_secret=settings.app_secret,
             chat_id=inbound.chat_id,
+            reply_to_message_id=inbound.root_id or inbound.message_id,
+            reply_in_thread=bool(inbound.root_id),
             edit_interval_seconds=settings.status_update_interval_seconds,
             tool_hooks=approval_tool_hooks(
                 FeishuApprovalPrompter(
@@ -152,9 +156,9 @@ def _run_turn(
                     pending_approvals=pending_approvals,
                 )
             ),
+            turn_cancel=terminal.cancel_event,
+            output_registry=output_registry,
         )
-        terminal = TerminalOutcomeArbiter(turn_cancel)
-        output.turn_cancel = terminal.cancel_event
 
         def _on_turn_timeout() -> None:
             logger.warning(

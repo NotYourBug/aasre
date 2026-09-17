@@ -15,6 +15,8 @@ class FeishuInboundMessage:
     open_id: str
     message_id: str
     text: str
+    #: Root message of an existing Feishu thread; empty for ordinary chat.
+    root_id: str = ""
     #: ``message_id`` of the message this one replies to, or "" when it is not
     #: a reply. This is what matches an approval prompt to its approve/deny
     #: answer; see :mod:`gateway.transports.feishu.pending_approvals`.

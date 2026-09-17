@@ -43,6 +43,10 @@ def _stub_lark(
             calls.append(("message.create", request))
             return impl(request)
 
+        def reply(self, request: Any) -> Any:
+            calls.append(("message.reply", request))
+            return impl(request)
+
     class _ImV1:
         def __init__(self) -> None:
             self.message = _Message()
@@ -179,6 +183,37 @@ def test_send_card_references_the_card_id(monkeypatch: pytest.MonkeyPatch) -> No
     body = calls[0][1].request_body
     assert body.msg_type == "interactive"
     assert json.loads(body.content) == {"type": "card", "data": {"card_id": "c_1"}}
+
+
+def test_send_card_replies_to_the_inbound_thread_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import integrations.feishu.card_client as module
+
+    calls: list[Any] = []
+    _stub_lark(monkeypatch, module, impl=lambda _r: _ok(message_id="om_reply"), calls=calls)
+    client = FeishuCardClient("a", "s", reply_to_message_id="om_root", reply_in_thread=True)
+
+    message_id = client.send_card("oc_chat", "c_1")
+
+    assert message_id == "om_reply"
+    assert calls[0][0] == "message.reply"
+    request = calls[0][1]
+    assert request.message_id == "om_root"
+    assert request.request_body.reply_in_thread is True
+    assert request.request_body.msg_type == "interactive"
+
+
+def test_send_card_rejects_a_success_response_without_a_message_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import integrations.feishu.card_client as module
+
+    calls: list[Any] = []
+    _stub_lark(monkeypatch, module, impl=lambda _r: _ok(message_id=""), calls=calls)
+
+    with pytest.raises(RuntimeError, match="no message_id"):
+        FeishuCardClient("a", "s").send_card("oc_chat", "c_1")
 
 
 def test_a_stream_error_code_is_raised_as_feishu_stream_rejected(

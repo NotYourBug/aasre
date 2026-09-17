@@ -59,8 +59,16 @@ def _inbound(
     *,
     chat_id: str = "oc_chat-1",
     open_id: str = "ou_user-1",
+    message_id: str = "m1",
+    root_id: str = "",
 ) -> FeishuInboundMessage:
-    return FeishuInboundMessage(chat_id=chat_id, open_id=open_id, message_id="m1", text=text)
+    return FeishuInboundMessage(
+        chat_id=chat_id,
+        open_id=open_id,
+        message_id=message_id,
+        text=text,
+        root_id=root_id,
+    )
 
 
 class _FakeSessionResolver:
@@ -87,6 +95,17 @@ def _authorized_turn(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda **_kwargs: FeishuInboundDecision(allowed=True),
     )
 
+    class _UnavailableCardClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def create_card(self, _spec: object) -> str:
+            raise RuntimeError("card unavailable")
+
+    monkeypatch.setattr(
+        "gateway.transports.feishu.turn_output.FeishuCardClient", _UnavailableCardClient
+    )
+
 
 def _run(
     monkeypatch: pytest.MonkeyPatch,
@@ -103,7 +122,9 @@ def _run(
     outbound: list[tuple[str, str]] = []
     replies: list[tuple[str, str]] = []
 
-    def fake_send(_app_id: str, _app_secret: str, chat_id: str, text: str) -> None:
+    def fake_send(
+        _app_id: str, _app_secret: str, chat_id: str, text: str, **_kwargs: object
+    ) -> None:
         outbound.append((chat_id, text))
 
     def send_text(chat_id: str, text: str) -> None:
@@ -196,7 +217,9 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
     resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
     outbound: list[tuple[str, str]] = []
 
-    def fake_send(_app_id: str, _app_secret: str, _chat_id: str, text: str) -> None:
+    def fake_send(
+        _app_id: str, _app_secret: str, _chat_id: str, text: str, **_kwargs: object
+    ) -> None:
         outbound.append((_chat_id, text))
 
     monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", fake_send)
@@ -298,7 +321,9 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
     resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
     outbound: list[tuple[str, str]] = []
 
-    def fake_send(_app_id: str, _app_secret: str, _chat_id: str, text: str) -> None:
+    def fake_send(
+        _app_id: str, _app_secret: str, _chat_id: str, text: str, **_kwargs: object
+    ) -> None:
         outbound.append((_chat_id, text))
 
     monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", fake_send)
@@ -352,6 +377,8 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
 
     def fake_output(**kwargs: object) -> MagicMock:
         captured["tool_hooks"] = kwargs.get("tool_hooks")
+        captured["reply_to_message_id"] = kwargs.get("reply_to_message_id")
+        captured["reply_in_thread"] = kwargs.get("reply_in_thread")
         return MagicMock()
 
     monkeypatch.setattr(inbound_handler, "approval_tool_hooks", fake_hooks)
@@ -364,7 +391,7 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
     turn_cancel.set()
 
     _run_turn(
-        _inbound("hello"),
+        _inbound("hello", message_id="om_child", root_id="om_root"),
         settings=_settings(),
         session_resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),  # type: ignore[arg-type]
         active_cancels=ActiveTurnRegistry(),
@@ -379,6 +406,8 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
 
     assert "prompter" in captured
     assert captured["tool_hooks"] is sentinel
+    assert captured["reply_to_message_id"] == "om_root"
+    assert captured["reply_in_thread"] is True
 
 
 def test_an_uncaptioned_attachment_turn_hands_the_agent_the_content(
