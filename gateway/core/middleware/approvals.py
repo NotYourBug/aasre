@@ -96,8 +96,27 @@ class ApprovalBroker:
         )
         return True
 
+    def abandon(self, approval_id: str) -> bool:
+        """Withdraw an approval that was never successfully exposed."""
+        with self._lock:
+            pending = self._pending.pop(approval_id, None)
+            if pending is None or pending.event.is_set():
+                return False
+            pending.event.set()
+            platform = pending.platform
+            chat_id = pending.chat_id
+        audit_security_action(
+            action="approval.abandon",
+            platform=platform or None,
+            chat_id=chat_id or None,
+            resource_type="approval",
+            resource_id=approval_id,
+            outcome="denied",
+        )
+        return True
+
     def wait(self, approval_id: str, *, timeout: float) -> tuple[bool, str]:
-        """Block for a decision; expiry counts as deny. Returns (approved, decided_by)."""
+        """Block for one linearized decision; expiry counts as deny."""
         with self._lock:
             pending = self._pending.get(approval_id)
             closed = self._closed
@@ -107,20 +126,24 @@ class ApprovalBroker:
         # hold this thread for the full timeout. Poll once instead: an approval
         # ``close`` already denied reports that denial, and one created after it
         # expires immediately.
-        decided = pending.event.wait(0 if closed else timeout)
+        pending.event.wait(0 if closed else timeout)
         with self._lock:
-            self._pending.pop(approval_id, None)
-        if not decided:
-            audit_security_action(
-                action="approval.expire",
-                platform=pending.platform or None,
-                chat_id=pending.chat_id or None,
-                resource_type="approval",
-                resource_id=approval_id,
-                outcome="denied",
-            )
-            return (False, "")
-        return (pending.approved, pending.decided_by)
+            if self._pending.get(approval_id) is not pending:
+                return (False, "")
+            self._pending.pop(approval_id)
+            decided = pending.event.is_set()
+            result = (pending.approved, pending.decided_by)
+        if decided:
+            return result
+        audit_security_action(
+            action="approval.expire",
+            platform=pending.platform or None,
+            chat_id=pending.chat_id or None,
+            resource_type="approval",
+            resource_id=approval_id,
+            outcome="denied",
+        )
+        return (False, "")
 
     def close(self) -> int:
         """Deny every outstanding approval and refuse new ones; returns how many were pending.

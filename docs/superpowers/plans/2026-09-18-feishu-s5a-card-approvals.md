@@ -115,7 +115,7 @@ Keep decision fields and `event.set()` together under `resolve()`'s lock.
 
 - [ ] **Step 4: Verify GREEN and cross-transport compatibility**
 
-Run: `uv run python -m pytest gateway/tests/runtime/test_approval_broker_lifecycle.py gateway/tests/runtime/test_approval_broker_close.py gateway/tests/storage/test_security_audit.py gateway/tests/slack/test_approvals.py gateway/tests/discord/test_approvals.py gateway/tests/telegram/test_approvals.py gateway/tests/buzz/test_approvals.py gateway/tests/feishu/test_approvals.py -q`
+Run: `uv run python -m pytest gateway/tests/runtime/test_approval_broker_lifecycle.py gateway/tests/runtime/test_approval_broker_close.py gateway/tests/storage/test_security_audit.py gateway/tests/slack/test_approvals.py gateway/tests/discord/test_approvals_allowlist.py gateway/tests/telegram/test_approvals.py gateway/tests/buzz/test_approvals.py gateway/tests/feishu/test_approvals.py -q`
 
 Expected: PASS.
 
@@ -594,7 +594,7 @@ Expected: PASS. This is the `gateway/` + `integrations/` path-rule selection plu
 
 - [ ] **Step 4: Run the high-signal approval set**
 
-Run: `uv run python -m pytest gateway/tests/runtime/test_approval_broker_lifecycle.py gateway/tests/runtime/test_approval_broker_close.py gateway/tests/storage/test_security_audit.py gateway/tests/feishu/test_approvals.py gateway/tests/feishu/test_pending_approvals.py gateway/tests/feishu/test_worker.py gateway/tests/feishu/test_worker_stop.py gateway/tests/slack/test_approvals.py gateway/tests/discord/test_approvals.py gateway/tests/telegram/test_approvals.py gateway/tests/buzz/test_approvals.py tests/integrations/test_feishu_approval_cards.py tests/integrations/test_feishu_card_client.py tests/integrations/test_feishu_card_document.py -q`
+Run: `uv run python -m pytest gateway/tests/runtime/test_approval_broker_lifecycle.py gateway/tests/runtime/test_approval_broker_close.py gateway/tests/storage/test_security_audit.py gateway/tests/feishu/test_approvals.py gateway/tests/feishu/test_pending_approvals.py gateway/tests/feishu/test_worker.py gateway/tests/feishu/test_worker_stop.py gateway/tests/slack/test_approvals.py gateway/tests/discord/test_approvals_allowlist.py gateway/tests/telegram/test_approvals.py gateway/tests/buzz/test_approvals.py tests/integrations/test_feishu_approval_cards.py tests/integrations/test_feishu_card_client.py tests/integrations/test_feishu_card_document.py -q`
 
 Expected: PASS. Record pass/skip counts and elapsed time.
 
