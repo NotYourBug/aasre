@@ -22,7 +22,12 @@ from lark_oapi.api.cardkit.v1 import (
     SettingsCardRequest,
     SettingsCardRequestBody,
 )
-from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+from lark_oapi.api.im.v1 import (
+    CreateMessageRequest,
+    CreateMessageRequestBody,
+    ReplyMessageRequest,
+    ReplyMessageRequestBody,
+)
 
 from config.constants import FEISHU_STREAM_ERROR_CODES
 
@@ -44,9 +49,18 @@ class FeishuCardClient:
     is built once rather than per call.
     """
 
-    def __init__(self, app_id: str, app_secret: str) -> None:
+    def __init__(
+        self,
+        app_id: str,
+        app_secret: str,
+        *,
+        reply_to_message_id: str = "",
+        reply_in_thread: bool = False,
+    ) -> None:
         self._app_id = app_id
         self._app_secret = app_secret
+        self._reply_to_message_id = reply_to_message_id
+        self._reply_in_thread = reply_in_thread
         self._client: Any = None
 
     def _ensure_client(self) -> Any:
@@ -81,7 +95,10 @@ class FeishuCardClient:
         )
         response = self._ensure_client().cardkit.v1.card.create(request)
         self._check(response, streaming=False)
-        return str(getattr(response.data, "card_id", "") or "")
+        card_id = str(getattr(response.data, "card_id", "") or "")
+        if not card_id:
+            raise RuntimeError("Feishu cardkit create returned no card_id")
+        return card_id
 
     def update_element(
         self,
@@ -133,18 +150,37 @@ class FeishuCardClient:
 
     def send_card(self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id") -> str:
         """Send a message referencing an existing card; return its ``message_id``."""
-        request = (
-            CreateMessageRequest.builder()
-            .receive_id_type(receive_id_type)
-            .request_body(
-                CreateMessageRequestBody.builder()
-                .receive_id(chat_id)
-                .msg_type("interactive")
-                .content(json.dumps({"type": "card", "data": {"card_id": card_id}}))
+        content = json.dumps({"type": "card", "data": {"card_id": card_id}})
+        if self._reply_to_message_id:
+            request = (
+                ReplyMessageRequest.builder()
+                .message_id(self._reply_to_message_id)
+                .request_body(
+                    ReplyMessageRequestBody.builder()
+                    .msg_type("interactive")
+                    .content(content)
+                    .reply_in_thread(self._reply_in_thread)
+                    .build()
+                )
                 .build()
             )
-            .build()
-        )
-        response = self._ensure_client().im.v1.message.create(request)
+            response = self._ensure_client().im.v1.message.reply(request)
+        else:
+            request = (
+                CreateMessageRequest.builder()
+                .receive_id_type(receive_id_type)
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(chat_id)
+                    .msg_type("interactive")
+                    .content(content)
+                    .build()
+                )
+                .build()
+            )
+            response = self._ensure_client().im.v1.message.create(request)
         self._check(response, streaming=False)
-        return str(getattr(response.data, "message_id", "") or "")
+        message_id = str(getattr(response.data, "message_id", "") or "")
+        if not message_id:
+            raise RuntimeError("Feishu message send returned no message_id")
+        return message_id

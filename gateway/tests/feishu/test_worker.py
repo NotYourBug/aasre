@@ -71,6 +71,30 @@ def test_dispatch_registers_cancel_before_handler_runs() -> None:
     asyncio.run(_run())
 
 
+def test_inbound_message_preserves_thread_root_for_outbound_replies() -> None:
+    sender_id = type("SenderId", (), {"open_id": "ou_user-1"})()
+    sender = type("Sender", (), {"sender_id": sender_id})()
+    message = type(
+        "Message",
+        (),
+        {
+            "message_type": "text",
+            "chat_id": "oc_chat-1",
+            "message_id": "om_child",
+            "root_id": "om_root",
+            "parent_id": "om_parent",
+            "content": '{"text":"hello"}',
+            "mentions": [],
+        },
+    )()
+
+    inbound = worker.build_inbound_message(sender, message)
+
+    assert inbound is not None
+    assert inbound.message_id == "om_child"
+    assert inbound.root_id == "om_root"
+
+
 def test_dispatch_failure_releases_slot_and_unregisters_cancel() -> None:
     """A synchronous dispatch failure must not leak the slot or the cancel Event."""
     registry = ActiveTurnRegistry()

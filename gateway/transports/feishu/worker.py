@@ -30,7 +30,7 @@ from gateway.transports.feishu.inbound_security import is_open_id_authorized
 from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
-from gateway.transports.feishu.turn_output import _send_text
+from gateway.transports.feishu.turn_output import FeishuTurnOutputRegistry, _send_text
 from infrastructure.turn_host.turn_callback import TurnCallback
 from integrations.feishu import TRACKED_MESSAGE_TYPES, flatten_post, resource_refs
 
@@ -98,6 +98,7 @@ def build_inbound_message(sender: Any, message: Any) -> FeishuInboundMessage | N
         open_id=open_id,
         message_id=message.message_id or "",
         text=text,
+        root_id=getattr(message, "root_id", "") or "",
         parent_id=message.parent_id or "",
         attachments=attachments,
     )
@@ -209,6 +210,7 @@ def _dispatch_turn(
     executor: ThreadPoolExecutor,
     loop: asyncio.AbstractEventLoop,
     turn_slots: threading.BoundedSemaphore,
+    output_registry: FeishuTurnOutputRegistry | None = None,
 ) -> None:
     """Register the cancel Event and submit the turn to the executor.
 
@@ -242,6 +244,7 @@ def _dispatch_turn(
         handler=handler,
         logger=logger,
         turn_cancel=turn_cancel,
+        output_registry=output_registry,
     )
 
     def _on_turn_done(future: asyncio.Future[None]) -> None:
@@ -329,6 +332,7 @@ def run_feishu_gateway_thread(
     executor: ThreadPoolExecutor,
     stop_event: threading.Event,
     ready_event: threading.Event,
+    output_registry: FeishuTurnOutputRegistry,
 ) -> None:
     """Run the Feishu WebSocket loop until ``stop_event`` is set.
 
@@ -413,6 +417,7 @@ def run_feishu_gateway_thread(
             executor=executor,
             loop=asyncio.get_running_loop(),
             turn_slots=turn_slots,
+            output_registry=output_registry,
         )
 
     dispatcher_handler = (
