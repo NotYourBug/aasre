@@ -18,14 +18,108 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from lark_oapi.event.callback.model.p2_card_action_trigger import (
+    P2CardActionTrigger,
+    P2CardActionTriggerResponse,
+)
+
 from gateway.core.middleware.approvals import (
     MAX_APPROVAL_WAIT_SECONDS,
     ApprovalBroker,
     arguments_preview,
 )
-from gateway.transports.feishu.pending_approvals import PendingApprovals
+from gateway.transports.feishu.inbound_security import is_open_id_authorized
+from gateway.transports.feishu.pending_approvals import ClaimStatus, PendingApprovals
+from integrations.feishu import render_approval_result_card
 
 logger = logging.getLogger("gateway")
+
+_UNAVAILABLE = "This approval is unavailable"
+
+
+def _toast(content: str, *, kind: str = "info") -> P2CardActionTriggerResponse:
+    return P2CardActionTriggerResponse(
+        {"toast": {"type": kind, "content": content}}
+    )
+
+
+def _settled_response(
+    *, approved: bool, tool_name: str
+) -> P2CardActionTriggerResponse:
+    outcome = "Approved" if approved else "Denied"
+    return P2CardActionTriggerResponse(
+        {
+            "toast": {"type": "success", "content": outcome},
+            "card": {
+                "type": "raw",
+                "data": render_approval_result_card(
+                    tool_name=tool_name, approved=approved
+                ),
+            },
+        }
+    )
+
+
+def handle_card_action(
+    data: P2CardActionTrigger,
+    *,
+    broker: ApprovalBroker,
+    pending_approvals: PendingApprovals,
+    env_allowed_open_ids: list[str],
+    logger: logging.Logger,
+) -> P2CardActionTriggerResponse:
+    """Validate and resolve one Feishu S5a approval callback."""
+    event = data.event
+    if event is None or event.operator is None or event.context is None:
+        return _toast(_UNAVAILABLE, kind="error")
+    action = event.action
+    if action is None or action.tag != "button":
+        return _toast(_UNAVAILABLE, kind="error")
+    value = action.value
+    if not isinstance(value, Mapping):
+        return _toast(_UNAVAILABLE, kind="error")
+    if "approval_id" not in value:
+        return P2CardActionTriggerResponse()
+    if set(value) != {"approval_id"}:
+        return _toast(_UNAVAILABLE, kind="error")
+    action_token = value["approval_id"]
+    if not isinstance(action_token, str) or not action_token.strip():
+        return _toast(_UNAVAILABLE, kind="error")
+
+    open_id = event.operator.open_id or ""
+    chat_id = event.context.open_chat_id or ""
+    if not open_id or not chat_id:
+        return _toast(_UNAVAILABLE, kind="error")
+    if not is_open_id_authorized(
+        open_id=open_id,
+        chat_id=chat_id,
+        env_allowed_open_ids=env_allowed_open_ids,
+    ):
+        logger.warning(
+            "[feishu-gateway] rejected approval callback from unauthorized member"
+        )
+        return _toast(_UNAVAILABLE, kind="error")
+
+    claim = pending_approvals.claim(action_token, open_id=open_id, chat_id=chat_id)
+    if claim.status is ClaimStatus.SETTLED:
+        if claim.approved is None:
+            return _toast(_UNAVAILABLE, kind="error")
+        outcome = "approved" if claim.approved else "denied"
+        return _toast(f"Already {outcome}")
+    if claim.status is not ClaimStatus.CLAIMED or claim.approved is None:
+        return _toast(_UNAVAILABLE, kind="error")
+    if not broker.resolve(
+        claim.broker_approval_id,
+        approved=claim.approved,
+        decided_by=open_id,
+    ):
+        return _toast(_UNAVAILABLE, kind="error")
+    if not pending_approvals.settle(
+        claim.broker_approval_id, approved=claim.approved
+    ):
+        logger.warning("[feishu-gateway] approval callback lost transport state")
+        return _toast(_UNAVAILABLE, kind="error")
+    return _settled_response(approved=claim.approved, tool_name=claim.tool_name)
 
 
 class FeishuApprovalPrompter:
@@ -98,4 +192,4 @@ class FeishuApprovalPrompter:
         return (approved, decided_by)
 
 
-__all__ = ["FeishuApprovalPrompter"]
+__all__ = ["FeishuApprovalPrompter", "handle_card_action"]
