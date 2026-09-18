@@ -84,7 +84,7 @@ class FeishuApprovalPrompter:
         # Create the broker entry only after the prompt is posted: a failed or
         # empty post must not leak an approval that ``wait`` never cleans up.
         approval_id = self._broker.create(platform="feishu", chat_id=self._chat_id)
-        self._pending_approvals.register(
+        self._pending_approvals.register_legacy(
             message_id,
             approval_id=approval_id,
             requester_open_id=self._requester_open_id,
@@ -94,7 +94,7 @@ class FeishuApprovalPrompter:
             timeout = min(float(expiry_seconds), MAX_APPROVAL_WAIT_SECONDS)
             approved, decided_by = self._broker.wait(approval_id, timeout=timeout)
         finally:
-            self._pending_approvals.discard(message_id)
+            self._pending_approvals.discard_legacy(message_id)
         return (approved, decided_by)
 
 

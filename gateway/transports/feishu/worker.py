@@ -149,7 +149,7 @@ def _resolve_approval_reply(
     member whose own turn raised the request replying in the chat it was
     posted to, and the reply actually says approve or deny.
     """
-    if pending_approvals.find(parent_id) is None:
+    if pending_approvals.find_legacy(parent_id) is None:
         return False
 
     if not is_open_id_authorized(
@@ -171,7 +171,9 @@ def _resolve_approval_reply(
         )
         return True
 
-    approval_id = pending_approvals.claim(parent_id, open_id=open_id, chat_id=chat_id)
+    approval_id = pending_approvals.claim_legacy(
+        parent_id, open_id=open_id, chat_id=chat_id
+    )
     if approval_id is None:
         logger.warning(
             "[feishu-gateway] ignoring approval reply from a member who did not "

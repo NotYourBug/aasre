@@ -34,7 +34,7 @@ def test_request_posts_prompt_registers_and_resolves_on_approve() -> None:
 
     # Simulate the WS handler resolving the approval before request() waits.
     def _resolve_soon() -> None:
-        matched = pending.claim("prompt1", open_id=REQUESTER, chat_id=CHAT)
+        matched = pending.claim_legacy("prompt1", open_id=REQUESTER, chat_id=CHAT)
         assert matched is not None
         broker.resolve(matched, approved=True, decided_by=REQUESTER)
 
@@ -58,7 +58,7 @@ def test_request_posts_prompt_registers_and_resolves_on_approve() -> None:
     assert "sk-should-not-appear" not in posted[0]
     assert "opensre-test" in posted[0]
     # Cleaned up after resolution.
-    assert pending.find("prompt1") is None
+    assert pending.find_legacy("prompt1") is None
 
 
 def test_request_returns_denied_when_prompt_post_fails() -> None:
@@ -77,7 +77,7 @@ def test_request_returns_denied_when_prompt_post_fails() -> None:
     )
 
     assert (approved, decided_by) == (False, "")
-    assert pending.find("prompt1") is None
+    assert pending.find_legacy("prompt1") is None
 
 
 def test_request_returns_denied_when_prompt_post_returns_no_message_id() -> None:
@@ -137,7 +137,7 @@ def test_request_expiry_denies_and_discards() -> None:
 
     assert approved is False
     assert decided_by == ""
-    assert pending.find("prompt1") is None
+    assert pending.find_legacy("prompt1") is None
 
 
 def test_arguments_preview_redacts_secrets() -> None:

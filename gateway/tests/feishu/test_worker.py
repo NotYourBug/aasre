@@ -140,7 +140,7 @@ CHAT = "oc_chat-1"
 
 
 def _pending(pending: PendingApprovals) -> None:
-    pending.register(
+    pending.register_legacy(
         "prompt1", approval_id="approval-id-1", requester_open_id=REQUESTER, chat_id=CHAT
     )
 
@@ -178,7 +178,7 @@ def test_approval_reply_resolves_broker_instead_of_dispatching(monkeypatch) -> N
 
     assert consumed is True
     resolve.assert_called_once_with("approval-id-1", approved=True, decided_by=REQUESTER)
-    assert pending.find("prompt1") is None
+    assert pending.find_legacy("prompt1") is None
 
 
 def test_approval_reply_deny_resolves_denied(monkeypatch) -> None:
@@ -212,7 +212,7 @@ def test_unauthorized_reply_does_not_resolve(monkeypatch) -> None:
     )
 
     assert consumed is True
-    assert pending.find("prompt1") is not None
+    assert pending.find_legacy("prompt1") is not None
 
 
 def test_another_member_cannot_answer_someone_elses_prompt(monkeypatch) -> None:
@@ -226,7 +226,7 @@ def test_another_member_cannot_answer_someone_elses_prompt(monkeypatch) -> None:
 
     assert consumed is True
     resolve.assert_not_called()
-    assert pending.find("prompt1") is not None
+    assert pending.find_legacy("prompt1") is not None
 
 
 def test_reply_that_is_not_a_decision_leaves_the_prompt_open(monkeypatch) -> None:
@@ -240,7 +240,7 @@ def test_reply_that_is_not_a_decision_leaves_the_prompt_open(monkeypatch) -> Non
 
     assert consumed is True
     resolve.assert_not_called()
-    assert pending.find("prompt1") is not None
+    assert pending.find_legacy("prompt1") is not None
 
 
 def test_non_reply_parent_id_falls_through_to_dispatch() -> None:
