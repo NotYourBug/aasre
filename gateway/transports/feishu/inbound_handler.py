@@ -35,6 +35,7 @@ from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import FeishuTurnOutput, FeishuTurnOutputRegistry
 from infrastructure.analytics.usage_context import UsageSurface, bound_usage_context
 from infrastructure.turn_host.turn_callback import TurnCallback
+from integrations.feishu.card_client import FeishuCardClient
 
 #: Stands in when the attachment layer fails outright. A caption-less screenshot
 #: has no text of its own, so returning its empty text would hand the agent
@@ -150,7 +151,7 @@ def _run_turn(
             tool_hooks=approval_tool_hooks(
                 FeishuApprovalPrompter(
                     broker=approvals,
-                    send_text=send_text,
+                    card_client=FeishuCardClient(settings.app_id, settings.app_secret),
                     chat_id=inbound.chat_id,
                     requester_open_id=inbound.open_id,
                     pending_approvals=pending_approvals,

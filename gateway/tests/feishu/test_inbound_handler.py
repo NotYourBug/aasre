@@ -127,8 +127,9 @@ def _run(
     ) -> None:
         outbound.append((chat_id, text))
 
-    def send_text(chat_id: str, text: str) -> None:
+    def send_text(chat_id: str, text: str) -> str:
         replies.append((chat_id, text))
+        return "message-id"
 
     monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", fake_send)
 
@@ -370,6 +371,11 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
     """The output's tool_hooks is the result of approval_tool_hooks(prompter)."""
     captured: dict[str, object] = {}
     sentinel = object()
+    card_client = object()
+
+    def fake_card_client(app_id: str, app_secret: str) -> object:
+        captured["card_credentials"] = (app_id, app_secret)
+        return card_client
 
     def fake_hooks(prompter: object) -> object:
         captured["prompter"] = prompter
@@ -382,6 +388,7 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
         return MagicMock()
 
     monkeypatch.setattr(inbound_handler, "approval_tool_hooks", fake_hooks)
+    monkeypatch.setattr(inbound_handler, "FeishuCardClient", fake_card_client)
     monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", fake_output)
     monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", lambda *_a, **_k: None)
 
@@ -405,6 +412,10 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
     )
 
     assert "prompter" in captured
+    prompter = captured["prompter"]
+    assert isinstance(prompter, inbound_handler.FeishuApprovalPrompter)
+    assert prompter._card_client is card_client
+    assert captured["card_credentials"] == ("app", "secret")
     assert captured["tool_hooks"] is sentinel
     assert captured["reply_to_message_id"] == "om_root"
     assert captured["reply_in_thread"] is True
