@@ -78,6 +78,21 @@ toast，不含 `card`。
 实现期间可暂时保留文本审批以便真实 callback 验收；真实测试 chat 通过后，必须在同一 PR 中删除文本
 识别、reply-to-prompt 分流和对应测试。最终 PR 不得包含双轨。
 
+### 4.5 WebSocket CARD-frame compatibility
+
+锁定的 `lark-oapi 1.7.3` 以及官方仓库当前默认分支会在
+`Client._handle_data_frame()` 收到 `MessageType.CARD` 时直接返回：既不调用 dispatcher，也不回写
+callback response。S5a 因此不能只注册 `register_p2_card_action_trigger()` 后假设 SDK 会完成分发。
+
+现有 `_ReadyOnConnectClient` 子类在 transport 边界提供一个局部兼容层：只把进入该客户端实例的 CARD
+data frame 交给 SDK 已有的 EVENT 分发与 ACK 路径。兼容层必须满足：
+
+- 不修改 site-packages，不做进程级 monkeypatch。
+- 不复制 SDK 的完整 `_handle_data_frame()` 实现。
+- EVENT、CONTROL、分片合包和既有 reconnect/stop 行为不变。
+- 用合成 protobuf CARD frame 回归测试同时证明 dispatcher 被调用且 response frame 被写回。
+- 将 SDK 私有 API 依赖隔离在 worker 客户端子类中；升级 SDK 后先运行回归测试，再删除已经多余的兼容层。
+
 ## 5. Existing system
 
 当前链路如下：
@@ -140,7 +155,9 @@ toast，不含 `card`。
 
 在同一个 dispatcher builder 上注册消息事件和卡片回调。worker 的薄 wrapper 捕获未预期异常、记录
 不含 payload 的服务端日志，并返回不含 card 的通用私有错误 toast，避免 SDK 把异常变成无说明的回调
-失败。删除文本决策词表、文本解析及 reply-to-prompt 审批分流；普通回复继续走常规 inbound turn。
+失败。`_ReadyOnConnectClient` 还负责 §4.5 的实例级 CARD-frame 兼容，不让已知 SDK 分支在 dispatcher
+之前吞掉回调。删除文本决策词表、文本解析及 reply-to-prompt 审批分流；普通回复继续走常规 inbound
+turn。
 
 ## 7. Data model and state machine
 
@@ -444,6 +461,7 @@ resolved 与 expired 两个终态。
 更新 Feishu worker tests：
 
 - dispatcher 同时注册 message receive 与 card action callback。
+- 合成 CARD frame 经过 `_ReadyOnConnectClient` 后会调用 dispatcher 并写回 response ACK；EVENT 路径不回归。
 - callback 直接处理，不提交 turn executor。
 - 文本 `approve` / `deny` 不再被审批分流，作为普通 inbound turn。
 - shutdown drain + broker close 释放 approval waiter。
