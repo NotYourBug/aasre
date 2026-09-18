@@ -1,7 +1,7 @@
 # 飞书 S5a 卡片审批设计
 
 - Date: 2026-09-18
-- Status: Draft — architecture approved in brainstorming; awaiting explicit spec approval
+- Status: Approved by user (2026-09-18); scheme C revision approved after Card JSON 2.0 contract check
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
 - Scope: S5a only
 
@@ -44,16 +44,19 @@ S5a 不实现以下能力：
 
 ### 4.1 Button payload
 
-采用 brainstorming 方案 A：
+采用 brainstorming 方案 C：
 
-- 两个按钮共享 broker 生成的随机、不透明 `approval_id`。
-- `action.value` 严格只包含 `{"approval_id": "<opaque-id>"}`。
-- 固定 `action.name` 区分 Approve 与 Deny。
-- 工具名、参数、原因、正文、token、凭据和授权结论都不进入 `value`。
-- callback 中除 `approval_id` 和固定 action 名外的业务字段一律不可信。
+- broker request ID 只在服务端存在，不发给客户端。
+- Approve 和 Deny 分别生成不同的随机、不透明 action token。
+- 两个按钮的 callback `value` 都严格只包含 `{"approval_id": "<opaque-action-token>"}`。
+- server-side registry 把两个 token 映射到同一个 broker request，并分别绑定 approved/denied。
+- 工具名、参数、原因、正文、token、凭据和明文 decision 都不进入 `value`。
+- callback 中除 opaque token 外的业务字段一律不可信；approved/denied 必须由 registry 重新取得。
 
-Approve/Deny 名称是静态协议标识，不携带请求数据。服务端仍按 `approval_id` 查询 pending，并重新判断
-操作者、聊天、生命周期及 broker 状态。
+这是 Card JSON 2.0 普通 callback 按钮的实际契约：按钮通过
+`behaviors: [{"type": "callback", "value": ...}]` 回传 `action.tag` 和 `action.value`。`name` 属于表单
+submit/reset 语义，不能作为普通按钮的 decision channel。方案 A 因此在实施计划前被否决；两个独立 token
+既保持 wire payload 只有 `approval_id`，也让 decision 完全由服务端数据决定。
 
 ### 4.2 Callback response ownership
 
@@ -120,8 +123,9 @@ toast，不含 `card`。
 
 ### 6.3 `gateway/transports/feishu/pending_approvals.py`
 
-继续作为线程安全的 server-side authority registry，但改为以 `approval_id` 为键。它保存授权和重放所需
-的最小状态，不保存完整工具参数、消息正文或 callback payload。
+继续作为线程安全的 server-side authority registry，但改为以 opaque action token 为索引。两个 token
+指向同一个 request record，registry 保存 token 对应的 approved/denied、broker request ID，以及授权和
+重放所需的最小状态；不保存完整工具参数、消息正文或 callback payload。
 
 ### 6.4 `gateway/core/middleware/approvals.py`
 
@@ -142,9 +146,11 @@ toast，不含 `card`。
 
 ### 7.1 Pending record
 
-每条 pending record 至少包含：
+每条 pending request record 至少包含：
 
-- `approval_id`
+- 服务端 `broker_approval_id`
+- `approve_token` 与 `deny_token`，均为独立随机值
+- token 到 approved/denied 的服务端映射
 - `requester_open_id`
 - `chat_id`
 - `tool_name`，仅用于构造安全的结果卡
@@ -172,8 +178,9 @@ OPEN
  └─ gateway shutdown ───────→ CLOSED
 ```
 
-只有 `OPEN → CLAIMED` 是可竞争的授权 claim。错误用户、错误 chat、未通过 allowlist、未知 action 和畸形
-payload 不引起状态迁移。
+只有 `OPEN → CLAIMED` 是可竞争的授权 claim。任一 token 成功 claim 时，同 request 的兄弟 token 在
+同一临界区失去 claim 资格。错误用户、错误 chat、未通过 allowlist、未知 token 和畸形 payload 不引起
+状态迁移。
 
 ### 7.3 Settled tombstones
 
@@ -182,7 +189,8 @@ approved/denied”私有提示，但不能再次 resolve 或更新卡片。
 
 tombstone：
 
-- 只保存 `approval_id`、approved/denied 和 monotonic settled time。
+- 两个 action token 都指向同一份只读结果，内容只有 approved/denied、broker ID 和 monotonic settled
+  time。
 - 保留期复用 `MAX_APPROVAL_WAIT_SECONDS`，不增加用户配置项。
 - 在 register/find/claim 等 registry 操作中惰性清理。
 - shutdown 时一次性清空。
@@ -193,13 +201,15 @@ tombstone：
 
 ### 8.1 Prompt creation
 
-1. prompter 调用 `broker.create(platform="feishu", chat_id=...)` 得到 `approval_id`。
-2. 使用工具名、原因和 `arguments_preview(arguments)` 构造审批卡。
-3. CardKit `create_card()` 返回非空 `card_id`。
-4. 在卡片对用户可见前，以 `approval_id` 注册 pending。
-5. `send_card()` 返回非空 `message_id`。
-6. 工具线程调用 `broker.wait()`，timeout 取 tool expiry 与 `MAX_APPROVAL_WAIT_SECONDS` 的较小值。
-7. `finally` 清理仍为 OPEN/CLAIMED 的 transport record；已 settled 的最小 tombstone按保留期存活。
+1. prompter 调用 `broker.create(platform="feishu", chat_id=...)` 得到服务端 broker ID。
+2. 独立生成 `approve_token` 与 `deny_token`，并在 server-side record 中绑定各自 decision。
+3. 使用两个 token、工具名、原因和 `arguments_preview(arguments)` 构造审批卡。
+4. CardKit `create_card()` 返回非空 `card_id`。
+5. 在卡片对用户可见前，注册 request record 及两个 token 索引。
+6. `send_card()` 返回非空 `message_id`。
+7. 工具线程用服务端 broker ID 调用 `broker.wait()`；timeout 取 tool expiry 与
+   `MAX_APPROVAL_WAIT_SECONDS` 的较小值。
+8. `finally` 清理仍为 OPEN/CLAIMED 的 transport record；已 settled 的最小 tombstone 按保留期存活。
 
 注册发生在 send 前，消除“卡片已经可点击但 registry 尚未就绪”的窗口。create、register 或 send 任一步
 失败时，prompter 清理 pending 并调用 `broker.abandon()`，返回 `(False, "")`。
@@ -209,14 +219,15 @@ tombstone：
 固定顺序：
 
 1. 读取 event、operator、context、action；缺失则返回错误 toast 或空响应。
-2. `action.name` 必须等于固定 Approve/Deny 名称。
-3. `action.value` 必须是 mapping，键集合必须严格等于 `{approval_id}`，值为非空字符串。
+2. `action.tag` 必须是 `button`。
+3. `action.value` 必须是 mapping，键集合必须严格等于 `{approval_id}`，值为非空字符串 action token。
 4. 用 callback 的 `operator.open_id` 和 `context.open_chat_id` 执行现有飞书 allowlist 校验。
-5. 按 `approval_id` 查询 server-side record。
+5. 按 action token 查询 server-side request record 与绑定 decision。
 6. 比对 requester `open_id` 和原 `chat_id`。
-7. 在 registry 锁内原子 claim。
-8. 用固定 action 名得到 approved/denied，并调用 `broker.resolve()`。
-9. resolve 成功后把 record settle，并返回 toast + 无按钮结果卡。
+7. 在 registry 锁内原子 claim request；同一操作使兄弟 token 不再可 claim。
+8. 使用 record 中的服务端 broker ID 和 decision 调用 `broker.resolve()`。
+9. resolve 成功后把 request record settle，并让两个 token 都指向同一结果 tombstone；随后返回 toast +
+   无按钮结果卡。
 
 不根据 callback 的工具名、理由、参数或卡片正文做任何授权决定。
 
@@ -227,10 +238,10 @@ tombstone：
 - allowlist 拒绝
 - 非原请求者
 - 非原 chat
-- 未知/过期 approval ID
+- 未知/过期 action token
 - duplicate 或 settled callback
 - 不完整或额外字段的 approval value
-- unknown approval action
+- unknown action token 或非 button callback
 - broker 已 timeout/close
 
 除已 settled duplicate 可私下说明已有 Approved/Denied 结果外，其余授权失败使用同一 unavailable 文案，
@@ -258,8 +269,9 @@ callback handler 只允许：
 
 ### 9.1 Concurrent clicks
 
-多个合法点击并发时，registry 锁保证只有一个从 OPEN 进入 CLAIMED。赢家可以 resolve；输家得到私有
-duplicate/in-progress 提示，不修改 card 或 broker。
+Approve/Deny token 被同时点击时，registry 锁保证只有一个让共享 request 从 OPEN 进入 CLAIMED。赢家使用
+自己 token 绑定的 decision resolve；兄弟 token 和同 token 重投都得到私有 duplicate/in-progress 提示，
+不修改 card 或 broker。
 
 ### 9.2 Timeout versus resolve
 
@@ -348,7 +360,7 @@ Deny：
 允许记录：
 
 - event category
-- `approval_id`
+- 服务端 broker approval ID（不记录客户端 action token）
 - platform
 - chat ID
 - operator ID
@@ -388,7 +400,7 @@ resolved 与 expired 两个终态。
 新增 `tests/integrations/test_feishu_approval_cards.py`：
 
 - schema 2.0 和预期元素结构。
-- 两个按钮名称、样式和只含 approval ID 的 value。
+- schema 2.0 callback `behaviors`；两个按钮各有不同 token；每个 value 只含 `approval_id`。
 - 工具名、原因和脱敏 preview 的显示。
 - secret 永不出现在 serialized card。
 - Approved/Denied 卡无按钮、参数和 operator ID。
@@ -399,7 +411,7 @@ resolved 与 expired 两个终态。
 
 - 正确 requester/chat 可以 claim。
 - wrong actor/chat 不消费 OPEN record。
-- 并发 claim 恰好一胜者，使用 barrier 而不是 sleep。
+- Approve/Deny 兄弟 token 并发 claim 恰好一胜者，使用 barrier 而不是 sleep。
 - settled duplicate 返回既有结果但不能再 claim。
 - tombstone 超期清理且不影响其他 record。
 - drain 清空所有状态。
@@ -420,7 +432,7 @@ resolved 与 expired 两个终态。
 
 - prompt 卡创建、注册、发送、等待和合法 approve/deny。
 - create/send exception、空 card ID、空 message ID 无 broker/pending 泄漏。
-- value 多字段、错误类型、未知 action、缺 operator/context 被拒绝。
+- value 多字段、错误类型、未知 token、非 button tag、缺 operator/context 被拒绝。
 - allowlist、requester 和 chat 任一失败均不消费 pending。
 - 合法 click 返回 card + toast；非法 click 只有 toast。
 - duplicate 返回 prior-result toast，无 card。
@@ -488,10 +500,10 @@ resolved 与 expired 两个终态。
 
 实现简单，但不符合“value 仅含 opaque approval ID”的严格安全约束，因此拒绝。
 
-### 17.2 Two independent opaque IDs
+### 17.2 Shared token plus `action.name`
 
-可让 server-side registry 为每个按钮映射 decision，但会增加 token、映射和生命周期复杂度。固定 action 名
-已经能在不泄露请求数据的前提下表达用户选择，因此不采用。
+Card JSON 2.0 的普通 callback button 只承诺回传 `action.tag` 与 callback behavior 的 `value`；按钮
+`name` 属于表单 submit/reset 语义。两个按钮共享 token 会让服务端无法可靠区分 Approve/Deny，因此拒绝。
 
 ### 17.3 Async callback then REST card update
 
