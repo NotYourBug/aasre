@@ -33,9 +33,7 @@ class ApprovalCardClient(Protocol):
     def create_card(self, spec: dict[str, object]) -> str:
         """Create a card entity and return its card ID."""
 
-    def send_card(
-        self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id"
-    ) -> str:
+    def send_card(self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id") -> str:
         """Expose a card in one chat and return its message ID."""
 
 
@@ -45,23 +43,17 @@ def _action_token() -> str:
 
 
 def _toast(content: str, *, kind: str = "info") -> P2CardActionTriggerResponse:
-    return P2CardActionTriggerResponse(
-        {"toast": {"type": kind, "content": content}}
-    )
+    return P2CardActionTriggerResponse({"toast": {"type": kind, "content": content}})
 
 
-def _settled_response(
-    *, approved: bool, tool_name: str
-) -> P2CardActionTriggerResponse:
+def _settled_response(*, approved: bool, tool_name: str) -> P2CardActionTriggerResponse:
     outcome = "Approved" if approved else "Denied"
     return P2CardActionTriggerResponse(
         {
             "toast": {"type": "success", "content": outcome},
             "card": {
                 "type": "raw",
-                "data": render_approval_result_card(
-                    tool_name=tool_name, approved=approved
-                ),
+                "data": render_approval_result_card(tool_name=tool_name, approved=approved),
             },
         }
     )
@@ -102,9 +94,7 @@ def handle_card_action(
         chat_id=chat_id,
         env_allowed_open_ids=env_allowed_open_ids,
     ):
-        logger.warning(
-            "[feishu-gateway] rejected approval callback from unauthorized member"
-        )
+        logger.warning("[feishu-gateway] rejected approval callback from unauthorized member")
         return _toast(_UNAVAILABLE, kind="error")
 
     claim = pending_approvals.claim(action_token, open_id=open_id, chat_id=chat_id)
@@ -121,9 +111,7 @@ def handle_card_action(
         decided_by=open_id,
     ):
         return _toast(_UNAVAILABLE, kind="error")
-    if not pending_approvals.settle(
-        claim.broker_approval_id, approved=claim.approved
-    ):
+    if not pending_approvals.settle(claim.broker_approval_id, approved=claim.approved):
         logger.warning("[feishu-gateway] approval callback lost transport state")
         return _toast(_UNAVAILABLE, kind="error")
     return _settled_response(approved=claim.approved, tool_name=claim.tool_name)

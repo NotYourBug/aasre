@@ -179,9 +179,7 @@ def _resolve_approval_reply(
         )
         return True
 
-    approval_id = pending_approvals.claim_legacy(
-        parent_id, open_id=open_id, chat_id=chat_id
-    )
+    approval_id = pending_approvals.claim_legacy(parent_id, open_id=open_id, chat_id=chat_id)
     if approval_id is None:
         logger.warning(
             "[feishu-gateway] ignoring approval reply from a member who did not "
@@ -314,16 +312,12 @@ class _ReadyOnConnectClient(Client):
         self._adapted_card_message_ids: set[str] = set()
 
     async def _handle_data_frame(self, frame: Frame) -> None:
-        type_header = next(
-            (header for header in frame.headers if header.key == HEADER_TYPE), None
-        )
+        type_header = next((header for header in frame.headers if header.key == HEADER_TYPE), None)
         if type_header is None or type_header.value != MessageType.CARD.value:
             await super()._handle_data_frame(frame)
             return
         message_id = next(
-            header.value
-            for header in frame.headers
-            if header.key == HEADER_MESSAGE_ID
+            header.value for header in frame.headers if header.key == HEADER_MESSAGE_ID
         )
         forwarded = Frame()
         forwarded.CopyFrom(frame)
@@ -346,17 +340,12 @@ class _ReadyOnConnectClient(Client):
             await super()._write_message(data)
             return
         message_id = next(
-            (
-                header.value
-                for header in frame.headers
-                if header.key == HEADER_MESSAGE_ID
-            ),
+            (header.value for header in frame.headers if header.key == HEADER_MESSAGE_ID),
             None,
         )
         with self._card_frame_lock:
             restore_card_type = (
-                message_id is not None
-                and message_id in self._adapted_card_message_ids
+                message_id is not None and message_id in self._adapted_card_message_ids
             )
         if restore_card_type:
             type_header = next(
@@ -436,9 +425,7 @@ def run_feishu_gateway_thread(
                 logger=logger,
             )
         except Exception:
-            logger.error(
-                "[feishu-gateway] card callback handling failed", exc_info=True
-            )
+            logger.error("[feishu-gateway] card callback handling failed", exc_info=True)
             return P2CardActionTriggerResponse(
                 {
                     "toast": {

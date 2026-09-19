@@ -85,7 +85,9 @@ def test_unknown_and_expired_tokens_are_unavailable() -> None:
     _register(pending, expires_at=clock.now)
 
     assert _claim(pending).status is ClaimStatus.UNAVAILABLE
-    assert pending.claim("missing", open_id=REQUESTER, chat_id=CHAT).status is ClaimStatus.UNAVAILABLE
+    assert (
+        pending.claim("missing", open_id=REQUESTER, chat_id=CHAT).status is ClaimStatus.UNAVAILABLE
+    )
     assert pending.drain() == []
 
 
@@ -104,8 +106,7 @@ def test_sibling_tokens_have_exactly_one_concurrent_winner(_attempt: int) -> Non
             results.append(result)
 
     threads = [
-        threading.Thread(target=_race, args=(token,))
-        for token in ("token-approve", "token-deny")
+        threading.Thread(target=_race, args=(token,)) for token in ("token-approve", "token-deny")
     ]
     for thread in threads:
         thread.start()

@@ -47,9 +47,7 @@ def render_approval_prompt_card(
                             "width": "weighted",
                             "weight": 1,
                             "elements": [
-                                _callback_button(
-                                    "Approve", approve_token, kind="primary_filled"
-                                )
+                                _callback_button("Approve", approve_token, kind="primary_filled")
                             ],
                         },
                         {
@@ -78,9 +76,7 @@ def render_approval_result_card(*, tool_name: str, approved: bool) -> dict[str, 
             "title": {"tag": "plain_text", "content": outcome},
         },
         "body": {
-            "elements": [
-                {"tag": "markdown", "content": f"{icon} **{outcome}** — `{tool_name}`"}
-            ]
+            "elements": [{"tag": "markdown", "content": f"{icon} **{outcome}** — `{tool_name}`"}]
         },
     }
 

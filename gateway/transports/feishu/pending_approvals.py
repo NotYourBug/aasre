@@ -193,9 +193,7 @@ class PendingApprovals:
         with self._lock:
             return self._legacy_by_prompt.get(prompt_message_id)
 
-    def claim_legacy(
-        self, prompt_message_id: str, *, open_id: str, chat_id: str
-    ) -> str | None:
+    def claim_legacy(self, prompt_message_id: str, *, open_id: str, chat_id: str) -> str | None:
         """Consume an authorized temporary text-reply prompt."""
         with self._lock:
             pending = self._legacy_by_prompt.get(prompt_message_id)
@@ -216,9 +214,7 @@ class PendingApprovals:
         with self._lock:
             self._cleanup_locked(self._clock())
             approval_ids = list(self._by_request)
-            approval_ids.extend(
-                pending.approval_id for pending in self._legacy_by_prompt.values()
-            )
+            approval_ids.extend(pending.approval_id for pending in self._legacy_by_prompt.values())
             self._by_request.clear()
             self._by_token.clear()
             self._legacy_by_prompt.clear()

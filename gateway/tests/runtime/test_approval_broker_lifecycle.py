@@ -93,9 +93,7 @@ def test_resolve_wins_when_event_is_set_before_timeout_finalization(
     broker._pending[approval_id].event = cast(Any, coordinated)  # noqa: SLF001
     result: list[tuple[bool, str]] = []
 
-    thread = threading.Thread(
-        target=lambda: result.append(broker.wait(approval_id, timeout=0.0))
-    )
+    thread = threading.Thread(target=lambda: result.append(broker.wait(approval_id, timeout=0.0)))
     thread.start()
     coordinated.wait_until_waiting()
 

@@ -51,9 +51,7 @@ class _FakeCardClient:
         self.created.append(spec)
         return self.card_id
 
-    def send_card(
-        self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id"
-    ) -> str:
+    def send_card(self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id") -> str:
         if self.send_error is not None:
             raise self.send_error
         self.sent.append((chat_id, card_id, receive_id_type))
@@ -65,9 +63,9 @@ class _FakeCardClient:
 def _card_token(spec: dict[str, object], index: int) -> str:
     payload = json.loads(json.dumps(spec))
     return str(
-        payload["body"]["elements"][1]["columns"][index]["elements"][0][
-            "behaviors"
-        ][0]["value"]["approval_id"]
+        payload["body"]["elements"][1]["columns"][index]["elements"][0]["behaviors"][0]["value"][
+            "approval_id"
+        ]
     )
 
 
@@ -99,9 +97,7 @@ def test_request_registers_before_send_and_retains_settled_tombstone(
         assert response.card is not None
 
     client = _FakeCardClient(on_send=_click_on_send)
-    approved, decided_by = _prompter(
-        broker=broker, pending=pending, client=client
-    ).request(
+    approved, decided_by = _prompter(broker=broker, pending=pending, client=client).request(
         tool_name="feishu_send_message",
         reason="posting a summary",
         arguments={"api_key": "sk-should-not-appear", "channel": "opensre-test"},
@@ -163,11 +159,13 @@ def test_request_exposure_failure_abandons_broker_and_registry(
     )
 
     if failure == "builder":
+
         def _raise_builder(**_kwargs: object) -> dict[str, object]:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(approvals_module, "render_approval_prompt_card", _raise_builder)
     if failure == "register":
+
         def _raise_register(**_kwargs: object) -> None:
             raise RuntimeError("boom")
 

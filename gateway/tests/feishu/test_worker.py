@@ -108,14 +108,10 @@ class _CallbackClient:
         self._event_handler = event_handler
 
     def start(self) -> None:
-        type(self).response = self._event_handler._do_without_validation(
-            _card_payload_bytes()
-        )
+        type(self).response = self._event_handler._do_without_validation(_card_payload_bytes())
 
 
-async def _dispatch_frame(
-    dispatcher: EventDispatcherHandler, frame: Frame
-) -> None:
+async def _dispatch_frame(dispatcher: EventDispatcherHandler, frame: Frame) -> None:
     client = worker._ReadyOnConnectClient(
         "app",
         "secret",
@@ -139,9 +135,7 @@ def test_card_frame_dispatches_callback_and_writes_card_ack(
     def _on_card(data: P2CardActionTrigger) -> P2CardActionTriggerResponse:
         assert data.event is not None and data.event.action is not None
         callback_payloads.append(dict(data.event.action.value or {}))
-        return P2CardActionTriggerResponse(
-            {"toast": {"type": "success", "content": "Approved"}}
-        )
+        return P2CardActionTriggerResponse({"toast": {"type": "success", "content": "Approved"}})
 
     dispatcher = (
         EventDispatcherHandler.builder(encrypt_key="", verification_token="")

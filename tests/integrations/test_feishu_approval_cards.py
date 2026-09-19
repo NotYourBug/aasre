@@ -30,9 +30,10 @@ def test_prompt_has_distinct_callback_tokens_and_no_client_decision() -> None:
     buttons = _buttons(spec)
 
     assert spec["schema"] == "2.0"
-    assert [
-        cast(dict[str, str], button["text"])["content"] for button in buttons
-    ] == ["Approve", "Deny"]
+    assert [cast(dict[str, str], button["text"])["content"] for button in buttons] == [
+        "Approve",
+        "Deny",
+    ]
     assert [button["behaviors"] for button in buttons] == [
         [{"type": "callback", "value": {"approval_id": "approve-token"}}],
         [{"type": "callback", "value": {"approval_id": "deny-token"}}],
