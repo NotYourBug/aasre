@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -42,15 +43,17 @@ class _PendingApproval:
     decided_by: str = ""
     platform: str = ""
     chat_id: str = ""
+    expires_at: float | None = None
 
 
 class ApprovalBroker:
     """Thread-safe registry connecting button clicks to waiting tool calls."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._pending: dict[str, _PendingApproval] = {}
         self._lock = threading.Lock()
         self._closed = False
+        self._clock = clock
 
     def create(
         self,
@@ -78,7 +81,11 @@ class ApprovalBroker:
         """Deliver a click decision; False when unknown/expired/already decided."""
         with self._lock:
             pending = self._pending.get(approval_id)
-            if pending is None or pending.event.is_set():
+            if (
+                pending is None
+                or pending.event.is_set()
+                or (pending.expires_at is not None and self._clock() >= pending.expires_at)
+            ):
                 return False
             pending.approved = approved
             pending.decided_by = decided_by
@@ -96,31 +103,59 @@ class ApprovalBroker:
         )
         return True
 
+    def abandon(self, approval_id: str) -> bool:
+        """Withdraw an approval that was never successfully exposed."""
+        with self._lock:
+            pending = self._pending.pop(approval_id, None)
+            if pending is None or pending.event.is_set():
+                return False
+            pending.event.set()
+            platform = pending.platform
+            chat_id = pending.chat_id
+        audit_security_action(
+            action="approval.abandon",
+            platform=platform or None,
+            chat_id=chat_id or None,
+            resource_type="approval",
+            resource_id=approval_id,
+            outcome="denied",
+        )
+        return True
+
     def wait(self, approval_id: str, *, timeout: float) -> tuple[bool, str]:
-        """Block for a decision; expiry counts as deny. Returns (approved, decided_by)."""
+        """Block for one linearized decision; expiry counts as deny."""
         with self._lock:
             pending = self._pending.get(approval_id)
             closed = self._closed
+            if pending is not None:
+                now = self._clock()
+                if pending.expires_at is None:
+                    pending.expires_at = now + max(0.0, timeout)
+                wait_seconds = max(0.0, pending.expires_at - now)
         if pending is None:
             return (False, "")
         # A closed broker can never receive a decision, so blocking would only
         # hold this thread for the full timeout. Poll once instead: an approval
         # ``close`` already denied reports that denial, and one created after it
         # expires immediately.
-        decided = pending.event.wait(0 if closed else timeout)
+        pending.event.wait(0 if closed else wait_seconds)
         with self._lock:
-            self._pending.pop(approval_id, None)
-        if not decided:
-            audit_security_action(
-                action="approval.expire",
-                platform=pending.platform or None,
-                chat_id=pending.chat_id or None,
-                resource_type="approval",
-                resource_id=approval_id,
-                outcome="denied",
-            )
-            return (False, "")
-        return (pending.approved, pending.decided_by)
+            if self._pending.get(approval_id) is not pending:
+                return (False, "")
+            self._pending.pop(approval_id)
+            decided = pending.event.is_set()
+            result = (pending.approved, pending.decided_by)
+        if decided:
+            return result
+        audit_security_action(
+            action="approval.expire",
+            platform=pending.platform or None,
+            chat_id=pending.chat_id or None,
+            resource_type="approval",
+            resource_id=approval_id,
+            outcome="denied",
+        )
+        return (False, "")
 
     def close(self) -> int:
         """Deny every outstanding approval and refuse new ones; returns how many were pending.

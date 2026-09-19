@@ -39,6 +39,7 @@ from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from integrations.feishu import ResourceRef
+from integrations.messaging_security import MessagingIdentityPolicy
 
 TEST_ORG_ID = "org_feishu_turn"
 LOGGER = logging.getLogger("gateway.test")
@@ -127,8 +128,9 @@ def _run(
     ) -> None:
         outbound.append((chat_id, text))
 
-    def send_text(chat_id: str, text: str) -> None:
+    def send_text(chat_id: str, text: str) -> str:
         replies.append((chat_id, text))
+        return "message-id"
 
     monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", fake_send)
 
@@ -169,6 +171,51 @@ def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) 
 
     assert resolver.rotated is True
     assert resolver.resolved is False
+    callback.assert_not_called()
+
+
+def test_pairing_reply_does_not_require_an_organization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Identity bootstrap must complete before an organization-scoped turn exists."""
+    monkeypatch.delenv("ORGANIZATION_ID", raising=False)
+    policy = MessagingIdentityPolicy(allowed_user_ids=["ou_user-1"])
+    monkeypatch.setattr(
+        inbound_handler,
+        "enforce_inbound_feishu_message_security",
+        lambda **_kwargs: FeishuInboundDecision(
+            allowed=False,
+            reply_text="Pairing successful!",
+            persist_policy=True,
+            updated_policy=policy,
+        ),
+    )
+    persist = MagicMock()
+    monkeypatch.setattr(inbound_handler, "persist_policy_if_needed", persist)
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+    callback = MagicMock()
+
+    _outbound, replies = _run(
+        monkeypatch,
+        inbound=_inbound("/pair CODE"),
+        handler=callback,
+        resolver=resolver,
+        settings=_settings(),
+        active_cancels=ActiveTurnRegistry(),
+    )
+
+    assert replies == [("oc_chat-1", "Pairing successful!")]
+    persist.assert_called_once_with(
+        "feishu",
+        FeishuInboundDecision(
+            allowed=False,
+            reply_text="Pairing successful!",
+            persist_policy=True,
+            updated_policy=policy,
+        ),
+    )
+    assert resolver.resolved is False
+    assert resolver.rotated is False
     callback.assert_not_called()
 
 
@@ -370,6 +417,11 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
     """The output's tool_hooks is the result of approval_tool_hooks(prompter)."""
     captured: dict[str, object] = {}
     sentinel = object()
+    card_client = object()
+
+    def fake_card_client(app_id: str, app_secret: str) -> object:
+        captured["card_credentials"] = (app_id, app_secret)
+        return card_client
 
     def fake_hooks(prompter: object) -> object:
         captured["prompter"] = prompter
@@ -382,6 +434,7 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
         return MagicMock()
 
     monkeypatch.setattr(inbound_handler, "approval_tool_hooks", fake_hooks)
+    monkeypatch.setattr(inbound_handler, "FeishuCardClient", fake_card_client)
     monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", fake_output)
     monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", lambda *_a, **_k: None)
 
@@ -405,6 +458,10 @@ def test_run_turn_wires_approval_tool_hooks_into_output(
     )
 
     assert "prompter" in captured
+    prompter = captured["prompter"]
+    assert isinstance(prompter, inbound_handler.FeishuApprovalPrompter)
+    assert prompter._card_client is card_client
+    assert captured["card_credentials"] == ("app", "secret")
     assert captured["tool_hooks"] is sentinel
     assert captured["reply_to_message_id"] == "om_root"
     assert captured["reply_in_thread"] is True

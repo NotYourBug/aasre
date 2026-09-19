@@ -7,6 +7,10 @@ parses inbound message content into text and resource references, and builds
 CardKit cards from markdown.
 """
 
+from integrations.feishu.approval_cards import (
+    render_approval_prompt_card,
+    render_approval_result_card,
+)
 from integrations.feishu.card_document import (
     CardPage,
     paginate,
@@ -43,6 +47,8 @@ __all__ = [
     "load_chat_credentials_from_env",
     "load_credentials_from_env",
     "paginate",
+    "render_approval_prompt_card",
+    "render_approval_result_card",
     "render_card_spec",
     "resource_refs",
     "resource_url",

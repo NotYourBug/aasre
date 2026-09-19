@@ -14,9 +14,16 @@ from typing import Any
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 from lark_oapi.core.token import TokenManager
+from lark_oapi.event.callback.model.p2_card_action_trigger import (
+    P2CardActionTrigger,
+    P2CardActionTriggerResponse,
+)
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws.client import Client
 from lark_oapi.ws.client import loop as _ws_loop
+from lark_oapi.ws.const import HEADER_MESSAGE_ID, HEADER_TYPE
+from lark_oapi.ws.enum import MessageType
+from lark_oapi.ws.pb.pbbp2_pb2 import Frame
 
 from config.constants.gateway import NO_ACTIVE_TURN_MESSAGE
 from gateway.core.middleware.active_turns import ActiveTurnRegistry, is_stop_command
@@ -24,9 +31,9 @@ from gateway.core.middleware.approvals import ApprovalBroker
 from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.core.storage import SessionResolver
 from gateway.core.storage.session.binding_store import BindingStore
+from gateway.transports.feishu.approvals import handle_card_action
 from gateway.transports.feishu.events import FeishuInboundMessage
 from gateway.transports.feishu.inbound_handler import _run_turn as handle_inbound_turn
-from gateway.transports.feishu.inbound_security import is_open_id_authorized
 from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
@@ -35,9 +42,6 @@ from infrastructure.turn_host.turn_callback import TurnCallback
 from integrations.feishu import TRACKED_MESSAGE_TYPES, flatten_post, resource_refs
 
 _PLATFORM_FEISHU = "feishu"
-
-_APPROVE_WORDS = frozenset({"approve", "approved", "approves", "yes", "y", "ok", "okay", "lgtm"})
-_DENY_WORDS = frozenset({"deny", "denied", "denies", "no", "n", "reject", "rejected", "cancel"})
 
 
 def strip_leading_feishu_mentions(text: str, bot_mention_keys: frozenset[str]) -> str:
@@ -111,78 +115,6 @@ def _message_content(message: Any) -> dict[str, Any]:
     except (TypeError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-def _decision(text: str) -> bool | None:
-    """Read a reply as approve/deny, or ``None`` when it is neither."""
-    words = text.strip().lower().split(maxsplit=1)
-    if not words:
-        return None
-    first = words[0].strip("*_`.!,:")
-    if first in _APPROVE_WORDS:
-        return True
-    if first in _DENY_WORDS:
-        return False
-    return None
-
-
-def _resolve_approval_reply(
-    *,
-    parent_id: str,
-    open_id: str,
-    chat_id: str,
-    text: str,
-    approvals: ApprovalBroker,
-    pending_approvals: PendingApprovals,
-    env_allowed_open_ids: list[str],
-    logger: logging.Logger,
-) -> bool:
-    """Resolve a reply aimed at a pending approval prompt, if any.
-
-    Returns whether the reply was consumed here — a reply aimed at a live
-    prompt never falls through to start a chat turn, decided or not.
-
-    Runs on the WS loop's own thread — never the turn executor, so a waiting
-    turn's ``ApprovalBroker.wait`` never contends with the lock it is blocked
-    on. Three checks gate the decision, and none consume the prompt when they
-    fail: the responder is still an authorized identity now, they are the
-    member whose own turn raised the request replying in the chat it was
-    posted to, and the reply actually says approve or deny.
-    """
-    if pending_approvals.find(parent_id) is None:
-        return False
-
-    if not is_open_id_authorized(
-        open_id=open_id, chat_id=chat_id, env_allowed_open_ids=env_allowed_open_ids
-    ):
-        logger.warning(
-            "[feishu-gateway] ignoring approval reply from unauthorized open_id=%s chat=%s",
-            open_id,
-            chat_id,
-        )
-        return True
-
-    approved = _decision(text)
-    if approved is None:
-        logger.info(
-            "[feishu-gateway] approval reply was not a decision open_id=%s chat=%s",
-            open_id,
-            chat_id,
-        )
-        return True
-
-    approval_id = pending_approvals.claim(parent_id, open_id=open_id, chat_id=chat_id)
-    if approval_id is None:
-        logger.warning(
-            "[feishu-gateway] ignoring approval reply from a member who did not "
-            "raise the request open_id=%s chat=%s",
-            open_id,
-            chat_id,
-        )
-        return True
-
-    approvals.resolve(approval_id, approved=approved, decided_by=open_id)
-    return True
 
 
 def _verify_feishu_credentials(app_id: str, app_secret: str) -> None:
@@ -300,6 +232,54 @@ class _ReadyOnConnectClient(Client):
         self._ready_event = ready_event
         self._stop_event = stop_event
         self._stopped = False
+        self._card_frame_lock = threading.Lock()
+        self._adapted_card_message_ids: set[str] = set()
+
+    async def _handle_data_frame(self, frame: Frame) -> None:
+        type_header = next((header for header in frame.headers if header.key == HEADER_TYPE), None)
+        if type_header is None or type_header.value != MessageType.CARD.value:
+            await super()._handle_data_frame(frame)
+            return
+        message_id = next(
+            header.value for header in frame.headers if header.key == HEADER_MESSAGE_ID
+        )
+        forwarded = Frame()
+        forwarded.CopyFrom(frame)
+        next(
+            header for header in forwarded.headers if header.key == HEADER_TYPE
+        ).value = MessageType.EVENT.value
+        with self._card_frame_lock:
+            self._adapted_card_message_ids.add(message_id)
+        try:
+            await super()._handle_data_frame(forwarded)
+        finally:
+            with self._card_frame_lock:
+                self._adapted_card_message_ids.discard(message_id)
+
+    async def _write_message(self, data: bytes) -> None:
+        frame = Frame()
+        try:
+            frame.ParseFromString(data)
+        except Exception:
+            await super()._write_message(data)
+            return
+        message_id = next(
+            (header.value for header in frame.headers if header.key == HEADER_MESSAGE_ID),
+            None,
+        )
+        with self._card_frame_lock:
+            restore_card_type = (
+                message_id is not None and message_id in self._adapted_card_message_ids
+            )
+        if restore_card_type:
+            type_header = next(
+                (header for header in frame.headers if header.key == HEADER_TYPE),
+                None,
+            )
+            if type_header is not None:
+                type_header.value = MessageType.CARD.value
+                data = frame.SerializeToString()
+        await super()._write_message(data)
 
     async def _connect(self) -> None:
         await super()._connect()
@@ -359,6 +339,26 @@ def run_feishu_gateway_thread(
         except Exception:
             logger.error("[feishu-gateway] inbound event handling failed", exc_info=True)
 
+    def on_card_action(data: P2CardActionTrigger) -> P2CardActionTriggerResponse:
+        try:
+            return handle_card_action(
+                data,
+                broker=approvals,
+                pending_approvals=pending_approvals,
+                env_allowed_open_ids=settings.allowed_open_ids,
+                logger=logger,
+            )
+        except Exception:
+            logger.error("[feishu-gateway] card callback handling failed", exc_info=True)
+            return P2CardActionTriggerResponse(
+                {
+                    "toast": {
+                        "type": "error",
+                        "content": "This interaction could not be completed",
+                    }
+                }
+            )
+
     def _handle_event(data: P2ImMessageReceiveV1) -> None:
         if stop_event.is_set():
             return
@@ -381,18 +381,6 @@ def run_feishu_gateway_thread(
                 message.chat_id or "",
             )
             return
-        if inbound.parent_id and _resolve_approval_reply(
-            parent_id=inbound.parent_id,
-            open_id=inbound.open_id,
-            chat_id=inbound.chat_id,
-            text=inbound.text,
-            approvals=approvals,
-            pending_approvals=pending_approvals,
-            env_allowed_open_ids=settings.allowed_open_ids,
-            logger=logger,
-        ):
-            return
-
         # No mention gate here: the app holds im:message.p2p_msg:readonly plus
         # im:message.group_at_msg[:.include_bot]:readonly and NOT
         # im:message.group_msg, so Feishu already delivers only DMs and group
@@ -423,12 +411,16 @@ def run_feishu_gateway_thread(
     dispatcher_handler = (
         EventDispatcherHandler.builder(encrypt_key="", verification_token="")
         .register_p2_im_message_receive_v1(on_message)
+        .register_p2_card_action_trigger(on_card_action)
         .build()
     )
     client = _ReadyOnConnectClient(
         settings.app_id,
         settings.app_secret,
-        log_level=lark.LogLevel.INFO,
+        # INFO logs the complete WebSocket URL, including temporary access
+        # parameters. Keep SDK transport logs at WARNING while our own gateway
+        # logger reports connection readiness without credentials.
+        log_level=lark.LogLevel.WARNING,
         event_handler=dispatcher_handler,
         ready_event=ready_event,
         stop_event=stop_event,
@@ -440,6 +432,7 @@ def run_feishu_gateway_thread(
     finally:
         # Deny every outstanding approval so a turn parked in ``broker.wait`` is
         # released instead of holding its executor thread for the full timeout.
+        pending_approvals.drain()
         approvals.close()
 
 

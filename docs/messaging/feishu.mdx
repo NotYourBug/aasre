@@ -1,0 +1,102 @@
+---
+title: Feishu
+description: Connect an OpenSRE chat gateway to a Feishu custom app.
+---
+
+## Configure the app
+
+Create a custom app in the Feishu developer console and enable its bot capability.
+Grant it permission to:
+
+- receive direct messages sent to the bot;
+- receive group messages that mention the bot;
+- send messages as the app;
+- create and update cards.
+
+Add the bot to each chat where OpenSRE should run. After changing permissions,
+subscriptions, or bot settings, create and publish a new app version.
+
+## Receive messages and card actions
+
+Choose **long connection** delivery; a public callback URL is not required. Under
+**Subscribed events**, add the message-receive event. Under **Subscribed callbacks**
+(not **Subscribed events**), add `card.action.trigger`.
+
+<Warning>
+Adding the callback without publishing a new app version leaves approval buttons
+visible but unable to deliver decisions.
+</Warning>
+
+## Configure OpenSRE
+
+Recommended:
+
+```bash
+opensre integrations setup feishu
+opensre integrations verify feishu
+```
+
+The setup asks for the app ID (`cli_…`), app secret, optional default destination,
+and the comma-separated Open IDs allowed to talk to the bot. To configure the
+gateway directly, set:
+
+```bash
+FEISHU_APP_ID=cli_...
+FEISHU_APP_SECRET=...
+FEISHU_ALLOWED_OPEN_IDS=ou_alice,ou_bob
+ORGANIZATION_ID=org_...
+```
+
+`FEISHU_ALLOWED_OPEN_IDS` must contain at least one member for immediate inbound
+access. Only listed members can start turns or decide their own write-tool
+approvals. `ORGANIZATION_ID` names the organization that owns Feishu sessions and
+usage; without it, pairing and help still work but agent turns fail closed.
+
+You can also bootstrap an identity without copying its Open ID:
+
+```bash
+opensre messaging pair -p feishu
+# then send the displayed /pair command to the bot within 15 minutes
+```
+
+Or manage the allowlist directly:
+
+```bash
+opensre messaging allow -p feishu -u ou_alice
+opensre messaging status -p feishu
+```
+
+Treat the app secret like a password and keep it out of source control.
+
+## Start the gateway
+
+```bash
+opensre gateway start
+opensre gateway status
+```
+
+Use `opensre gateway start -f` to run attached to the terminal, and
+`opensre gateway logs -f` to follow startup and callback errors. A successful
+credential verification does not prove that permissions, subscriptions, the
+published version, or chat membership are correct.
+
+## Approve write tools
+
+Write tools display a card with **Approve** and **Deny** buttons. Only the member
+whose turn requested the tool can decide it, and the decision must come from the
+original chat. Another group member cannot consume the request.
+
+Typing `approve` or `deny` is an ordinary chat message and does not authorize a
+tool. An expired or already unavailable card fails closed; it never falls back to
+text approval.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Gateway reports Feishu is not configured | Run setup, or set both app credentials, then restart the gateway. |
+| Pairing succeeds but agent turns are silent | Set `ORGANIZATION_ID`, then restart the gateway. |
+| Direct messages do not start turns | Confirm the sender's `ou_…` Open ID is allowed and the latest app version is published. |
+| Group messages do not start turns | Add the bot to the group and mention it; broad group-message access is not required. |
+| Approval buttons do nothing | Confirm long connection is active, `card.action.trigger` is under **Subscribed callbacks**, and republish the app. |
+| Cards or replies cannot be sent | Confirm the app can send messages and create/update cards in that chat. |
