@@ -9,17 +9,19 @@ owns only the throttling + dispatch policy.
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
 from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
-from infrastructure.delivery.notifications.redaction import redact_token
 from infrastructure.text.truncation import truncate
-
-logger = logging.getLogger(__name__)
+from integrations.feishu.delivery_types import (
+    FeishuDeliveryErrorCategory,
+    FeishuMessageSendResult,
+    FeishuSendCertainty,
+    classify_feishu_rejection,
+)
 
 
 def post_feishu_message(
@@ -28,13 +30,11 @@ def post_feishu_message(
     receive_id: str,
     receive_id_type: str,
     text: str,
-) -> tuple[bool, str, str]:
+) -> FeishuMessageSendResult:
     """Send one text message via the pinned lark-oapi SDK.
 
-    Returns ``(success, error, message_id)``. Never raises: client/request
-    construction and the transport call are both inside the exception boundary,
-    so bad credentials or a network failure become ``(False, error, "")`` with
-    the app secret redacted, matching the other vendors' transport helpers.
+    The result contains only stable fields. Client/request construction and the
+    visible transport call have separate certainty boundaries.
     """
     try:
         client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
@@ -50,20 +50,57 @@ def post_feishu_message(
             )
             .build()
         )
-        response = client.im.v1.message.create(request)
-    except Exception as exc:
-        safe_error = redact_token(str(exc), app_secret)
-        logger.warning("[feishu] post message exception: %s", safe_error)
-        return False, safe_error, ""
+    except Exception:
+        return FeishuMessageSendResult(
+            accepted=False,
+            message_id="",
+            error_category=FeishuDeliveryErrorCategory.TRANSPORT,
+            certainty=FeishuSendCertainty.DEFINITELY_NOT_SENT,
+        )
 
-    if response.success():
+    try:
+        response = client.im.v1.message.create(request)
+    except Exception:
+        return FeishuMessageSendResult(
+            accepted=False,
+            message_id="",
+            error_category=FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN,
+            certainty=FeishuSendCertainty.MAYBE_SENT,
+        )
+
+    try:
+        accepted = bool(response.success())
+        code = int(getattr(response, "code", 0) or 0)
         data = getattr(response, "data", None)
         message_id = str(getattr(data, "message_id", "") or "") if data else ""
-        return True, "", message_id
+    except Exception:
+        return FeishuMessageSendResult(
+            accepted=False,
+            message_id="",
+            error_category=FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN,
+            certainty=FeishuSendCertainty.MAYBE_SENT,
+        )
 
-    error = redact_token(str(getattr(response, "msg", "") or ""), app_secret)
-    logger.warning("[feishu] post message failed: %s", error)
-    return False, error, ""
+    if accepted and message_id:
+        return FeishuMessageSendResult(
+            accepted=True,
+            message_id=message_id,
+            error_category=None,
+            certainty=FeishuSendCertainty.CONFIRMED_SENT,
+        )
+    if accepted:
+        return FeishuMessageSendResult(
+            accepted=False,
+            message_id="",
+            error_category=FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN,
+            certainty=FeishuSendCertainty.MAYBE_SENT,
+        )
+    return FeishuMessageSendResult(
+        accepted=False,
+        message_id="",
+        error_category=classify_feishu_rejection(code),
+        certainty=FeishuSendCertainty.DEFINITELY_NOT_SENT,
+    )
 
 
 def send_feishu_report(report: str, feishu_ctx: dict[str, Any]) -> tuple[bool, str]:
@@ -75,10 +112,8 @@ def send_feishu_report(report: str, feishu_ctx: dict[str, Any]) -> tuple[bool, s
     if not app_id or not app_secret or not receive_id:
         return False, "Missing app_id, app_secret, or receive_id"
     text = truncate(report, MAX_MESSAGE_SIZE, suffix="…")
-    ok, error, _message_id = post_feishu_message(
-        app_id, app_secret, receive_id, receive_id_type, text
-    )
-    return (True, "") if ok else (False, error)
+    result = post_feishu_message(app_id, app_secret, receive_id, receive_id_type, text)
+    return (True, "") if result.accepted else (False, "Feishu delivery failed")
 
 
 __all__ = ["post_feishu_message", "send_feishu_report"]
