@@ -14,9 +14,16 @@ from typing import Any
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 from lark_oapi.core.token import TokenManager
+from lark_oapi.event.callback.model.p2_card_action_trigger import (
+    P2CardActionTrigger,
+    P2CardActionTriggerResponse,
+)
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws.client import Client
 from lark_oapi.ws.client import loop as _ws_loop
+from lark_oapi.ws.const import HEADER_MESSAGE_ID, HEADER_TYPE
+from lark_oapi.ws.enum import MessageType
+from lark_oapi.ws.pb.pbbp2_pb2 import Frame
 
 from config.constants.gateway import NO_ACTIVE_TURN_MESSAGE
 from gateway.core.middleware.active_turns import ActiveTurnRegistry, is_stop_command
@@ -24,6 +31,7 @@ from gateway.core.middleware.approvals import ApprovalBroker
 from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.core.storage import SessionResolver
 from gateway.core.storage.session.binding_store import BindingStore
+from gateway.transports.feishu.approvals import handle_card_action
 from gateway.transports.feishu.events import FeishuInboundMessage
 from gateway.transports.feishu.inbound_handler import _run_turn as handle_inbound_turn
 from gateway.transports.feishu.inbound_security import is_open_id_authorized
@@ -302,6 +310,63 @@ class _ReadyOnConnectClient(Client):
         self._ready_event = ready_event
         self._stop_event = stop_event
         self._stopped = False
+        self._card_frame_lock = threading.Lock()
+        self._adapted_card_message_ids: set[str] = set()
+
+    async def _handle_data_frame(self, frame: Frame) -> None:
+        type_header = next(
+            (header for header in frame.headers if header.key == HEADER_TYPE), None
+        )
+        if type_header is None or type_header.value != MessageType.CARD.value:
+            await super()._handle_data_frame(frame)
+            return
+        message_id = next(
+            header.value
+            for header in frame.headers
+            if header.key == HEADER_MESSAGE_ID
+        )
+        forwarded = Frame()
+        forwarded.CopyFrom(frame)
+        next(
+            header for header in forwarded.headers if header.key == HEADER_TYPE
+        ).value = MessageType.EVENT.value
+        with self._card_frame_lock:
+            self._adapted_card_message_ids.add(message_id)
+        try:
+            await super()._handle_data_frame(forwarded)
+        finally:
+            with self._card_frame_lock:
+                self._adapted_card_message_ids.discard(message_id)
+
+    async def _write_message(self, data: bytes) -> None:
+        frame = Frame()
+        try:
+            frame.ParseFromString(data)
+        except Exception:
+            await super()._write_message(data)
+            return
+        message_id = next(
+            (
+                header.value
+                for header in frame.headers
+                if header.key == HEADER_MESSAGE_ID
+            ),
+            None,
+        )
+        with self._card_frame_lock:
+            restore_card_type = (
+                message_id is not None
+                and message_id in self._adapted_card_message_ids
+            )
+        if restore_card_type:
+            type_header = next(
+                (header for header in frame.headers if header.key == HEADER_TYPE),
+                None,
+            )
+            if type_header is not None:
+                type_header.value = MessageType.CARD.value
+                data = frame.SerializeToString()
+        await super()._write_message(data)
 
     async def _connect(self) -> None:
         await super()._connect()
@@ -360,6 +425,28 @@ def run_feishu_gateway_thread(
             _handle_event(data)
         except Exception:
             logger.error("[feishu-gateway] inbound event handling failed", exc_info=True)
+
+    def on_card_action(data: P2CardActionTrigger) -> P2CardActionTriggerResponse:
+        try:
+            return handle_card_action(
+                data,
+                broker=approvals,
+                pending_approvals=pending_approvals,
+                env_allowed_open_ids=settings.allowed_open_ids,
+                logger=logger,
+            )
+        except Exception:
+            logger.error(
+                "[feishu-gateway] card callback handling failed", exc_info=True
+            )
+            return P2CardActionTriggerResponse(
+                {
+                    "toast": {
+                        "type": "error",
+                        "content": "This interaction could not be completed",
+                    }
+                }
+            )
 
     def _handle_event(data: P2ImMessageReceiveV1) -> None:
         if stop_event.is_set():
@@ -425,6 +512,7 @@ def run_feishu_gateway_thread(
     dispatcher_handler = (
         EventDispatcherHandler.builder(encrypt_key="", verification_token="")
         .register_p2_im_message_receive_v1(on_message)
+        .register_p2_card_action_trigger(on_card_action)
         .build()
     )
     client = _ReadyOnConnectClient(
@@ -442,6 +530,7 @@ def run_feishu_gateway_thread(
     finally:
         # Deny every outstanding approval so a turn parked in ``broker.wait`` is
         # released instead of holding its executor thread for the full timeout.
+        pending_approvals.drain()
         approvals.close()
 
 
