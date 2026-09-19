@@ -5,12 +5,15 @@ import re
 
 from tools.investigation.reporting.context import ReportContext
 from tools.investigation.reporting.formatters.base import (
+    escape_markdown_text,
     format_html_link,
+    format_markdown_link,
     format_slack_link,
 )
 from tools.investigation.reporting.formatters.evidence import (
     format_cited_evidence_section,
     format_cited_evidence_section_html,
+    format_cited_evidence_section_markdown,
 )
 from tools.investigation.reporting.formatters.infrastructure import (
     build_investigation_trace,
@@ -35,6 +38,26 @@ def render_cloudwatch_link(ctx: ReportContext) -> str:
             return f"\n*{view_link}*\n"
         return f"\n*CloudWatch Logs:*\n* Log Group: {cw_group}\n* Log Stream: {cw_stream}\n"
 
+    return ""
+
+
+def _render_cloudwatch_link_markdown(ctx: ReportContext) -> str:
+    """Render a canonical Markdown CloudWatch link without Slack syntax."""
+    cw_url = ctx.get("cloudwatch_logs_url")
+    cw_group = ctx.get("cloudwatch_log_group")
+    cw_stream = ctx.get("cloudwatch_log_stream")
+
+    if cw_url:
+        return f"\n**{format_markdown_link('CloudWatch Logs', str(cw_url))}**\n"
+    if cw_group and cw_stream:
+        url = build_cloudwatch_url(ctx)
+        if url:
+            return f"\n**{format_markdown_link('CloudWatch Logs', url)}**\n"
+        return (
+            "\n**CloudWatch Logs:**\n"
+            f"- Log Group: {escape_markdown_text(str(cw_group))}\n"
+            f"- Log Stream: {escape_markdown_text(str(cw_stream))}\n"
+        )
     return ""
 
 
@@ -449,6 +472,168 @@ def _format_incident_command_block(ctx: ReportContext) -> str:
     if tradeoffs:
         lines.append(f"*Remediation trade-offs:*\n{_sanitize_for_slack(tradeoffs)}\n")
     return "".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Canonical Markdown renderer
+# ---------------------------------------------------------------------------
+
+
+def _markdown_code_block(text: str) -> str:
+    """Wrap untrusted text in a fence that cannot be closed by its contents."""
+    fence = "```"
+    while fence in text:
+        fence += "`"
+    return f"{fence}\n{text}\n{fence}"
+
+
+def _format_incident_command_markdown(ctx: ReportContext) -> str:
+    triage = _normalize_triage_summary(str(ctx.get("triage_summary") or "").strip())
+    status = str(ctx.get("incident_status") or "").strip()
+    hypotheses = [
+        str(item).strip()
+        for item in (ctx.get("investigation_hypotheses") or [])
+        if str(item).strip()
+    ]
+    verification = [
+        str(item).strip() for item in (ctx.get("verification_summary") or []) if str(item).strip()
+    ]
+    follow_ups = [
+        str(item).strip() for item in (ctx.get("follow_up_questions") or []) if str(item).strip()
+    ]
+    tradeoffs = str(ctx.get("remediation_tradeoffs") or "").strip()
+    if not any((triage, status, hypotheses, verification, follow_ups, tradeoffs)):
+        return ""
+
+    lines = ["\n## Incident Command\n"]
+    if triage:
+        lines.append(f"Triage complete: {escape_markdown_text(triage)}\n")
+    if status:
+        lines.append(f"{escape_markdown_text(status)}\n")
+    for heading, items in (
+        ("Hypotheses", hypotheses),
+        ("Verification", verification),
+        ("Follow-up questions", follow_ups),
+    ):
+        if items:
+            lines.append(
+                f"**{heading}:**\n"
+                + "\n".join(f"- {escape_markdown_text(item)}" for item in items)
+                + "\n"
+            )
+    if tradeoffs:
+        lines.append(f"**Remediation trade-offs:**\n{escape_markdown_text(tradeoffs)}\n")
+    return "".join(lines)
+
+
+def _render_claim_lines_markdown(ctx: ReportContext) -> tuple[list[str], list[str]]:
+    catalog = ctx.get("evidence_catalog") or {}
+    evidence = ctx.get("evidence") or {}
+    validated_lines: list[str] = []
+    for claim_data in ctx.get("validated_claims", []):
+        claim = _resolve_evidence_tags(str(claim_data.get("claim", "")), evidence)
+        citations: list[str] = []
+        evidence_ids = claim_data.get("evidence_ids", [])
+        if evidence_ids:
+            for evidence_id in evidence_ids:
+                entry = catalog.get(evidence_id, {})
+                display_id = str(entry.get("display_id", evidence_id))
+                url = entry.get("url")
+                citations.append(
+                    format_markdown_link(display_id, str(url) if url else None)
+                )
+        else:
+            citations.extend(
+                escape_markdown_text(str(label))
+                for label in claim_data.get("evidence_labels", [])
+            )
+        suffix = f" [{', '.join(citations)}]" if citations else ""
+        validated_lines.append(f"- {escape_markdown_text(claim)}{suffix}")
+
+    non_validated_lines = [
+        f"- {escape_markdown_text(str(claim_data.get('claim', '')))}"
+        for claim_data in ctx.get("non_validated_claims", [])
+    ]
+    return validated_lines, non_validated_lines
+
+
+def format_markdown_message(ctx: ReportContext) -> str:
+    """Format the canonical GFM report directly from semantic report data."""
+    alert_id = ctx.get("alert_id")
+    duration_seconds = ctx.get("investigation_duration_seconds")
+    root_cause = _derive_root_cause_sentence(ctx) or "Not determined (insufficient evidence)."
+    parts: list[str] = [escape_markdown_text(root_cause)]
+
+    top_log = _get_top_error_log(ctx.get("evidence") or {})
+    if top_log:
+        parts.append(_markdown_code_block(top_log))
+
+    incident_command = _format_incident_command_markdown(ctx).strip()
+    if incident_command:
+        parts.append(incident_command)
+
+    validated_lines, non_validated_lines = _render_claim_lines_markdown(ctx)
+    if validated_lines:
+        parts.append("## Findings\n" + "\n".join(validated_lines))
+    if non_validated_lines:
+        parts.append(
+            "**Non-Validated Claims (Inferred):**\n" + "\n".join(non_validated_lines)
+        )
+
+    correlation_signals, correlation_drivers = _format_correlation_lines(ctx)
+    if correlation_signals or correlation_drivers:
+        correlation_parts = ["## Upstream Correlation"]
+        if correlation_signals:
+            correlation_parts.append(
+                "**Correlated signals:**\n"
+                + "\n".join(escape_markdown_text(line) for line in correlation_signals)
+            )
+        if correlation_drivers:
+            correlation_parts.append(
+                "**Most likely causal drivers:**\n"
+                + "\n".join(escape_markdown_text(line) for line in correlation_drivers)
+            )
+        parts.append("\n".join(correlation_parts))
+
+    provenance_lines = _format_provenance_lines(ctx)
+    if provenance_lines:
+        parts.append(
+            "**Provenance:**\n"
+            + "\n".join(escape_markdown_text(line) for line in provenance_lines)
+        )
+
+    remediation_steps = ctx.get("remediation_steps", [])
+    if remediation_steps:
+        parts.append(
+            "## Recommended Actions\n"
+            + "\n".join(f"- {escape_markdown_text(str(step))}" for step in remediation_steps)
+        )
+
+    trace_steps = build_investigation_trace(
+        ctx,
+        link_fn=format_markdown_link,
+        sanitize_fn=escape_markdown_text,
+    )
+    if trace_steps:
+        parts.append("## Investigation Trace\n" + "\n".join(trace_steps))
+
+    cited_section = format_cited_evidence_section_markdown(ctx).strip()
+    if cited_section:
+        parts.append(cited_section)
+
+    cloudwatch_link = _render_cloudwatch_link_markdown(ctx).strip()
+    if cloudwatch_link:
+        parts.append(cloudwatch_link)
+
+    metadata: list[str] = []
+    if duration_seconds is not None:
+        metadata.append(f"Timing: {escape_markdown_text(str(duration_seconds))}s")
+    if alert_id:
+        metadata.append(f"**Alert ID:** {escape_markdown_text(str(alert_id))}")
+    if metadata:
+        parts.append("\n".join(metadata))
+
+    return "\n\n".join(part for part in parts if part).rstrip() + "\n"
 
 
 # ---------------------------------------------------------------------------

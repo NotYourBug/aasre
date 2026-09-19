@@ -3,6 +3,7 @@ from __future__ import annotations
 from tools.investigation.reporting.context import build_report_context
 from tools.investigation.reporting.formatters.report import (
     build_slack_blocks,
+    format_markdown_message,
     format_slack_message,
     format_telegram_message,
 )
@@ -41,6 +42,57 @@ def _make_state() -> dict:
             ],
         },
     }
+
+
+def _rich_markdown_context(*, root_cause: str = "The checkout dependency failed.") -> dict:
+    state = _make_state()
+    state["root_cause"] = root_cause
+    state["evidence"] = {
+        "cloudwatch_logs": [{"message": "top error"}],
+    }
+    ctx = build_report_context(state)
+    ctx["validated_claims"] = [
+        {
+            "claim": "The upstream returned errors.",
+            "evidence_ids": ["evidence/example/1"],
+            "evidence_labels": [],
+        }
+    ]
+    ctx["evidence_catalog"] = {
+        "evidence/example/1": {
+            "display_id": "E1",
+            "label": "E1",
+            "url": "https://example.test/evidence/1",
+            "summary": "Confirmed by the request trace.",
+        }
+    }
+    ctx["source_provenance"] = {
+        "example": {"label": "Example", "summary": "request trace"}
+    }
+    return ctx
+
+
+def test_markdown_report_uses_gfm_and_not_vendor_markup() -> None:
+    message = format_markdown_message(_rich_markdown_context())  # type: ignore[arg-type]
+
+    assert "## Findings" in message
+    assert "**Provenance:**" in message
+    assert "[E1](https://example.test/evidence/1)" in message
+    assert "`top error`" in message or "```" in message
+    assert "<https://" not in message
+    assert "<b>" not in message
+
+
+def test_untrusted_markup_cannot_inject_link_or_slack_mention() -> None:
+    ctx = _rich_markdown_context(
+        root_cause="[fake](https://attacker) <!channel> <b>boom</b>"
+    )
+
+    message = format_markdown_message(ctx)  # type: ignore[arg-type]
+
+    assert "[fake](https://attacker)" not in message
+    assert "<!channel>" not in message
+    assert "[E1](https://example.test/evidence/1)" in message
 
 
 def test_build_report_context_adds_source_provenance() -> None:

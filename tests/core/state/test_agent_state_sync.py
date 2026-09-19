@@ -103,3 +103,8 @@ def test_slice_types_do_not_duplicate_keys() -> None:
                 seen[key] = slice_type.__name__
 
     assert not duplicates, "Duplicate slice keys: " + "; ".join(duplicates)
+
+
+def test_delivery_state_declares_canonical_markdown_report() -> None:
+    assert "report_markdown" in _typed_dict_keys(DeliveryOutputSlice)
+    assert "report_markdown" in _pydantic_keys(AgentStateModel)

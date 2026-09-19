@@ -19,6 +19,7 @@ def _state_with_masking() -> dict[str, object]:
         "problem_md": "# Incident in <NAMESPACE_0>",
         "slack_message": "",
         "report": "",
+        "report_markdown": "",
         "masking_map": {
             "<POD_0>": "etl-worker-7d9f8b-xkp2q",
             "<NAMESPACE_0>": "tracer-test",
@@ -44,7 +45,7 @@ def test_slack_message_is_unmasked_before_delivery() -> None:
         patch.object(
             pub_node,
             "build_report_messages",
-            return_value=ReportMessages(masked_message, "tg", []),
+            return_value=ReportMessages(masked_message, masked_message, "tg", []),
         ),
         patch.object(pub_node, "render_report"),
         patch.object(pub_node, "open_in_editor"),
@@ -63,6 +64,11 @@ def test_slack_message_is_unmasked_before_delivery() -> None:
     assert "etl-worker-7d9f8b-xkp2q" in result["slack_message"]
     assert "tracer-test" in result["slack_message"]
 
+    assert "<POD_0>" not in result["report_markdown"]
+    assert "<NAMESPACE_0>" not in result["report_markdown"]
+    assert "etl-worker-7d9f8b-xkp2q" in result["report_markdown"]
+    assert "tracer-test" in result["report_markdown"]
+
 
 def test_empty_masking_map_is_passthrough() -> None:
     from tools.investigation.reporting import node as pub_node
@@ -77,7 +83,12 @@ def test_empty_masking_map_is_passthrough() -> None:
         patch.object(
             pub_node,
             "build_report_messages",
-            return_value=ReportMessages(message_without_placeholders, "tg", []),
+            return_value=ReportMessages(
+                message_without_placeholders,
+                message_without_placeholders,
+                "tg",
+                [],
+            ),
         ),
         patch.object(pub_node, "render_report"),
         patch.object(pub_node, "open_in_editor"),
@@ -92,3 +103,4 @@ def test_empty_masking_map_is_passthrough() -> None:
         result = pub_node.generate_report(state)  # type: ignore[arg-type]
 
     assert result["slack_message"] == message_without_placeholders
+    assert result["report_markdown"] == message_without_placeholders

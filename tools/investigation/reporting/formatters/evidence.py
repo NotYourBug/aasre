@@ -6,8 +6,10 @@ from typing import Any
 
 from tools.investigation.reporting.context import ReportContext
 from tools.investigation.reporting.formatters.base import (
+    escape_markdown_text,
     escape_slack_mrkdwn,
     format_html_link,
+    format_markdown_link,
     format_slack_link,
     shorten_text,
 )
@@ -244,8 +246,14 @@ def _format_tool_calls_line(
     return "Queries: " + ", ".join(parts)
 
 
-def format_cited_evidence_section(ctx: ReportContext) -> str:
-    """Format the cited evidence section of the report.
+def _format_cited_evidence_section(
+    ctx: ReportContext,
+    *,
+    heading: str,
+    link_fn: Callable[[str, str | None], str],
+    sanitize_fn: Callable[[str], str],
+) -> str:
+    """Format cited evidence with channel-specific markup functions.
 
     Shows catalog entries as linked E-id citations, plus a compact summary
     of tool calls made during investigation.
@@ -271,28 +279,44 @@ def format_cited_evidence_section(ctx: ReportContext) -> str:
             summary = entry.get("summary")
             snippet = entry.get("snippet")
             provenance = entry.get("provenance")
-            # label/url are escaped inside format_slack_link; summary, provenance,
-            # and snippet are free text from tool output (including third-party
-            # data like issue titles or incident names) and need the same
-            # treatment here so they can't inject a live link or mention.
-            link = format_slack_link(label, url or None)
-            line = f"- {display_id} — {link}"
+            link = link_fn(str(label), str(url) if url else None)
+            line = f"- {sanitize_fn(str(display_id))} — {link}"
             if summary:
-                line += f" — {escape_slack_mrkdwn(str(summary))}"
+                line += f" — {sanitize_fn(str(summary))}"
             if provenance:
-                line += f" — provenance: {escape_slack_mrkdwn(str(provenance))}"
+                line += f" — provenance: {sanitize_fn(str(provenance))}"
             if snippet:
-                line += f" — {escape_slack_mrkdwn(shorten_text(str(snippet), max_chars=100))}"
+                line += f" — {sanitize_fn(shorten_text(str(snippet), max_chars=100))}"
             lines.append(line)
 
-    tool_calls_line = _format_tool_calls_line(ctx)
+    tool_calls_line = _format_tool_calls_line(ctx, link_fn=link_fn)
     if tool_calls_line:
         lines.append(f"- {tool_calls_line}")
 
     if not lines:
         return ""
 
-    return "\n*Cited Evidence:*\n" + "\n".join(lines) + "\n"
+    return f"\n{heading}\n" + "\n".join(lines) + "\n"
+
+
+def format_cited_evidence_section(ctx: ReportContext) -> str:
+    """Format cited evidence as Slack mrkdwn."""
+    return _format_cited_evidence_section(
+        ctx,
+        heading="*Cited Evidence:*",
+        link_fn=format_slack_link,
+        sanitize_fn=escape_slack_mrkdwn,
+    )
+
+
+def format_cited_evidence_section_markdown(ctx: ReportContext) -> str:
+    """Format cited evidence as canonical GFM Markdown."""
+    return _format_cited_evidence_section(
+        ctx,
+        heading="**Cited Evidence:**",
+        link_fn=format_markdown_link,
+        sanitize_fn=escape_markdown_text,
+    )
 
 
 def format_cited_evidence_section_html(ctx: ReportContext) -> str:
