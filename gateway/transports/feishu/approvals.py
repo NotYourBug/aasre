@@ -110,6 +110,7 @@ def handle_card_action(
         approved=claim.approved,
         decided_by=open_id,
     ):
+        pending_approvals.discard_request(claim.broker_approval_id)
         return _toast(_UNAVAILABLE, kind="error")
     if not pending_approvals.settle(claim.broker_approval_id, approved=claim.approved):
         logger.warning("[feishu-gateway] approval callback lost transport state")

@@ -409,3 +409,6 @@ def test_card_action_broker_race_does_not_settle_or_return_card(
     assert response.toast.content == "This approval is unavailable"
     assert response.card is None
     resolve.assert_called_once()
+    assert pending.claim("token-deny", open_id=REQUESTER, chat_id=CHAT).status is (
+        ClaimStatus.UNAVAILABLE
+    )

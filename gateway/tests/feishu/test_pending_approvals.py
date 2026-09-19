@@ -179,6 +179,25 @@ def test_finish_wait_removes_open_but_preserves_claimed_and_settled() -> None:
     assert _claim(claimed_pending).status is ClaimStatus.SETTLED
 
 
+def test_claim_survives_request_expiry_but_has_a_bounded_settlement_window() -> None:
+    clock = _Clock()
+    pending = PendingApprovals(clock=clock, retention_seconds=5.0)
+    _register(pending, expires_at=clock.now + 1.0)
+
+    assert _claim(pending).status is ClaimStatus.CLAIMED
+    clock.now += 1.0
+
+    assert _claim(pending).status is ClaimStatus.IN_PROGRESS
+    assert pending.settle("broker-1", approved=True) is True
+
+    other = PendingApprovals(clock=clock, retention_seconds=5.0)
+    _register(other, expires_at=clock.now + 1.0)
+    assert _claim(other).status is ClaimStatus.CLAIMED
+    clock.now += 5.0
+
+    assert _claim(other).status is ClaimStatus.UNAVAILABLE
+
+
 def test_discard_and_drain_remove_each_request_once() -> None:
     pending = PendingApprovals(clock=_Clock())
     _register(pending)

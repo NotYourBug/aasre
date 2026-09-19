@@ -49,6 +49,7 @@ class _PendingRequest:
     expires_at: float
     state: _RequestState = _RequestState.OPEN
     approved: bool | None = None
+    claimed_at: float | None = None
     settled_at: float | None = None
 
 
@@ -109,7 +110,8 @@ class PendingApprovals:
     def claim(self, action_token: str, *, open_id: str, chat_id: str) -> ApprovalClaim:
         """Atomically claim a token when its requester and chat still match."""
         with self._lock:
-            self._cleanup_locked(self._clock())
+            now = self._clock()
+            self._cleanup_locked(now)
             binding = self._by_token.get(action_token)
             if binding is None:
                 return ApprovalClaim(status=ClaimStatus.UNAVAILABLE)
@@ -128,6 +130,7 @@ class PendingApprovals:
             if request.state is _RequestState.CLAIMED:
                 return ApprovalClaim(status=ClaimStatus.IN_PROGRESS)
             request.state = _RequestState.CLAIMED
+            request.claimed_at = now
             return ApprovalClaim(
                 status=ClaimStatus.CLAIMED,
                 broker_approval_id=request.broker_approval_id,
@@ -176,6 +179,9 @@ class PendingApprovals:
             if request.state is _RequestState.SETTLED:
                 settled_at = request.settled_at
                 expired = settled_at is not None and now >= settled_at + self._retention_seconds
+            elif request.state is _RequestState.CLAIMED:
+                claimed_at = request.claimed_at
+                expired = claimed_at is not None and now >= claimed_at + self._retention_seconds
             else:
                 expired = now >= request.expires_at
             if expired:

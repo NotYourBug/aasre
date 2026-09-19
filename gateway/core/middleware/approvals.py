@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -42,15 +43,17 @@ class _PendingApproval:
     decided_by: str = ""
     platform: str = ""
     chat_id: str = ""
+    expires_at: float | None = None
 
 
 class ApprovalBroker:
     """Thread-safe registry connecting button clicks to waiting tool calls."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._pending: dict[str, _PendingApproval] = {}
         self._lock = threading.Lock()
         self._closed = False
+        self._clock = clock
 
     def create(
         self,
@@ -78,7 +81,11 @@ class ApprovalBroker:
         """Deliver a click decision; False when unknown/expired/already decided."""
         with self._lock:
             pending = self._pending.get(approval_id)
-            if pending is None or pending.event.is_set():
+            if (
+                pending is None
+                or pending.event.is_set()
+                or (pending.expires_at is not None and self._clock() >= pending.expires_at)
+            ):
                 return False
             pending.approved = approved
             pending.decided_by = decided_by
@@ -120,13 +127,18 @@ class ApprovalBroker:
         with self._lock:
             pending = self._pending.get(approval_id)
             closed = self._closed
+            if pending is not None:
+                now = self._clock()
+                if pending.expires_at is None:
+                    pending.expires_at = now + max(0.0, timeout)
+                wait_seconds = max(0.0, pending.expires_at - now)
         if pending is None:
             return (False, "")
         # A closed broker can never receive a decision, so blocking would only
         # hold this thread for the full timeout. Poll once instead: an approval
         # ``close`` already denied reports that denial, and one created after it
         # expires immediately.
-        pending.event.wait(0 if closed else timeout)
+        pending.event.wait(0 if closed else wait_seconds)
         with self._lock:
             if self._pending.get(approval_id) is not pending:
                 return (False, "")
