@@ -44,11 +44,22 @@ gateway directly, set:
 FEISHU_APP_ID=cli_...
 FEISHU_APP_SECRET=...
 FEISHU_ALLOWED_OPEN_IDS=ou_alice,ou_bob
+ORGANIZATION_ID=org_...
 ```
 
 `FEISHU_ALLOWED_OPEN_IDS` must contain at least one member for immediate inbound
 access. Only listed members can start turns or decide their own write-tool
-approvals. You can also manage the allowlist with:
+approvals. `ORGANIZATION_ID` names the organization that owns Feishu sessions and
+usage; without it, pairing and help still work but agent turns fail closed.
+
+You can also bootstrap an identity without copying its Open ID:
+
+```bash
+opensre messaging pair -p feishu
+# then send the displayed /pair command to the bot within 15 minutes
+```
+
+Or manage the allowlist directly:
 
 ```bash
 opensre messaging allow -p feishu -u ou_alice
@@ -84,6 +95,7 @@ text approval.
 | Symptom | Check |
 | --- | --- |
 | Gateway reports Feishu is not configured | Run setup, or set both app credentials, then restart the gateway. |
+| Pairing succeeds but agent turns are silent | Set `ORGANIZATION_ID`, then restart the gateway. |
 | Direct messages do not start turns | Confirm the sender's `ou_…` Open ID is allowed and the latest app version is published. |
 | Group messages do not start turns | Add the bot to the group and mention it; broad group-message access is not required. |
 | Approval buttons do nothing | Confirm long connection is active, `card.action.trigger` is under **Subscribed callbacks**, and republish the app. |

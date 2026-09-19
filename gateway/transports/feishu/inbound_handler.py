@@ -18,6 +18,7 @@ from gateway.core.billing.turn_metering import bound_turn_metering
 from gateway.core.middleware.active_turns import ActiveTurnRegistry
 from gateway.core.middleware.approvals import ApprovalBroker, approval_tool_hooks
 from gateway.core.middleware.conversation_locks import ConversationLockRegistry
+from gateway.core.middleware.identity_policy import persist_policy_if_needed
 from gateway.core.middleware.terminal_outcome import TerminalOutcomeArbiter
 from gateway.core.storage import SessionResolver
 from gateway.transports.feishu.approvals import FeishuApprovalPrompter
@@ -87,26 +88,16 @@ def _run_turn(
 ) -> None:
     """Run one inbound Feishu message through the gateway agent callback.
 
-    Runs on the turn executor thread. The owning scope is resolved first, then
-    the turn is serialized per conversation, bound to the storage/usage/metering
-    contexts, and driven under a cooperative timeout with ``/stop`` cancellation.
+    Runs on the turn executor thread. Security-only replies are handled before
+    principal resolution; allowed turns are then bound to the owning storage,
+    usage, and metering contexts and driven under a cooperative timeout with
+    ``/stop`` cancellation.
 
     ``turn_cancel`` is the Event the dispatcher already registered for this
     conversation, so a ``/stop`` arriving before the turn started is honoured
     rather than lost.
     """
     key = conversation_key(inbound)
-    try:
-        scope = resolve_feishu_scope(open_id=inbound.open_id)
-    except PrincipalResolutionError:
-        logger.error(
-            "[feishu-gateway] turn refused: unresolved principal open_id=%s chat=%s",
-            inbound.open_id,
-            inbound.chat_id,
-            exc_info=True,
-        )
-        return
-
     with conversation_locks.hold(key):
         decision = enforce_inbound_feishu_message_security(
             user_id=inbound.open_id,
@@ -117,6 +108,27 @@ def _run_turn(
 
         def _send(text: str) -> None:
             send_text(inbound.chat_id, text)
+
+        # Pairing, help and authorization denials do not own or access a turn
+        # session. Apply them before resolving the deployment principal so a
+        # fresh installation can bootstrap its first allowed identity even
+        # when ORGANIZATION_ID has not been configured yet.
+        if not decision.allowed:
+            persist_policy_if_needed("feishu", decision)
+            if decision.reply_text:
+                _send(decision.reply_text)
+            return
+
+        try:
+            scope = resolve_feishu_scope(open_id=inbound.open_id)
+        except PrincipalResolutionError:
+            logger.error(
+                "[feishu-gateway] turn refused: unresolved principal open_id=%s chat=%s",
+                inbound.open_id,
+                inbound.chat_id,
+                exc_info=True,
+            )
+            return
 
         with bound_storage_scope(scope):
             session = resolve_or_rotate_session(

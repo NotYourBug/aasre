@@ -34,7 +34,6 @@ from gateway.core.storage.session.binding_store import BindingStore
 from gateway.transports.feishu.approvals import handle_card_action
 from gateway.transports.feishu.events import FeishuInboundMessage
 from gateway.transports.feishu.inbound_handler import _run_turn as handle_inbound_turn
-from gateway.transports.feishu.inbound_security import is_open_id_authorized
 from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
@@ -43,9 +42,6 @@ from infrastructure.turn_host.turn_callback import TurnCallback
 from integrations.feishu import TRACKED_MESSAGE_TYPES, flatten_post, resource_refs
 
 _PLATFORM_FEISHU = "feishu"
-
-_APPROVE_WORDS = frozenset({"approve", "approved", "approves", "yes", "y", "ok", "okay", "lgtm"})
-_DENY_WORDS = frozenset({"deny", "denied", "denies", "no", "n", "reject", "rejected", "cancel"})
 
 
 def strip_leading_feishu_mentions(text: str, bot_mention_keys: frozenset[str]) -> str:
@@ -119,78 +115,6 @@ def _message_content(message: Any) -> dict[str, Any]:
     except (TypeError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-def _decision(text: str) -> bool | None:
-    """Read a reply as approve/deny, or ``None`` when it is neither."""
-    words = text.strip().lower().split(maxsplit=1)
-    if not words:
-        return None
-    first = words[0].strip("*_`.!,:")
-    if first in _APPROVE_WORDS:
-        return True
-    if first in _DENY_WORDS:
-        return False
-    return None
-
-
-def _resolve_approval_reply(
-    *,
-    parent_id: str,
-    open_id: str,
-    chat_id: str,
-    text: str,
-    approvals: ApprovalBroker,
-    pending_approvals: PendingApprovals,
-    env_allowed_open_ids: list[str],
-    logger: logging.Logger,
-) -> bool:
-    """Resolve a reply aimed at a pending approval prompt, if any.
-
-    Returns whether the reply was consumed here — a reply aimed at a live
-    prompt never falls through to start a chat turn, decided or not.
-
-    Runs on the WS loop's own thread — never the turn executor, so a waiting
-    turn's ``ApprovalBroker.wait`` never contends with the lock it is blocked
-    on. Three checks gate the decision, and none consume the prompt when they
-    fail: the responder is still an authorized identity now, they are the
-    member whose own turn raised the request replying in the chat it was
-    posted to, and the reply actually says approve or deny.
-    """
-    if pending_approvals.find_legacy(parent_id) is None:
-        return False
-
-    if not is_open_id_authorized(
-        open_id=open_id, chat_id=chat_id, env_allowed_open_ids=env_allowed_open_ids
-    ):
-        logger.warning(
-            "[feishu-gateway] ignoring approval reply from unauthorized open_id=%s chat=%s",
-            open_id,
-            chat_id,
-        )
-        return True
-
-    approved = _decision(text)
-    if approved is None:
-        logger.info(
-            "[feishu-gateway] approval reply was not a decision open_id=%s chat=%s",
-            open_id,
-            chat_id,
-        )
-        return True
-
-    approval_id = pending_approvals.claim_legacy(parent_id, open_id=open_id, chat_id=chat_id)
-    if approval_id is None:
-        logger.warning(
-            "[feishu-gateway] ignoring approval reply from a member who did not "
-            "raise the request open_id=%s chat=%s",
-            open_id,
-            chat_id,
-        )
-        return True
-
-    approvals.resolve(approval_id, approved=approved, decided_by=open_id)
-    return True
 
 
 def _verify_feishu_credentials(app_id: str, app_secret: str) -> None:
@@ -457,18 +381,6 @@ def run_feishu_gateway_thread(
                 message.chat_id or "",
             )
             return
-        if inbound.parent_id and _resolve_approval_reply(
-            parent_id=inbound.parent_id,
-            open_id=inbound.open_id,
-            chat_id=inbound.chat_id,
-            text=inbound.text,
-            approvals=approvals,
-            pending_approvals=pending_approvals,
-            env_allowed_open_ids=settings.allowed_open_ids,
-            logger=logger,
-        ):
-            return
-
         # No mention gate here: the app holds im:message.p2p_msg:readonly plus
         # im:message.group_at_msg[:.include_bot]:readonly and NOT
         # im:message.group_msg, so Feishu already delivers only DMs and group
@@ -505,7 +417,10 @@ def run_feishu_gateway_thread(
     client = _ReadyOnConnectClient(
         settings.app_id,
         settings.app_secret,
-        log_level=lark.LogLevel.INFO,
+        # INFO logs the complete WebSocket URL, including temporary access
+        # parameters. Keep SDK transport logs at WARNING while our own gateway
+        # logger reports connection readiness without credentials.
+        log_level=lark.LogLevel.WARNING,
         event_handler=dispatcher_handler,
         ready_event=ready_event,
         stop_event=stop_event,

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from unittest.mock import MagicMock, patch
 
+import lark_oapi as lark
 import pytest
 from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTrigger,
@@ -98,6 +99,7 @@ def _card_payload_bytes() -> bytes:
 
 class _CallbackClient:
     response: P2CardActionTriggerResponse | None = None
+    log_level: lark.LogLevel | None = None
 
     def __init__(
         self,
@@ -106,6 +108,8 @@ class _CallbackClient:
         **_kwargs: object,
     ) -> None:
         self._event_handler = event_handler
+        log_level = _kwargs.get("log_level")
+        type(self).log_level = log_level if isinstance(log_level, lark.LogLevel) else None
 
     def start(self) -> None:
         type(self).response = self._event_handler._do_without_validation(_card_payload_bytes())
@@ -260,6 +264,7 @@ def test_gateway_registers_card_callback_and_handles_it_synchronously(
     assert _CallbackClient.response is not None
     assert _CallbackClient.response.toast is not None
     assert _CallbackClient.response.toast.content == "Approved"
+    assert _CallbackClient.log_level == lark.LogLevel.WARNING
     executor.submit.assert_not_called()
 
 
@@ -295,6 +300,74 @@ def test_gateway_card_callback_returns_generic_error_on_unexpected_failure(
     test_logger.error.assert_called_once_with(
         "[feishu-gateway] card callback handling failed", exc_info=True
     )
+
+
+def test_text_approval_reply_dispatches_as_an_ordinary_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replies such as ``approve`` no longer have transport-level authority."""
+    received: list[FeishuInboundMessage] = []
+    handled = threading.Event()
+
+    def handle(inbound: FeishuInboundMessage, **_kwargs: object) -> None:
+        received.append(inbound)
+        handled.set()
+
+    class _MessageClient:
+        def __init__(
+            self,
+            *_args: object,
+            event_handler: EventDispatcherHandler,
+            **_kwargs: object,
+        ) -> None:
+            self._event_handler = event_handler
+
+        def start(self) -> None:
+            async def dispatch() -> None:
+                payload = _p2_payload(
+                    "im.message.receive_v1",
+                    {
+                        "sender": {
+                            "sender_id": {"open_id": REQUESTER},
+                            "sender_type": "user",
+                        },
+                        "message": {
+                            "message_id": "om-reply",
+                            "parent_id": "prompt1",
+                            "chat_id": CHAT,
+                            "message_type": "text",
+                            "content": '{"text":"approve"}',
+                        },
+                    },
+                )
+                self._event_handler._do_without_validation(json.dumps(payload).encode())
+                await asyncio.to_thread(handled.wait, 2.0)
+
+            asyncio.run(dispatch())
+
+    monkeypatch.setattr(worker, "_ReadyOnConnectClient", _MessageClient)
+    monkeypatch.setattr(worker, "handle_inbound_turn", handle)
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        worker.run_feishu_gateway_thread(
+            settings=FeishuGatewaySettings(
+                app_id="app", app_secret="secret", allowed_open_ids=[REQUESTER]
+            ),
+            logger=LOGGER,
+            handler=MagicMock(),
+            bindings=MagicMock(),
+            executor=executor,
+            stop_event=threading.Event(),
+            ready_event=threading.Event(),
+            output_registry=MagicMock(),
+        )
+    finally:
+        executor.shutdown(wait=True)
+
+    assert handled.is_set()
+    assert len(received) == 1
+    assert received[0].text == "approve"
+    assert received[0].parent_id == "prompt1"
 
 
 def test_dispatch_registers_cancel_before_handler_runs() -> None:
@@ -411,127 +484,4 @@ def test_dispatch_failure_releases_slot_and_unregisters_cancel() -> None:
 
 
 REQUESTER = "ou_user-1"
-OUTSIDER = "ou_user-2"
 CHAT = "oc_chat-1"
-
-
-def _pending(pending: PendingApprovals) -> None:
-    pending.register_legacy(
-        "prompt1", approval_id="approval-id-1", requester_open_id=REQUESTER, chat_id=CHAT
-    )
-
-
-def _resolve(
-    monkeypatch,
-    *,
-    pending: PendingApprovals,
-    approvals: ApprovalBroker,
-    open_id: str = REQUESTER,
-    chat_id: str = CHAT,
-    text: str = "approve",
-) -> bool:
-    monkeypatch.setattr(worker, "is_open_id_authorized", lambda **_kw: True)
-    return worker._resolve_approval_reply(
-        parent_id="prompt1",
-        open_id=open_id,
-        chat_id=chat_id,
-        text=text,
-        approvals=approvals,
-        pending_approvals=pending,
-        env_allowed_open_ids=[REQUESTER],
-        logger=LOGGER,
-    )
-
-
-def test_approval_reply_resolves_broker_instead_of_dispatching(monkeypatch) -> None:
-    approvals = ApprovalBroker()
-    pending = PendingApprovals()
-    _pending(pending)
-    resolve = MagicMock()
-    monkeypatch.setattr(approvals, "resolve", resolve)
-
-    consumed = _resolve(monkeypatch, pending=pending, approvals=approvals)
-
-    assert consumed is True
-    resolve.assert_called_once_with("approval-id-1", approved=True, decided_by=REQUESTER)
-    assert pending.find_legacy("prompt1") is None
-
-
-def test_approval_reply_deny_resolves_denied(monkeypatch) -> None:
-    approvals = ApprovalBroker()
-    pending = PendingApprovals()
-    _pending(pending)
-    resolve = MagicMock()
-    monkeypatch.setattr(approvals, "resolve", resolve)
-
-    consumed = _resolve(monkeypatch, pending=pending, approvals=approvals, text="deny")
-
-    assert consumed is True
-    resolve.assert_called_once_with("approval-id-1", approved=False, decided_by=REQUESTER)
-
-
-def test_unauthorized_reply_does_not_resolve(monkeypatch) -> None:
-    approvals = ApprovalBroker()
-    pending = PendingApprovals()
-    _pending(pending)
-    monkeypatch.setattr(worker, "is_open_id_authorized", lambda **_kw: False)
-
-    consumed = worker._resolve_approval_reply(
-        parent_id="prompt1",
-        open_id=OUTSIDER,
-        chat_id=CHAT,
-        text="approve",
-        approvals=approvals,
-        pending_approvals=pending,
-        env_allowed_open_ids=[REQUESTER],
-        logger=LOGGER,
-    )
-
-    assert consumed is True
-    assert pending.find_legacy("prompt1") is not None
-
-
-def test_another_member_cannot_answer_someone_elses_prompt(monkeypatch) -> None:
-    approvals = ApprovalBroker()
-    pending = PendingApprovals()
-    _pending(pending)
-    resolve = MagicMock()
-    monkeypatch.setattr(approvals, "resolve", resolve)
-
-    consumed = _resolve(monkeypatch, pending=pending, approvals=approvals, open_id=OUTSIDER)
-
-    assert consumed is True
-    resolve.assert_not_called()
-    assert pending.find_legacy("prompt1") is not None
-
-
-def test_reply_that_is_not_a_decision_leaves_the_prompt_open(monkeypatch) -> None:
-    approvals = ApprovalBroker()
-    pending = PendingApprovals()
-    _pending(pending)
-    resolve = MagicMock()
-    monkeypatch.setattr(approvals, "resolve", resolve)
-
-    consumed = _resolve(monkeypatch, pending=pending, approvals=approvals, text="hold on")
-
-    assert consumed is True
-    resolve.assert_not_called()
-    assert pending.find_legacy("prompt1") is not None
-
-
-def test_non_reply_parent_id_falls_through_to_dispatch() -> None:
-    approvals = ApprovalBroker()
-    pending = PendingApprovals()
-
-    consumed = worker._resolve_approval_reply(
-        parent_id="prompt1",
-        open_id=REQUESTER,
-        chat_id=CHAT,
-        text="approve",
-        approvals=approvals,
-        pending_approvals=pending,
-        env_allowed_open_ids=[REQUESTER],
-        logger=LOGGER,
-    )
-
-    assert consumed is False

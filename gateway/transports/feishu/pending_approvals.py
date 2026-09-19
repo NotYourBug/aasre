@@ -32,15 +32,6 @@ class ApprovalClaim:
     tool_name: str = ""
 
 
-@dataclass(frozen=True, slots=True)
-class LegacyPendingApproval:
-    """Temporary text-reply approval entry kept until card acceptance."""
-
-    approval_id: str
-    requester_open_id: str
-    chat_id: str
-
-
 class _RequestState(Enum):
     OPEN = "open"
     CLAIMED = "claimed"
@@ -80,7 +71,6 @@ class PendingApprovals:
         self._retention_seconds = retention_seconds
         self._by_token: dict[str, _TokenBinding] = {}
         self._by_request: dict[str, _PendingRequest] = {}
-        self._legacy_by_prompt: dict[str, LegacyPendingApproval] = {}
         self._lock = threading.Lock()
 
     def register(
@@ -172,52 +162,13 @@ class PendingApprovals:
             self._remove_locked(request)
             return True
 
-    def register_legacy(
-        self,
-        prompt_message_id: str,
-        *,
-        approval_id: str,
-        requester_open_id: str,
-        chat_id: str,
-    ) -> None:
-        """Record a temporary text-reply prompt during the card migration."""
-        with self._lock:
-            self._legacy_by_prompt[prompt_message_id] = LegacyPendingApproval(
-                approval_id=approval_id,
-                requester_open_id=requester_open_id,
-                chat_id=chat_id,
-            )
-
-    def find_legacy(self, prompt_message_id: str) -> LegacyPendingApproval | None:
-        """Return a temporary text-reply prompt without consuming it."""
-        with self._lock:
-            return self._legacy_by_prompt.get(prompt_message_id)
-
-    def claim_legacy(self, prompt_message_id: str, *, open_id: str, chat_id: str) -> str | None:
-        """Consume an authorized temporary text-reply prompt."""
-        with self._lock:
-            pending = self._legacy_by_prompt.get(prompt_message_id)
-            if pending is None:
-                return None
-            if pending.requester_open_id != open_id or pending.chat_id != chat_id:
-                return None
-            del self._legacy_by_prompt[prompt_message_id]
-            return pending.approval_id
-
-    def discard_legacy(self, prompt_message_id: str) -> None:
-        """Forget a temporary text-reply prompt after its wait finishes."""
-        with self._lock:
-            self._legacy_by_prompt.pop(prompt_message_id, None)
-
     def drain(self) -> list[str]:
         """Clear all live requests and tombstones, returning broker IDs once."""
         with self._lock:
             self._cleanup_locked(self._clock())
             approval_ids = list(self._by_request)
-            approval_ids.extend(pending.approval_id for pending in self._legacy_by_prompt.values())
             self._by_request.clear()
             self._by_token.clear()
-            self._legacy_by_prompt.clear()
             return approval_ids
 
     def _cleanup_locked(self, now: float) -> None:
@@ -239,6 +190,5 @@ class PendingApprovals:
 __all__ = [
     "ApprovalClaim",
     "ClaimStatus",
-    "LegacyPendingApproval",
     "PendingApprovals",
 ]
