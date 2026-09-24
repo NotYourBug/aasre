@@ -80,6 +80,17 @@ Use `opensre gateway start -f` to run attached to the terminal, and
 credential verification does not prove that permissions, subscriptions, the
 published version, or chat membership are correct.
 
+## Document delivery
+
+Watchdog alarms, investigation reports, background RCA summaries, and scheduled
+deliveries use non-streaming Markdown cards. OpenSRE automatically splits large
+documents across ordered cards. If card delivery cannot continue, it sends the
+remaining original Markdown as ordered plain-text chunks without truncating the
+content.
+
+When the network result for the current card is uncertain, the plain-text
+fallback may repeat that current page so content is not silently omitted.
+
 ## Approve write tools
 
 Write tools display a card with **Approve** and **Deny** buttons. Only the member
