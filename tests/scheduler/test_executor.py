@@ -198,7 +198,7 @@ class TestExecutor:
         with (
             patch(
                 "infrastructure.scheduling.scheduler.executor.build_message",
-                return_value="<b>Scheduled</b> report",
+                return_value="**Scheduled** report",
             ),
             patch(
                 "infrastructure.scheduling.scheduler.local_delivery._default_inbox_path",
@@ -211,7 +211,7 @@ class TestExecutor:
         messages = get_loop_messages(inbox_path=inbox_path)
         assert len(messages) == 1
         assert messages[0].name == "Local loop"
-        assert messages[0].message == "Scheduled report"
+        assert messages[0].message == "**Scheduled** report"
 
     def test_execution_logs_operations_without_message_body(
         self,
@@ -410,7 +410,7 @@ class TestExecutor:
         with (
             patch(
                 "infrastructure.scheduling.scheduler.executor.build_message",
-                return_value="<b>Scheduled</b> report",
+                return_value="**Scheduled** report",
             ),
             patch(
                 "integrations.rocketchat.scheduled_delivery.resolve_rocketchat_credentials",
@@ -431,8 +431,7 @@ class TestExecutor:
         args = mock_post.call_args.args
         assert args[0] == "https://chat.example.com"
         assert args[1] == "#ops"
-        # HTML tags stripped — Rocket.Chat renders Markdown, not HTML.
-        assert args[2] == "Scheduled report"
+        assert args[2] == "**Scheduled** report"
         assert args[3] == "tok"
         assert args[4] == "u1"
 

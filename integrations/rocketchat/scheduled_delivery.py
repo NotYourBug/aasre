@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
 from infrastructure.scheduling.scheduler.credentials import resolve_rocketchat_credentials
-from infrastructure.scheduling.scheduler.delivery import strip_html
 from infrastructure.scheduling.scheduler.types import ScheduledTask
 from infrastructure.text.truncation import truncate
 from integrations.rocketchat.delivery import post_rocketchat_message
@@ -37,11 +36,11 @@ class RocketChatScheduledDelivery:
         if not task.chat_id:
             return False, "Missing chat_id (channel) for Rocket.Chat", ""
 
-        plain_message = truncate(strip_html(message), MAX_MESSAGE_SIZE, suffix="…")
+        markdown_message = truncate(message, MAX_MESSAGE_SIZE, suffix="…")
         ok, error, msg_id = post_rocketchat_message(
             server_url,
             task.chat_id,
-            plain_message,
+            markdown_message,
             auth_token,
             user_id,
         )
