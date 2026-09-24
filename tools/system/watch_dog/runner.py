@@ -202,16 +202,11 @@ def _format_alarm_message(
 ) -> str:
     """Format the alarm body for the delivering provider.
 
-    Telegram renders HTML (``parse_mode="HTML"``); Rocket.Chat renders
-    Markdown and displays literal ``<b>``/``<code>`` tags as text; Feishu's
-    ``msg_type="text"`` renders no markup at all and would show
-    ``**``/backticks as literal characters — so each provider gets its own
-    format around the same fields rather than sending one format to all.
+    Telegram renders HTML (``parse_mode="HTML"``); Rocket.Chat and Feishu
+    cards render canonical Markdown around the same fields.
     """
-    if provider == Provider.ROCKETCHAT:
+    if provider in {Provider.ROCKETCHAT, Provider.FEISHU}:
         return _format_alarm_message_markdown(sample, breach)
-    if provider == Provider.FEISHU:
-        return _format_alarm_message_plain(sample, breach)
     return _format_alarm_message_html(sample, breach)
 
 
@@ -257,22 +252,6 @@ def _format_alarm_message_markdown(sample: ProcessSample, breach: ThresholdBreac
             f"**threshold**  {_md_code(_format_threshold_breach(breach))}",
             f"**runtime**    {_md_code(_format_duration(sample.runtime_seconds))}",
             f"**started**    {_md_code(started)}",
-        ]
-    )
-
-
-def _format_alarm_message_plain(sample: ProcessSample, breach: ThresholdBreach) -> str:
-    started, command = _alarm_started_and_command(sample)
-
-    return "\n".join(
-        [
-            "🚨 OpenSRE Watchdog Alarm",
-            f"host       {socket.gethostname()}",
-            f"pid        {sample.pid}  ({sample.name or '-'})",
-            f"cmd        {command}",
-            f"threshold  {_format_threshold_breach(breach)}",
-            f"runtime    {_format_duration(sample.runtime_seconds)}",
-            f"started    {started}",
         ]
     )
 

@@ -1,8 +1,8 @@
-"""Feishu watchdog alarm dispatcher via im.message.create.
+"""Feishu watchdog alarm dispatcher via document delivery.
 
-Credential resolution lives in :mod:`integrations.feishu.credentials`; raw
-transport in :mod:`integrations.feishu.delivery`. This module owns throttling +
-dispatch policy (mirrors :mod:`integrations.rocketchat.alarms`).
+Credential resolution lives in :mod:`integrations.feishu.credentials`. This
+module owns throttling and dispatch policy (mirrors
+:mod:`integrations.rocketchat.alarms`).
 """
 
 from __future__ import annotations
@@ -11,10 +11,7 @@ import logging
 import time
 
 from infrastructure.delivery.notifications.cooldown import CooldownGate
-from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
-from infrastructure.text.truncation import truncate
 from integrations.feishu.credentials import FeishuAlarmCredentials
-from integrations.feishu.delivery import post_feishu_message
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +32,19 @@ class FeishuAlarmDispatcher:
 
     def dispatch(self, threshold_name: str, message: str) -> bool:
         """Send to Feishu unless this threshold is in cooldown."""
+        markdown = f"**[{threshold_name}]**\n{message}"
+        if not all(
+            (
+                self._creds.app_id.strip(),
+                self._creds.app_secret.strip(),
+                self._creds.receive_id.strip(),
+                self._creds.receive_id_type.strip(),
+                message.strip(),
+            )
+        ):
+            logger.debug("Feishu alarm delivery skipped before cooldown reservation")
+            return False
+
         now = self._now()
 
         remaining = self._gate.try_reserve(threshold_name, now)
@@ -46,41 +56,26 @@ class FeishuAlarmDispatcher:
             )
             return False
 
-        text = truncate(f"[{threshold_name}] {message}", MAX_MESSAGE_SIZE, suffix="…")
-
-        # The cooldown slot was reserved before this network call. If the
-        # delivery returns ok=False, the slot stays armed for the cooldown
-        # window and the next caller for the same key is silently suppressed —
-        # emit the same warning in both paths so operators see the original
-        # failure instead of only the suppression debug line. Transport and
-        # construction failures fold into ok=False inside the helper; the
-        # try/except below is defense-in-depth so a contract-violating raise
-        # still returns False instead of escaping the watchdog runner.
+        # Every attempted delivery keeps the reservation, including FAILED and
+        # a contract-violating raise, so retries cannot bypass the cooldown.
         try:
-            ok, error, _message_id = post_feishu_message(
-                self._creds.app_id,
-                self._creds.app_secret,
-                self._creds.receive_id,
-                self._creds.receive_id_type,
-                text,
+            from integrations.feishu.document_delivery import deliver_feishu_document
+
+            result = deliver_feishu_document(
+                app_id=self._creds.app_id,
+                app_secret=self._creds.app_secret,
+                receive_id=self._creds.receive_id,
+                receive_id_type=self._creds.receive_id_type,
+                markdown=markdown,
             )
-        except Exception as exc:
-            logger.warning(
-                "alarm delivery raised and cooldown remains armed: name=%s error=%s",
-                threshold_name,
-                exc,
-                exc_info=True,
-            )
+        except Exception:  # noqa: BLE001
+            logger.warning("Feishu alarm delivery raised; cooldown remains armed")
             return False
 
-        if ok:
+        if result.successful:
             return True
 
-        logger.warning(
-            "alarm delivery failed and cooldown remains armed: name=%s error=%s",
-            threshold_name,
-            error,
-        )
+        logger.warning("Feishu alarm delivery failed; cooldown remains armed")
         return False
 
     @staticmethod
