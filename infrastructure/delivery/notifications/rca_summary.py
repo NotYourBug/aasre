@@ -18,16 +18,24 @@ _COMMAND_CHARS = 200
 _ROOT_CAUSE_CHARS = 1000
 _ITEM_CHARS = 240
 _MAX_ITEMS = 5
+_MARKDOWN_LITERAL_TRANSLATION = str.maketrans(
+    {char: chr(ord(char) + 0xFEE0) for char in "\\`*_{}[]()#!|<>~&+-="}
+)
 
 
 def _markdown_code(value: str) -> str:
     """Keep generated inline-code spans closed when input contains backticks."""
-    return value.replace("`", "'")
+    return " ".join(value.split()).replace("`", "'")
+
+
+def _markdown_literal(value: str) -> str:
+    """Neutralize markup without expanding the bounded summary fields."""
+    return " ".join(value.split()).translate(_MARKDOWN_LITERAL_TRANSLATION)
 
 
 def _markdown_items(values: tuple[str, ...]) -> list[str]:
     """Render bounded item groups with a stable empty fallback."""
-    return [f"- {_markdown_code(value)}" for value in values] or ["- Unavailable"]
+    return [f"- {_markdown_literal(value)}" for value in values] or ["- Unavailable"]
 
 
 def summary_sections(
@@ -57,7 +65,7 @@ def format_background_rca_markdown(record: BackgroundInvestigationRecord) -> str
         f"**Command:** `{_markdown_code(command)}`",
         "",
         "## Root cause",
-        _markdown_code(root_cause) or "Unavailable",
+        _markdown_literal(root_cause) or "Unavailable",
         "",
         "## Top analysis",
         *_markdown_items(top_analysis),

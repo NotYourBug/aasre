@@ -77,7 +77,7 @@ def _patch_generate_report_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         "tools.investigation.reporting.node.build_report_messages",
-        lambda _ctx: ReportMessages(
+        lambda _ctx, **_kwargs: ReportMessages(
             markdown_text="markdown report text",
             slack_text="slack report text",
             telegram_html="telegram report text",

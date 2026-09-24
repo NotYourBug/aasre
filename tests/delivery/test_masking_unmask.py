@@ -45,7 +45,7 @@ def test_slack_message_is_unmasked_before_delivery() -> None:
         patch.object(
             pub_node,
             "build_report_messages",
-            return_value=ReportMessages(masked_message, masked_message, "tg", []),
+            return_value=ReportMessages("Already rendered Markdown", masked_message, "tg", []),
         ),
         patch.object(pub_node, "render_report"),
         patch.object(pub_node, "open_in_editor"),
@@ -64,10 +64,7 @@ def test_slack_message_is_unmasked_before_delivery() -> None:
     assert "etl-worker-7d9f8b-xkp2q" in result["slack_message"]
     assert "tracer-test" in result["slack_message"]
 
-    assert "<POD_0>" not in result["report_markdown"]
-    assert "<NAMESPACE_0>" not in result["report_markdown"]
-    assert "etl-worker-7d9f8b-xkp2q" in result["report_markdown"]
-    assert "tracer-test" in result["report_markdown"]
+    assert result["report_markdown"] == "Already rendered Markdown"
 
 
 def test_empty_masking_map_is_passthrough() -> None:
@@ -104,3 +101,27 @@ def test_empty_masking_map_is_passthrough() -> None:
 
     assert result["slack_message"] == message_without_placeholders
     assert result["report_markdown"] == message_without_placeholders
+
+
+def test_real_markdown_renderer_restores_identifiers_before_escaping() -> None:
+    from tools.investigation.reporting import node as pub_node
+
+    state = _state_with_masking()
+    state["root_cause"] = "<POD_0> failed in <NAMESPACE_0>"
+    state["masking_map"] = {
+        "<POD_0>": "worker_[link](https://example.test)",
+        "<NAMESPACE_0>": "production",
+    }
+    with (
+        patch.object(pub_node, "enrich_upstream_correlation", return_value={}),
+        patch.object(pub_node, "create_investigation_and_attach_url", return_value=("", "")),
+        patch.object(pub_node, "dispatch_report") as dispatch,
+    ):
+        result = pub_node.generate_report(state, render_terminal=False, open_editor=False)  # type: ignore[arg-type]
+
+    markdown = result["report_markdown"]
+    assert "production" in markdown
+    assert r"worker\_\[link\]\(https://example.test\)" in markdown
+    assert "POD" not in markdown
+    assert "NAMESPACE" not in markdown
+    assert dispatch.call_args.args[1].markdown_text == markdown

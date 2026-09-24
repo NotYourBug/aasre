@@ -40,3 +40,21 @@ def test_background_summary_uses_unavailable_for_empty_item_groups() -> None:
     body = format_background_rca_markdown(record)
 
     assert body.count("- Unavailable") == 2
+
+
+def test_untrusted_rca_fields_cannot_add_markdown_structure() -> None:
+    record = _record()
+    hostile = "[label](https://attacker.example)\n# forged\n<at id=all>ping</at>"
+    record.root_cause = hostile
+    record.top_analysis = (hostile,)
+    record.next_steps = (hostile,)
+    record.command = "cmd`\n# forged"
+    body = format_background_rca_markdown(record)
+    assert "[label](" not in body
+    assert "\n# forged" not in body
+    assert "<at " not in body
+    assert "## What to do next" in body
+    record.root_cause = "[" * 2000
+    record.top_analysis = ("[" * 500,) * 5
+    record.next_steps = ("[" * 500,) * 5
+    assert len(format_background_rca_markdown(record)) <= 4096
