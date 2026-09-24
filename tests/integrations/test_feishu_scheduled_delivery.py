@@ -5,6 +5,13 @@ from __future__ import annotations
 import pytest
 
 from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
+from integrations.feishu.credentials import FeishuChatCredentials
+from integrations.feishu.delivery_types import (
+    FeishuDeliveryErrorCategory,
+    FeishuDeliveryMode,
+    FeishuDeliveryStatus,
+)
+from integrations.feishu.document_delivery import FeishuDocumentDeliveryResult
 from integrations.feishu.scheduled_delivery import FeishuScheduledDelivery
 
 
@@ -18,154 +25,213 @@ def _task(*, chat_id: str = "", params: dict[str, str] | None = None) -> Schedul
     )
 
 
-def _install_fake_credentials(monkeypatch: pytest.MonkeyPatch, creds: dict[str, str]) -> None:
-    """Patch the credential seam so no env or credentials file is consulted."""
+def _chat_creds(**overrides: str) -> FeishuChatCredentials:
+    values = {
+        "app_id": "cli_chat",
+        "app_secret": "s_chat",
+        "receive_id": "",
+        "receive_id_type": "chat_id",
+    }
+    values.update(overrides)
+    return FeishuChatCredentials(**values)
 
-    def _fake_resolve(_task_params: dict[str, str]) -> dict[str, str]:
-        return creds
 
-    monkeypatch.setattr(
-        "integrations.feishu.scheduled_delivery.resolve_feishu_credentials", _fake_resolve
+def _result(
+    status: FeishuDeliveryStatus,
+    *,
+    ids: tuple[str, ...] = (),
+) -> FeishuDocumentDeliveryResult:
+    successful = status in {
+        FeishuDeliveryStatus.SUCCESS,
+        FeishuDeliveryStatus.DEGRADED_SUCCESS,
+    }
+    return FeishuDocumentDeliveryResult(
+        status=status,
+        attempted=status is not FeishuDeliveryStatus.SKIPPED,
+        confirmed_message_ids=ids,
+        delivery_mode=FeishuDeliveryMode.CARDS if successful else FeishuDeliveryMode.NONE,
+        error_category=None if successful else FeishuDeliveryErrorCategory.TRANSPORT,
+        error="" if successful else "safe owner error",
     )
 
 
-def _install_fake_post(
+def _install_fake_document_delivery(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    result: tuple[bool, str, str] = (True, "", "om_1"),
-) -> list[tuple[str, str, str, str, str]]:
-    """Patch the transport seam and capture every call it receives."""
-    calls: list[tuple[str, str, str, str, str]] = []
+    result: FeishuDocumentDeliveryResult | None = None,
+) -> list[dict[str, str]]:
+    calls: list[dict[str, str]] = []
 
-    def _fake_post(
-        app_id: str,
-        app_secret: str,
-        receive_id: str,
-        receive_id_type: str,
-        text: str,
-    ) -> tuple[bool, str, str]:
-        calls.append((app_id, app_secret, receive_id, receive_id_type, text))
-        return result
+    def _fake_deliver(**kwargs: str) -> FeishuDocumentDeliveryResult:
+        calls.append(kwargs)
+        return result or _result(FeishuDeliveryStatus.SUCCESS, ids=("om_first",))
 
-    monkeypatch.setattr("integrations.feishu.delivery.post_feishu_message", _fake_post)
+    monkeypatch.setattr(
+        "integrations.feishu.document_delivery.deliver_feishu_document",
+        _fake_deliver,
+    )
     return calls
 
 
-def _chat_creds(**overrides: str) -> dict[str, str]:
-    creds = {
-        "app_id": "cli_chat",
-        "app_secret": "s_chat",
-        "receive_id": "oc_default",
-        "receive_id_type": "chat_id",
-    }
-    creds.update(overrides)
-    return creds
-
-
-def test_missing_credentials_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install_fake_credentials(monkeypatch, {})
-    calls = _install_fake_post(monkeypatch)
-
-    ok, error, _message_id = FeishuScheduledDelivery().deliver(_task(chat_id="oc_x"), "digest")
-
-    assert ok is False
-    assert "app_id" in error
-    assert calls == []
-
-
-def test_task_chat_id_wins_over_the_configured_default(
+@pytest.mark.parametrize(
+    ("task_chat_id", "params", "base", "expected_target"),
+    [
+        (
+            "oc_task",
+            {"receive_id": "ou_param", "receive_id_type": "open_id"},
+            _chat_creds(receive_id="ou_config", receive_id_type="open_id"),
+            ("oc_task", "chat_id"),
+        ),
+        (
+            "",
+            {"receive_id": "ou_param", "receive_id_type": "open_id"},
+            _chat_creds(),
+            ("ou_param", "open_id"),
+        ),
+        (
+            "",
+            {"receive_id": "oc_param"},
+            _chat_creds(receive_id="ou_config", receive_id_type="open_id"),
+            ("oc_param", "chat_id"),
+        ),
+        (
+            "",
+            {},
+            _chat_creds(receive_id="ou_config", receive_id_type="open_id"),
+            ("ou_config", "open_id"),
+        ),
+    ],
+)
+def test_destination_and_type_are_resolved_as_an_atomic_pair(
     monkeypatch: pytest.MonkeyPatch,
+    task_chat_id: str,
+    params: dict[str, str],
+    base: FeishuChatCredentials,
+    expected_target: tuple[str, str],
 ) -> None:
-    """A scheduled task carries an explicit --chat-id; it overrides the default."""
-    _install_fake_credentials(monkeypatch, _chat_creds())
-    calls = _install_fake_post(monkeypatch)
+    monkeypatch.setattr("integrations.feishu.load_chat_credentials_from_env", lambda: base)
+    calls = _install_fake_document_delivery(monkeypatch)
 
-    ok, _error, message_id = FeishuScheduledDelivery().deliver(
-        _task(chat_id="oc_explicit"), "digest"
+    outcome = FeishuScheduledDelivery().deliver(
+        _task(chat_id=task_chat_id, params=params),
+        "scheduled **Markdown**",
     )
 
-    assert ok is True
-    assert message_id == "om_1"
+    assert outcome == (True, "", "om_first")
     assert len(calls) == 1
-    assert calls[0][:4] == ("cli_chat", "s_chat", "oc_explicit", "chat_id")
+    assert (calls[0]["receive_id"], calls[0]["receive_id_type"]) == expected_target
 
 
-def test_falls_back_to_the_configured_receive_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tasks created without a chat_id fall back to FEISHU_CHAT_RECEIVE_ID."""
-    _install_fake_credentials(monkeypatch, _chat_creds())
-    calls = _install_fake_post(monkeypatch)
-
-    ok, _error, _message_id = FeishuScheduledDelivery().deliver(_task(chat_id=""), "digest")
-
-    assert ok is True
-    assert calls[0][2] == "oc_default"
-
-
-def test_fallback_keeps_its_own_receive_id_type(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A fallback aimed at a person posts as that person."""
-    _install_fake_credentials(
-        monkeypatch, _chat_creds(receive_id="ou_fallback", receive_id_type="open_id")
-    )
-    calls = _install_fake_post(monkeypatch)
-
-    ok, _error, _message_id = FeishuScheduledDelivery().deliver(_task(chat_id=""), "digest")
-
-    assert ok is True
-    assert calls[0][2:4] == ("ou_fallback", "open_id")
-
-
-def test_task_chat_id_does_not_inherit_the_fallback_type(
+@pytest.mark.parametrize(
+    ("task", "base"),
+    [
+        (
+            _task(params={"receive_id_type": "open_id"}),
+            _chat_creds(receive_id="ou_config", receive_id_type="open_id"),
+        ),
+        (_task(), _chat_creds()),
+        (_task(), _chat_creds(receive_id="oc_config", receive_id_type="   ")),
+        (
+            _task(chat_id="   ", params={"receive_id": "   ", "receive_id_type": "   "}),
+            _chat_creds(receive_id="   ", receive_id_type="   "),
+        ),
+    ],
+    ids=[
+        "task-type-without-task-target",
+        "missing-configured-target",
+        "blank-configured-type",
+        "whitespace-only-values",
+    ],
+)
+def test_incomplete_destination_pair_skips_document_delivery(
     monkeypatch: pytest.MonkeyPatch,
+    task: ScheduledTask,
+    base: FeishuChatCredentials,
 ) -> None:
-    """The type travels with the destination that won, not with the fallback.
+    monkeypatch.setattr("integrations.feishu.load_chat_credentials_from_env", lambda: base)
+    calls = _install_fake_document_delivery(monkeypatch)
 
-    A task's own ``--chat-id`` names a chat. Applying the configured fallback's
-    type to it would send a chat id typed as an ``open_id`` whenever that
-    fallback targets a person.
-    """
-    _install_fake_credentials(
-        monkeypatch, _chat_creds(receive_id="ou_fallback", receive_id_type="open_id")
-    )
-    calls = _install_fake_post(monkeypatch)
-
-    ok, _error, _message_id = FeishuScheduledDelivery().deliver(
-        _task(chat_id="oc_explicit"), "digest"
-    )
-
-    assert ok is True
-    assert calls[0][2:4] == ("oc_explicit", "chat_id")
-
-
-def test_refuses_without_any_destination(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install_fake_credentials(monkeypatch, _chat_creds(receive_id=""))
-    calls = _install_fake_post(monkeypatch)
-
-    ok, error, _message_id = FeishuScheduledDelivery().deliver(_task(chat_id=""), "digest")
+    ok, error, message_id = FeishuScheduledDelivery().deliver(task, "digest")
 
     assert ok is False
-    assert "chat_id" in error
+    assert error == "Missing Feishu delivery target"
+    assert message_id == ""
     assert calls == []
 
 
-def test_delivers_html_stripped_plain_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Feishu renders plain text, so mark-up from the shared builder is stripped."""
-    _install_fake_credentials(monkeypatch, _chat_creds())
-    calls = _install_fake_post(monkeypatch)
-
-    ok, _error, _message_id = FeishuScheduledDelivery().deliver(
-        _task(chat_id="oc_x"), "<b>Daily</b> summary"
+def test_missing_app_credentials_refuses_document_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "integrations.feishu.scheduled_delivery.resolve_feishu_credentials",
+        lambda _params: {"receive_id": "oc_x", "receive_id_type": "chat_id"},
     )
+    calls = _install_fake_document_delivery(monkeypatch)
 
-    assert ok is True
-    assert calls[0][4] == "Daily summary"
+    outcome = FeishuScheduledDelivery().deliver(_task(), "digest")
+
+    assert outcome == (False, "Missing app_id or app_secret for Feishu", "")
+    assert calls == []
 
 
-def test_transport_failure_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
-    _install_fake_credentials(monkeypatch, _chat_creds())
-    _install_fake_post(monkeypatch, result=(False, "denied", ""))
+@pytest.mark.parametrize(
+    ("status", "ids", "expected"),
+    [
+        (FeishuDeliveryStatus.SUCCESS, ("om_first", "om_second"), (True, "", "om_first")),
+        (
+            FeishuDeliveryStatus.DEGRADED_SUCCESS,
+            ("om_first", "om_second"),
+            (True, "", "om_first"),
+        ),
+        (
+            FeishuDeliveryStatus.FAILED,
+            ("om_partial",),
+            (False, "Feishu delivery failed", ""),
+        ),
+        (FeishuDeliveryStatus.SKIPPED, (), (False, "Feishu delivery failed", "")),
+    ],
+)
+def test_document_status_maps_to_whole_delivery_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+    status: FeishuDeliveryStatus,
+    ids: tuple[str, ...],
+    expected: tuple[bool, str, str],
+) -> None:
+    monkeypatch.setattr(
+        "integrations.feishu.scheduled_delivery.resolve_feishu_credentials",
+        lambda _params: {
+            "app_id": "cli_chat",
+            "app_secret": "s_chat",
+            "receive_id": "oc_x",
+            "receive_id_type": "chat_id",
+        },
+    )
+    _install_fake_document_delivery(monkeypatch, result=_result(status, ids=ids))
 
-    ok, error, message_id = FeishuScheduledDelivery().deliver(_task(chat_id="oc_x"), "digest")
+    assert FeishuScheduledDelivery().deliver(_task(), "digest") == expected
 
-    assert ok is False
-    assert error == "denied"
-    assert message_id == ""
+
+@pytest.mark.parametrize("message", ["  # Daily\n\n<b>literal</b>  ", ""])
+def test_canonical_markdown_is_forwarded_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+    message: str,
+) -> None:
+    monkeypatch.setattr(
+        "integrations.feishu.scheduled_delivery.resolve_feishu_credentials",
+        lambda _params: {
+            "app_id": "cli_chat",
+            "app_secret": "s_chat",
+            "receive_id": "oc_x",
+            "receive_id_type": "chat_id",
+        },
+    )
+    result = (
+        _result(FeishuDeliveryStatus.SKIPPED)
+        if not message
+        else _result(FeishuDeliveryStatus.SUCCESS, ids=("om_first",))
+    )
+    calls = _install_fake_document_delivery(monkeypatch, result=result)
+
+    FeishuScheduledDelivery().deliver(_task(), message)
+
+    assert calls[0]["markdown"] == message

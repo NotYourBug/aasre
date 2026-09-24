@@ -28,6 +28,7 @@ _DELIVERY_PROVIDERS = (
     Provider.SLACK,
     Provider.DISCORD,
     Provider.ROCKETCHAT,
+    Provider.FEISHU,
     Provider.INTERACTIVE_SHELL,
 )
 
@@ -183,6 +184,32 @@ class TestExecutor:
 
         assert result is True
         assert len(adapters[Provider.ROCKETCHAT].calls) == 1
+
+    def test_feishu_partial_document_failure_records_no_message_id(self) -> None:
+        from infrastructure.scheduling.scheduler.claim_store import get_runs
+
+        adapters = _install_fake_bundle()
+        adapters[Provider.FEISHU].result = (False, "Feishu delivery failed", "")
+        task = ScheduledTask(
+            id="test_feishu_partial_failure",
+            kind=TaskKind.DAILY_SUMMARY,
+            cron="0 9 * * *",
+            provider=Provider.FEISHU,
+            chat_id="oc_target",
+        )
+
+        with patch(
+            "infrastructure.scheduling.scheduler.executor.build_message",
+            return_value="Scheduled **Markdown**",
+        ):
+            result = execute_task(task, "2026-01-01T09:00", real_runners())
+
+        assert result is False
+        runs = get_runs(task.id)
+        assert len(runs) == 1
+        assert runs[0].status.value == "failed"
+        assert runs[0].posted_message_id == ""
+        assert runs[0].error == "Feishu delivery failed"
 
     def test_interactive_shell_delivery_success(self, tmp_path: Path) -> None:
         _install_real_bundle()

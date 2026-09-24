@@ -1,61 +1,49 @@
-"""Scheduled-delivery adapter: post a scheduled task's message to Feishu."""
+"""Scheduled-delivery adapter for complete Feishu Markdown documents."""
 
 from __future__ import annotations
 
-from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
 from infrastructure.scheduling.scheduler.credentials import resolve_feishu_credentials
-from infrastructure.scheduling.scheduler.delivery import strip_html
 from infrastructure.scheduling.scheduler.types import ScheduledTask
-from infrastructure.text.truncation import truncate
 
 
 class FeishuScheduledDelivery:
-    """Deliver a scheduled task's message through the Feishu chat app.
+    """Deliver a scheduled task's canonical Markdown through the Feishu chat app.
 
     The task's own ``chat_id`` is the destination; ``FEISHU_CHAT_RECEIVE_ID``
-    only backs tasks created without one. Feishu renders plain text, so mark-up
-    from the shared message builder is stripped before it is sent.
+    only backs tasks created without one. Destination IDs and types are treated
+    as atomic pairs so a task override cannot inherit a configured identity type.
     """
 
     def deliver(self, task: ScheduledTask, message: str) -> tuple[bool, str, str]:
         creds = resolve_feishu_credentials(dict(task.params))
-        app_id = creds.get("app_id", "")
-        app_secret = creds.get("app_secret", "")
+        app_id = creds.get("app_id", "").strip()
+        app_secret = creds.get("app_secret", "").strip()
         if not app_id or not app_secret:
             return False, "Missing app_id or app_secret for Feishu", ""
 
-        # The destination type travels with whichever destination won. A task's
-        # own --chat-id names a chat, whereas FEISHU_CHAT_RECEIVE_ID_TYPE
-        # describes only the configured fallback — pairing them the other way
-        # would send a chat id typed as an open_id whenever that fallback
-        # targets a person.
         explicit_chat_id = (task.chat_id or "").strip()
         if explicit_chat_id:
             receive_id, receive_id_type = explicit_chat_id, "chat_id"
         else:
-            receive_id = creds.get("receive_id", "")
-            receive_id_type = creds.get("receive_id_type", "chat_id")
+            receive_id = creds.get("receive_id", "").strip()
+            receive_id_type = creds.get("receive_id_type", "").strip()
 
-        if not receive_id:
-            return (
-                False,
-                "Missing chat_id for Feishu (pass --chat-id or set FEISHU_CHAT_RECEIVE_ID)",
-                "",
-            )
+        if not receive_id or not receive_id_type:
+            return False, "Missing Feishu delivery target", ""
 
-        # Imported lazily so the lark SDK stays out of the scheduler's boot path
-        # — the same rule the background-RCA adapter follows.
-        from integrations.feishu.delivery import post_feishu_message
+        # Imported lazily so the lark SDK stays out of the scheduler's boot path.
+        from integrations.feishu.document_delivery import deliver_feishu_document
 
-        plain_message = truncate(strip_html(message), MAX_MESSAGE_SIZE, suffix="…")
-        ok, error, message_id = post_feishu_message(
-            app_id,
-            app_secret,
-            receive_id,
-            receive_id_type,
-            plain_message,
+        result = deliver_feishu_document(
+            app_id=app_id,
+            app_secret=app_secret,
+            receive_id=receive_id,
+            receive_id_type=receive_id_type,
+            markdown=message,
         )
-        return (True, "", message_id) if ok else (False, error, "")
+        if result.successful:
+            return True, "", result.first_message_id
+        return False, "Feishu delivery failed", ""
 
 
 __all__ = ["FeishuScheduledDelivery"]

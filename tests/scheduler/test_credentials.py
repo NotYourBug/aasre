@@ -539,12 +539,7 @@ class TestFeishuCredentials:
             "config.llm_credentials.resolve_env_credential",
             lambda name, **_kwargs: "from_file" if name == "FEISHU_APP_SECRET" else "",
         )
-        # ``receive_id_type`` carries the shared leaf's ``chat_id`` default even
-        # when nothing else is configured; the destination is what gates delivery.
-        assert resolve_feishu_credentials({}) == {
-            "app_secret": "from_file",
-            "receive_id_type": "chat_id",
-        }
+        assert resolve_feishu_credentials({}) == {"app_secret": "from_file"}
 
     def test_params_take_priority_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for env_var in _FEISHU_ENV_VARS:
@@ -559,6 +554,55 @@ class TestFeishuCredentials:
         assert creds["app_id"] == "cli_params"
         assert creds["app_secret"] == "s_env"
 
+    @pytest.mark.parametrize(
+        ("params", "base_receive_id", "base_receive_id_type", "expected"),
+        [
+            (
+                {"receive_id": "ou_param", "receive_id_type": "open_id"},
+                "oc_config",
+                "chat_id",
+                {"receive_id": "ou_param", "receive_id_type": "open_id"},
+            ),
+            (
+                {"receive_id": "oc_param"},
+                "ou_config",
+                "open_id",
+                {"receive_id": "oc_param", "receive_id_type": "chat_id"},
+            ),
+            (
+                {"receive_id_type": "open_id"},
+                "ou_config",
+                "open_id",
+                {"receive_id_type": "open_id"},
+            ),
+            (
+                {},
+                "ou_config",
+                "open_id",
+                {"receive_id": "ou_config", "receive_id_type": "open_id"},
+            ),
+        ],
+    )
+    def test_destination_and_type_resolve_atomically(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        params: dict[str, str],
+        base_receive_id: str,
+        base_receive_id_type: str,
+        expected: dict[str, str],
+    ) -> None:
+        from integrations.feishu.credentials import FeishuChatCredentials
+
+        base = FeishuChatCredentials(
+            app_id="",
+            app_secret="",
+            receive_id=base_receive_id,
+            receive_id_type=base_receive_id_type,
+        )
+        monkeypatch.setattr("integrations.feishu.load_chat_credentials_from_env", lambda: base)
+
+        assert resolve_feishu_credentials(params) == expected
+
     def test_empty_when_nothing_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for env_var in _FEISHU_ENV_VARS:
             monkeypatch.delenv(env_var, raising=False)
@@ -567,5 +611,4 @@ class TestFeishuCredentials:
             "config.llm_credentials.resolve_env_credential",
             lambda *_args, **_kwargs: "",
         )
-        # Only the destination-type default survives; no credential is invented.
-        assert resolve_feishu_credentials({}) == {"receive_id_type": "chat_id"}
+        assert resolve_feishu_credentials({}) == {}
