@@ -5,7 +5,7 @@ Node contract:
     Reads      : root_cause, validated_claims, non_validated_claims,
                  remediation_steps, correlation, evidence, resolved_integrations,
                  channel_contexts, problem_md, masking_context, opensre_evaluate
-    Writes     : slack_message, report, opensre_llm_eval (optional)
+    Writes     : slack_message, report, report_markdown, opensre_llm_eval (optional)
 """
 
 from __future__ import annotations
@@ -52,12 +52,14 @@ def generate_report(
     enriched_state = cast(InvestigationState, {**dict(state), **correlation_updates})
     ctx = build_report_context(enriched_state)
     short_summary = enriched_state.get("problem_md")
-    messages = build_report_messages(ctx)
+    masking_ctx = MaskingRules.from_state(dict(enriched_state))
+    # Restore identifiers before Markdown escaping, retaining other channel contracts.
+    messages = build_report_messages(ctx, markdown_context=masking_ctx.unmask_value(ctx))
 
     # Restore any masked infrastructure identifiers in user-facing output.
     # No-op when masking is disabled or the state has no placeholders.
-    masking_ctx = MaskingRules.from_state(dict(enriched_state))
     messages = ReportMessages(
+        markdown_text=messages.markdown_text,
         slack_text=masking_ctx.unmask(messages.slack_text),
         telegram_html=masking_ctx.unmask(messages.telegram_html),
         slack_blocks=masking_ctx.unmask_value(messages.slack_blocks),
@@ -87,4 +89,5 @@ def generate_report(
         **correlation_updates,
         "slack_message": messages.slack_text,
         "report": messages.slack_text,
+        "report_markdown": messages.markdown_text,
     }

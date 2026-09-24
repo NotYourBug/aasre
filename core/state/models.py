@@ -137,6 +137,7 @@ class AgentStateModel(StrictConfigModel):
     summary: str = ""
     problem_report: dict[str, Any] = Field(default_factory=dict)
     report: str = ""
+    report_markdown: str = ""
     opensre_evaluate: bool = False
     opensre_eval_rubric: str = ""
     opensre_llm_eval: dict[str, Any] = Field(default_factory=dict)

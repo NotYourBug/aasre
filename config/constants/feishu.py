@@ -136,6 +136,12 @@ FEISHU_STREAM_ELEMENT_ID = "stream_md"
 #: out of order. None is worth retrying on the same card.
 FEISHU_STREAM_ERROR_CODES = frozenset({200850, 300309, 300317})
 
+#: Verified stable business codes used to classify message and CardKit
+#: rejections without retaining vendor response text.
+FEISHU_RATE_LIMIT_ERROR_CODES = frozenset({230020, 99991400})
+FEISHU_VALIDATION_ERROR_CODES = frozenset({11310, 200860, 230001, 230025})
+FEISHU_AUTHORIZATION_ERROR_CODES = frozenset({230002, 230006, 230013, 230017, 230018, 230027})
+
 #: Streaming is throttled well under the endpoint's 50/s: one flush per interval,
 #: or sooner once this many characters have accumulated.
 FEISHU_STREAM_MIN_INTERVAL_SECONDS = 1.5
@@ -148,6 +154,7 @@ FEISHU_CARD_TRUNCATED_MARKER = "\n\n> _内容较长，后续见下方卡片。_"
 __all__ = [
     "FEISHU_APP_ID_ENV",
     "FEISHU_APP_SECRET_ENV",
+    "FEISHU_AUTHORIZATION_ERROR_CODES",
     "FEISHU_ALLOWED_OPEN_IDS_ENV",
     "FEISHU_CHAT_RECEIVE_ID_ENV",
     "FEISHU_CHAT_RECEIVE_ID_TYPE_ENV",
@@ -164,6 +171,7 @@ __all__ = [
     "FEISHU_IMAGE_MAX_BYTES",
     "FEISHU_MAX_RESOURCES_PER_MESSAGE",
     "FEISHU_RECEIVE_ID_TYPES",
+    "FEISHU_RATE_LIMIT_ERROR_CODES",
     "FEISHU_RESOURCE_HOST_SUFFIXES",
     "FEISHU_RESOURCE_TIMEOUT_SECONDS",
     "FEISHU_RESOURCE_TYPE_FILE",
@@ -174,4 +182,5 @@ __all__ = [
     "FEISHU_STREAM_MIN_INTERVAL_SECONDS",
     "FEISHU_TEXT_FILE_MAX_BYTES",
     "FEISHU_TEXT_FILE_SUFFIXES",
+    "FEISHU_VALIDATION_ERROR_CODES",
 ]

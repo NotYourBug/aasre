@@ -110,6 +110,7 @@ def _messages_payload(messages: ReportMessages) -> dict[str, object]:
     dataclass — that keeps the platform boundary free of ``tools`` types.
     """
     return {
+        "markdown_text": messages.markdown_text,
         "slack_text": messages.slack_text,
         "slack_blocks": messages.slack_blocks,
         "telegram_html": messages.telegram_html,

@@ -1,6 +1,6 @@
 ---
 title: "Scheduled Deliveries (Cron)"
-description: "Cron-driven recurring reports to Telegram, Slack, Discord, Rocket.Chat, and the interactive shell"
+description: "Cron-driven recurring reports to Telegram, Slack, Discord, Rocket.Chat, Feishu, and the interactive shell"
 ---
 
 # Scheduled Deliveries
@@ -65,7 +65,7 @@ Create a new scheduled delivery task.
 | `--cron` | Yes | Cron expression (5 fields: minute hour day month day_of_week) |
 | `--tz` | No | IANA timezone (default: `UTC`). Examples: `Europe/London`, `US/Eastern`, `Asia/Kolkata` |
 | `--provider` | Yes | Messaging provider: `telegram`, `slack`, `discord`, `rocketchat`, `feishu`, `interactive_shell` |
-| `--chat-id` | Cond. | Required for telegram/discord/rocketchat/feishu. Optional for slack when an incoming webhook or `SLACK_DEFAULT_CHAT_ID` is configured, and not needed for `interactive_shell`. |
+| `--chat-id` | Cond. | Required for telegram/discord/rocketchat. For Feishu, it is optional when a default destination is configured. Optional for slack when an incoming webhook or `SLACK_DEFAULT_CHAT_ID` is configured, and not needed for `interactive_shell`. |
 | `--window` | No | Lookback window in hours (default: `24`) |
 
 ### `opensre cron list`
@@ -156,6 +156,11 @@ Credentials are resolved lazily at delivery time in this priority order:
 
 You do not need to pass credentials at `cron add` time — they are picked up
 from your existing integration configuration.
+
+For Feishu, a task's `--chat-id` is always interpreted as a `chat_id`. A default
+destination may instead target another Feishu identity type, but its
+`receive_id` and `receive_id_type` must be configured together; OpenSRE never
+combines a destination ID with a type from another configuration source.
 
 ## Task Kinds
 

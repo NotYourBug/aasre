@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from infrastructure.scheduling.scheduler.credentials import resolve_discord_credentials
-from infrastructure.scheduling.scheduler.delivery import strip_html
 from infrastructure.scheduling.scheduler.types import ScheduledTask
 from integrations.discord.delivery import send_discord_report
 
@@ -25,5 +24,5 @@ class DiscordScheduledDelivery:
             "channel_id": task.chat_id,
             "bot_token": bot_token,
         }
-        ok, error = send_discord_report(strip_html(message), discord_ctx)
+        ok, error = send_discord_report(message, discord_ctx)
         return ok, error, ""

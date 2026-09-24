@@ -28,6 +28,7 @@ _DELIVERY_PROVIDERS = (
     Provider.SLACK,
     Provider.DISCORD,
     Provider.ROCKETCHAT,
+    Provider.FEISHU,
     Provider.INTERACTIVE_SHELL,
 )
 
@@ -184,6 +185,32 @@ class TestExecutor:
         assert result is True
         assert len(adapters[Provider.ROCKETCHAT].calls) == 1
 
+    def test_feishu_partial_document_failure_records_no_message_id(self) -> None:
+        from infrastructure.scheduling.scheduler.claim_store import get_runs
+
+        adapters = _install_fake_bundle()
+        adapters[Provider.FEISHU].result = (False, "Feishu delivery failed", "")
+        task = ScheduledTask(
+            id="test_feishu_partial_failure",
+            kind=TaskKind.DAILY_SUMMARY,
+            cron="0 9 * * *",
+            provider=Provider.FEISHU,
+            chat_id="oc_target",
+        )
+
+        with patch(
+            "infrastructure.scheduling.scheduler.executor.build_message",
+            return_value="Scheduled **Markdown**",
+        ):
+            result = execute_task(task, "2026-01-01T09:00", real_runners())
+
+        assert result is False
+        runs = get_runs(task.id)
+        assert len(runs) == 1
+        assert runs[0].status.value == "failed"
+        assert runs[0].posted_message_id == ""
+        assert runs[0].error == "Feishu delivery failed"
+
     def test_interactive_shell_delivery_success(self, tmp_path: Path) -> None:
         _install_real_bundle()
         inbox_path = tmp_path / "loop_messages.jsonl"
@@ -198,7 +225,7 @@ class TestExecutor:
         with (
             patch(
                 "infrastructure.scheduling.scheduler.executor.build_message",
-                return_value="<b>Scheduled</b> report",
+                return_value="**Scheduled** report",
             ),
             patch(
                 "infrastructure.scheduling.scheduler.local_delivery._default_inbox_path",
@@ -211,7 +238,7 @@ class TestExecutor:
         messages = get_loop_messages(inbox_path=inbox_path)
         assert len(messages) == 1
         assert messages[0].name == "Local loop"
-        assert messages[0].message == "Scheduled report"
+        assert messages[0].message == "**Scheduled** report"
 
     def test_execution_logs_operations_without_message_body(
         self,
@@ -410,7 +437,7 @@ class TestExecutor:
         with (
             patch(
                 "infrastructure.scheduling.scheduler.executor.build_message",
-                return_value="<b>Scheduled</b> report",
+                return_value="**Scheduled** report",
             ),
             patch(
                 "integrations.rocketchat.scheduled_delivery.resolve_rocketchat_credentials",
@@ -431,8 +458,7 @@ class TestExecutor:
         args = mock_post.call_args.args
         assert args[0] == "https://chat.example.com"
         assert args[1] == "#ops"
-        # HTML tags stripped — Rocket.Chat renders Markdown, not HTML.
-        assert args[2] == "Scheduled report"
+        assert args[2] == "**Scheduled** report"
         assert args[3] == "tok"
         assert args[4] == "u1"
 

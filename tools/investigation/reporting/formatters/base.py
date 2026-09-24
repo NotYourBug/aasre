@@ -8,12 +8,22 @@ import re
 from config.constants import SLACK_LINK_RE
 
 __all__ = [
+    "escape_markdown_text",
     "escape_slack_mrkdwn",
     "format_html_link",
+    "format_markdown_link",
     "format_slack_link",
     "shorten_text",
     "slack_links_to_plain_text",
 ]
+
+
+def escape_markdown_text(text: str) -> str:
+    """Escape untrusted text while keeping generated GFM structure intact."""
+    escaped = text.replace("\\", "\\\\")
+    escaped = re.sub(r"([`*_{}\[\]()#!|])", r"\\\1", escaped)
+    escaped = escaped.replace("<", "&lt;").replace(">", "&gt;")
+    return re.sub(r"(?m)^([+\-])(?=\s)", r"\\\1", escaped)
 
 
 def escape_slack_mrkdwn(text: str) -> str:
@@ -64,6 +74,24 @@ def format_slack_link(label: str, url: str | None) -> str:
     safe_url = escape_slack_mrkdwn(url).replace("|", "%7C")
     safe_label = escape_slack_mrkdwn(label.replace("|", "¦").strip()) or url
     return f"<{safe_url}|{safe_label}>"
+
+
+def format_markdown_link(label: str, url: str | None) -> str:
+    """Return a safe GFM hyperlink, falling back to escaped plain text."""
+    safe_label = escape_markdown_text(label.strip())
+    if not url or not re.match(r"^https?://", url, flags=re.IGNORECASE):
+        return safe_label
+    safe_url = (
+        url.replace("\\", "%5C")
+        .replace(" ", "%20")
+        .replace("(", "%28")
+        .replace(")", "%29")
+        .replace("<", "%3C")
+        .replace(">", "%3E")
+        .replace("\n", "")
+        .replace("\r", "")
+    )
+    return f"[{safe_label}]({safe_url})"
 
 
 def slack_links_to_plain_text(text: str) -> str:

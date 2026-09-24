@@ -40,6 +40,7 @@ def _minimal_state(**overrides: Any) -> AgentState:
 
 def _messages() -> ReportMessages:
     return ReportMessages(
+        markdown_text="Synthetic investigation summary",
         slack_text="Synthetic investigation summary",
         telegram_html="Synthetic investigation summary",
         slack_blocks=[],

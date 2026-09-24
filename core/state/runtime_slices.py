@@ -129,6 +129,7 @@ class DeliveryOutputSlice(TypedDict, total=False):
     summary: str
     problem_report: dict[str, Any]
     report: str
+    report_markdown: str
 
 
 class EvalHarnessSlice(TypedDict, total=False):

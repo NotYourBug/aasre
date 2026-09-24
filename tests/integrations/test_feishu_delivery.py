@@ -7,7 +7,12 @@ from typing import Any
 
 import pytest
 
-from integrations.feishu.delivery import post_feishu_message, send_feishu_report
+from integrations.feishu.delivery import post_feishu_message
+from integrations.feishu.delivery_types import (
+    FeishuDeliveryErrorCategory,
+    FeishuMessageSendResult,
+    FeishuSendCertainty,
+)
 
 _APP_ID = "cli_x"
 _APP_SECRET = "s_secret_123"
@@ -60,21 +65,26 @@ def _stub_lark(monkeypatch: pytest.MonkeyPatch, *, create_impl: Any) -> list[Any
     return captured
 
 
-def _response(*, ok: bool, msg: str = "success", message_id: str = "om_1") -> Any:
+def _response(*, ok: bool, code: int = 0, msg: str = "success", message_id: str = "om_1") -> Any:
     data = type("D", (), {"message_id": message_id})()
-    return type("R", (), {"success": lambda _self: ok, "msg": msg, "data": data})()
+    return type(
+        "R",
+        (),
+        {"success": lambda _self: ok, "code": code, "msg": msg, "data": data},
+    )()
 
 
 def test_post_feishu_message_success(monkeypatch: pytest.MonkeyPatch) -> None:
     captured = _stub_lark(monkeypatch, create_impl=lambda _req: _response(ok=True))
 
-    ok, error, message_id = post_feishu_message(
-        _APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", "hello"
-    )
+    result = post_feishu_message(_APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", "hello")
 
-    assert ok is True
-    assert error == ""
-    assert message_id == "om_1"
+    assert result == FeishuMessageSendResult(
+        accepted=True,
+        message_id="om_1",
+        error_category=None,
+        certainty=FeishuSendCertainty.CONFIRMED_SENT,
+    )
     request = captured[0]
     assert request.receive_id_type == "chat_id"
     assert request.request_body.receive_id == _RECEIVE_ID
@@ -82,32 +92,64 @@ def test_post_feishu_message_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert request.request_body.content == json.dumps({"text": "hello"})
 
 
-def test_post_feishu_message_failure_returns_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    _stub_lark(monkeypatch, create_impl=lambda _req: _response(ok=False, msg="denied"))
-
-    ok, error, message_id = post_feishu_message(
-        _APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", "hello"
+def test_rejected_text_send_returns_only_fixed_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    body = "# Secret report"
+    _stub_lark(
+        monkeypatch,
+        create_impl=lambda _req: _response(
+            ok=False,
+            code=230020,
+            msg=f"{_APP_SECRET} {body} {_RECEIVE_ID} Authorization: Bearer token",
+        ),
     )
 
-    assert ok is False
-    assert error == "denied"
-    assert message_id == ""
+    result = post_feishu_message(_APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", body)
+
+    assert result.accepted is False
+    assert result.error_category is FeishuDeliveryErrorCategory.RATE_LIMIT
+    assert result.certainty is FeishuSendCertainty.DEFINITELY_NOT_SENT
+    assert result.message_id == ""
+    assert all(
+        value not in repr(result) for value in (_APP_SECRET, body, _RECEIVE_ID, "Bearer token")
+    )
 
 
-def test_post_feishu_message_exception_redacts_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_visible_send_exception_is_uncertain_without_raw_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    body = "# Secret report"
+
     def _raise(_request: Any) -> Any:
-        raise ConnectionError(f"auth failed for {_APP_SECRET}")
+        raise ConnectionError(f"{_APP_SECRET} {body} {_RECEIVE_ID} Authorization: Bearer token")
 
     _stub_lark(monkeypatch, create_impl=_raise)
 
-    ok, error, message_id = post_feishu_message(
-        _APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", "hello"
+    result = post_feishu_message(_APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", body)
+
+    assert result == FeishuMessageSendResult(
+        accepted=False,
+        message_id="",
+        error_category=FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN,
+        certainty=FeishuSendCertainty.MAYBE_SENT,
+    )
+    assert all(
+        value not in repr(result) for value in (_APP_SECRET, body, _RECEIVE_ID, "Bearer token")
     )
 
-    assert ok is False
-    assert _APP_SECRET not in error
-    assert "<redacted>" in error
-    assert message_id == ""
+
+def test_send_success_without_message_id_is_uncertain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_lark(
+        monkeypatch,
+        create_impl=lambda _req: _response(ok=True, message_id=""),
+    )
+
+    result = post_feishu_message(_APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", "body")
+
+    assert result.error_category is FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN
+    assert result.certainty is FeishuSendCertainty.MAYBE_SENT
+    assert result.accepted is False
 
 
 def test_post_feishu_message_contains_sdk_construction_errors(
@@ -137,52 +179,11 @@ def test_post_feishu_message_contains_sdk_construction_errors(
 
     monkeypatch.setattr("integrations.feishu.delivery.lark", _Lark)
 
-    ok, error, message_id = post_feishu_message(
-        _APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", "hello"
+    result = post_feishu_message(_APP_ID, _APP_SECRET, _RECEIVE_ID, "chat_id", "hello")
+
+    assert result == FeishuMessageSendResult(
+        accepted=False,
+        message_id="",
+        error_category=FeishuDeliveryErrorCategory.TRANSPORT,
+        certainty=FeishuSendCertainty.DEFINITELY_NOT_SENT,
     )
-
-    assert ok is False
-    assert message_id == ""
-    assert _APP_SECRET not in error
-    assert "<redacted>" in error
-
-
-def test_send_feishu_report_missing_creds() -> None:
-    ok, error = send_feishu_report("report", {})
-    assert ok is False
-    assert "Missing" in error
-
-
-def test_send_feishu_report_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "integrations.feishu.delivery.post_feishu_message",
-        lambda _app_id, _app_secret, _receive_id, _receive_id_type, _text: (True, "", "om_2"),
-    )
-
-    ok, error = send_feishu_report(
-        "Report text",
-        {"app_id": _APP_ID, "app_secret": _APP_SECRET, "receive_id": _RECEIVE_ID},
-    )
-
-    assert ok is True
-    assert error == ""
-
-
-def test_send_feishu_report_truncates_to_4096(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, str] = {}
-
-    def _fake_post(
-        app_id: str, app_secret: str, receive_id: str, receive_id_type: str, text: str
-    ) -> tuple[bool, str, str]:
-        captured["text"] = text
-        return (True, "", "om_3")
-
-    monkeypatch.setattr("integrations.feishu.delivery.post_feishu_message", _fake_post)
-
-    send_feishu_report(
-        "x" * 5000,
-        {"app_id": _APP_ID, "app_secret": _APP_SECRET, "receive_id": _RECEIVE_ID},
-    )
-
-    assert len(captured["text"]) == 4096
-    assert captured["text"].endswith("…")

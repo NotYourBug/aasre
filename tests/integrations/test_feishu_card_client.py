@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from integrations.feishu.card_client import FeishuCardClient, FeishuStreamRejected
+from integrations.feishu.delivery_types import FeishuCardCallError, FeishuCardCallStage
 
 
 def _stub_lark(
@@ -88,11 +89,11 @@ def _ok(**data: Any) -> Any:
     )()
 
 
-def _err(code: int) -> Any:
+def _err(code: int, *, msg: str = "vendor detail") -> Any:
     return type(
         "R",
         (),
-        {"success": lambda _self: False, "code": code, "msg": f"err {code}", "data": None},
+        {"success": lambda _self: False, "code": code, "msg": msg, "data": None},
     )()
 
 
@@ -212,8 +213,26 @@ def test_send_card_rejects_a_success_response_without_a_message_id(
     calls: list[Any] = []
     _stub_lark(monkeypatch, module, impl=lambda _r: _ok(message_id=""), calls=calls)
 
-    with pytest.raises(RuntimeError, match="no message_id"):
+    with pytest.raises(FeishuCardCallError) as caught:
         FeishuCardClient("a", "s").send_card("oc_chat", "c_1")
+
+    assert caught.value.code == 0
+    assert caught.value.stage is FeishuCardCallStage.SEND_CARD
+
+
+def test_create_card_rejects_a_success_response_without_a_card_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import integrations.feishu.card_client as module
+
+    calls: list[Any] = []
+    _stub_lark(monkeypatch, module, impl=lambda _r: _ok(card_id=""), calls=calls)
+
+    with pytest.raises(FeishuCardCallError) as caught:
+        FeishuCardClient("a", "s").create_card({"schema": "2.0"})
+
+    assert caught.value.code == 0
+    assert caught.value.stage is FeishuCardCallStage.CREATE_CARD
 
 
 def test_a_stream_error_code_is_raised_as_feishu_stream_rejected(
@@ -230,15 +249,27 @@ def test_a_stream_error_code_is_raised_as_feishu_stream_rejected(
     assert caught.value.code == 300317
 
 
-def test_a_non_stream_error_still_raises_plainly(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Only the three ladder codes are stream failures; others must not be swallowed."""
+def test_a_non_stream_error_exposes_only_code_and_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import integrations.feishu.card_client as module
 
+    secret = "s_secret"
     calls: list[Any] = []
-    _stub_lark(monkeypatch, module, impl=lambda _r: _err(11310), calls=calls)
+    _stub_lark(
+        monkeypatch,
+        module,
+        impl=lambda _r: _err(11310, msg=f"{secret} Authorization: Bearer token"),
+        calls=calls,
+    )
 
-    with pytest.raises(RuntimeError, match="11310"):
+    with pytest.raises(FeishuCardCallError) as caught:
         FeishuCardClient("a", "s").update_element("c_1", "stream_md", "x", 3)
+
+    assert caught.value.code == 11310
+    assert caught.value.stage is FeishuCardCallStage.UPDATE_ELEMENT
+    assert secret not in str(caught.value)
+    assert "Bearer token" not in repr(caught.value)
 
 
 def test_the_client_is_built_once_across_calls(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from integrations.feishu.alarms import FeishuAlarmCredentials, FeishuAlarmDispatcher
+from integrations.feishu.delivery_types import (
+    FeishuDeliveryErrorCategory,
+    FeishuDeliveryMode,
+    FeishuDeliveryStatus,
+)
+from integrations.feishu.document_delivery import FeishuDocumentDeliveryResult
 
 _CREDS = FeishuAlarmCredentials(
     app_id="cli_x",
@@ -25,65 +29,91 @@ def _patch_clock(monkeypatch: pytest.MonkeyPatch, ticks: list[float]) -> None:
     monkeypatch.setattr(FeishuAlarmDispatcher, "_now", staticmethod(_now))
 
 
-def _stub_post_feishu_message(
-    monkeypatch: pytest.MonkeyPatch, *, ok: bool = True, msg: str = "success"
-) -> list[dict[str, Any]]:
-    calls: list[dict[str, Any]] = []
+def _result(status: FeishuDeliveryStatus) -> FeishuDocumentDeliveryResult:
+    return FeishuDocumentDeliveryResult(
+        status=status,
+        attempted=status is not FeishuDeliveryStatus.SKIPPED,
+        confirmed_message_ids=("om_1",) if status is not FeishuDeliveryStatus.FAILED else (),
+        delivery_mode=FeishuDeliveryMode.CARDS,
+        error_category=(
+            FeishuDeliveryErrorCategory.INTERNAL if status is FeishuDeliveryStatus.FAILED else None
+        ),
+        error="safe error",
+    )
 
-    def _fake_post(
-        app_id: str, app_secret: str, receive_id: str, receive_id_type: str, text: str
-    ) -> tuple[bool, str, str]:
-        calls.append({"app_id": app_id, "text": text})
-        return (ok, "" if ok else msg, "om_1" if ok else "")
 
-    monkeypatch.setattr("integrations.feishu.alarms.post_feishu_message", _fake_post)
+def _install_fake_document_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+    result: FeishuDocumentDeliveryResult,
+) -> list[dict[str, object]]:
+    calls: list[dict[str, object]] = []
+
+    def _fake_deliver(**kwargs: object) -> FeishuDocumentDeliveryResult:
+        calls.append(kwargs)
+        return result
+
+    monkeypatch.setattr(
+        "integrations.feishu.document_delivery.deliver_feishu_document", _fake_deliver
+    )
     return calls
 
 
-def test_dispatch_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _stub_post_feishu_message(monkeypatch)
-    _patch_clock(monkeypatch, [100.0])
-
-    dispatcher = FeishuAlarmDispatcher(_CREDS)
-
-    assert dispatcher.dispatch("max_cpu", "alarm body") is True
-    assert len(calls) == 1
-    assert calls[0]["text"] == "[max_cpu] alarm body"
-
-
-def test_dispatch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _stub_post_feishu_message(monkeypatch, ok=False, msg="denied")
-    _patch_clock(monkeypatch, [100.0])
-
-    dispatcher = FeishuAlarmDispatcher(_CREDS)
-
-    assert dispatcher.dispatch("max_cpu", "alarm body") is False
-    assert len(calls) == 1
-
-
-def test_second_dispatch_within_cooldown_is_suppressed(
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (FeishuDeliveryStatus.SUCCESS, True),
+        (FeishuDeliveryStatus.DEGRADED_SUCCESS, True),
+        (FeishuDeliveryStatus.FAILED, False),
+    ],
+)
+def test_dispatch_maps_whole_status_and_keeps_attempt_cooldown(
     monkeypatch: pytest.MonkeyPatch,
+    status: FeishuDeliveryStatus,
+    expected: bool,
 ) -> None:
-    calls = _stub_post_feishu_message(monkeypatch)
-    _patch_clock(monkeypatch, [100.0, 200.0])
+    calls = _install_fake_document_delivery(monkeypatch, _result(status))
+    _patch_clock(monkeypatch, [100.0, 105.0])
 
     dispatcher = FeishuAlarmDispatcher(_CREDS, cooldown_seconds=300.0)
 
-    assert dispatcher.dispatch("max_cpu", "first") is True
-    assert dispatcher.dispatch("max_cpu", "second") is False
+    assert dispatcher.dispatch("max_cpu", "**alarm**") is expected
+    assert dispatcher.dispatch("max_cpu", "**again**") is False
     assert len(calls) == 1
-    assert calls[0]["text"] == "[max_cpu] first"
+    assert calls[0]["markdown"] == "**[max_cpu]**\n**alarm**"
+
+
+def test_missing_credentials_are_skipped_before_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _install_fake_document_delivery(monkeypatch, _result(FeishuDeliveryStatus.SUCCESS))
+    _patch_clock(monkeypatch, [100.0, 100.0])
+    dispatcher = FeishuAlarmDispatcher(
+        FeishuAlarmCredentials(app_id="", app_secret="", receive_id="")
+    )
+
+    assert dispatcher.dispatch("max_cpu", "first") is False
+    dispatcher._creds = _CREDS
+    assert dispatcher.dispatch("max_cpu", "second") is True
+    assert len(calls) == 1
+
+
+def test_blank_message_is_skipped_before_reservation(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _install_fake_document_delivery(monkeypatch, _result(FeishuDeliveryStatus.SUCCESS))
+    _patch_clock(monkeypatch, [100.0, 100.0])
+    dispatcher = FeishuAlarmDispatcher(_CREDS, cooldown_seconds=300.0)
+
+    assert dispatcher.dispatch("max_cpu", "   ") is False
+    assert dispatcher.dispatch("max_cpu", "second") is True
+    assert len(calls) == 1
 
 
 def test_dispatch_transport_exception_returns_false_and_keeps_cooldown_armed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def _raise(
-        app_id: str, app_secret: str, receive_id: str, receive_id_type: str, text: str
-    ) -> tuple[bool, str, str]:
+    def _raise(**_kwargs: object) -> FeishuDocumentDeliveryResult:
         raise RuntimeError("network exploded")
 
-    monkeypatch.setattr("integrations.feishu.alarms.post_feishu_message", _raise)
+    monkeypatch.setattr("integrations.feishu.document_delivery.deliver_feishu_document", _raise)
     _patch_clock(monkeypatch, [100.0, 105.0])
 
     dispatcher = FeishuAlarmDispatcher(_CREDS, cooldown_seconds=300.0)

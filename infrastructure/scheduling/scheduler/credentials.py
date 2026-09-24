@@ -259,13 +259,20 @@ def resolve_feishu_credentials(task_params: dict[str, str]) -> dict[str, str]:
     if app_secret:
         resolved["app_secret"] = app_secret
 
-    receive_id = task_params.get("receive_id", "").strip() or base.receive_id.strip()
-    if receive_id:
-        resolved["receive_id"] = receive_id
-
-    receive_id_type = task_params.get("receive_id_type", "").strip() or base.receive_id_type.strip()
-    if receive_id_type:
-        resolved["receive_id_type"] = receive_id_type
+    param_receive_id = task_params.get("receive_id", "").strip()
+    param_receive_id_type = task_params.get("receive_id_type", "").strip()
+    if param_receive_id:
+        resolved["receive_id"] = param_receive_id
+        resolved["receive_id_type"] = param_receive_id_type or "chat_id"
+    elif param_receive_id_type:
+        # Keep an incomplete explicit pair incomplete. Falling back to the base
+        # target here would silently apply the task's type to another identity.
+        resolved["receive_id_type"] = param_receive_id_type
+    else:
+        base_receive_id = base.receive_id.strip()
+        if base_receive_id:
+            resolved["receive_id"] = base_receive_id
+            resolved["receive_id_type"] = base.receive_id_type.strip()
 
     return resolved
 

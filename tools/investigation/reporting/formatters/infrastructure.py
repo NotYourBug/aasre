@@ -1,5 +1,6 @@
 """Infrastructure asset extraction and investigation trace building."""
 
+from collections.abc import Callable
 from typing import Any
 
 from tools.investigation.reporting.context import ReportContext
@@ -23,7 +24,18 @@ def get_failed_pods(ctx: ReportContext) -> list[dict]:
     return pods
 
 
-def format_pod_line(pod: dict, datadog_site: str | None, *, bullet: str = "") -> str:
+def _identity(text: str) -> str:
+    return text
+
+
+def format_pod_line(
+    pod: dict,
+    datadog_site: str | None,
+    *,
+    bullet: str = "",
+    link_fn: Callable[[str, str | None], str] = format_slack_link,
+    sanitize_fn: Callable[[str], str] = _identity,
+) -> str:
     """Format a single failed pod as a one-line string with a Datadog logs link.
 
     Returns empty string when pod has no name.
@@ -44,21 +56,26 @@ def format_pod_line(pod: dict, datadog_site: str | None, *, bullet: str = "") ->
 
     parts: list[str] = []
     if ns:
-        parts.append(f"namespace={ns}")
+        parts.append(f"namespace={sanitize_fn(str(ns))}")
     if container:
-        parts.append(f"container={container}")
+        parts.append(f"container={sanitize_fn(str(container))}")
     if exit_code is not None:
         parts.append(f"exit={exit_code}")
     if cluster:
-        parts.append(f"cluster={cluster}")
+        parts.append(f"cluster={sanitize_fn(str(cluster))}")
     if job:
-        parts.append(f"job={job}")
+        parts.append(f"job={sanitize_fn(str(job))}")
     if node:
-        parts.append(f"node={node} ({node_ip})" if node_ip else f"node={node}")
+        safe_node = sanitize_fn(str(node))
+        parts.append(
+            f"node={safe_node} ({sanitize_fn(str(node_ip))})" if node_ip else f"node={safe_node}"
+        )
     if mem_req and mem_lim:
-        parts.append(f"memory: requested={mem_req} limit={mem_lim}")
+        parts.append(
+            f"memory: requested={sanitize_fn(str(mem_req))} limit={sanitize_fn(str(mem_lim))}"
+        )
     elif mem_lim:
-        parts.append(f"memory_limit={mem_lim}")
+        parts.append(f"memory_limit={sanitize_fn(str(mem_lim))}")
 
     meta = f" ({', '.join(parts)})" if parts else ""
 
@@ -66,9 +83,9 @@ def format_pod_line(pod: dict, datadog_site: str | None, *, bullet: str = "") ->
     if ns:
         query = f"kube_namespace:{ns} pod_name:{name}"
         url = f"https://app.{site}/logs?query={query.replace(' ', '+').replace(':', '%3A')}"
-        pod_text = format_slack_link(name, url)
+        pod_text = link_fn(str(name), url)
     else:
-        pod_text = name
+        pod_text = sanitize_fn(str(name))
 
     return f"{bullet}{pod_text}{meta}"
 
@@ -207,7 +224,12 @@ def extract_infrastructure_assets(ctx: ReportContext) -> dict[str, Any]:
     return assets
 
 
-def build_investigation_trace(ctx: ReportContext) -> list[str]:
+def build_investigation_trace(
+    ctx: ReportContext,
+    *,
+    link_fn: Callable[[str, str | None], str] = format_slack_link,
+    sanitize_fn: Callable[[str], str] = _identity,
+) -> list[str]:
     """Build the investigation trace showing what was discovered.
 
     Creates a step-by-step narrative of the investigation path taken,
@@ -228,7 +250,7 @@ def build_investigation_trace(ctx: ReportContext) -> list[str]:
     log_groups = assets.get("log_groups", [])
     if log_groups or evidence.get("cloudwatch_logs") or evidence.get("error_logs"):
         log_source = log_groups[0]["name"] if log_groups else "CloudWatch"
-        trace_steps.append(f"{step_num}. Failure detected in {log_source}")
+        trace_steps.append(f"{step_num}. Failure detected in {sanitize_fn(str(log_source))}")
         step_num += 1
 
     # Kubernetes pods that experienced errors — show first 3, summarize the rest
@@ -236,7 +258,12 @@ def build_investigation_trace(ctx: ReportContext) -> list[str]:
     all_pods = get_failed_pods(ctx)
     shown, total = 0, len(all_pods)
     for pod in all_pods[:3]:
-        line = format_pod_line(pod, datadog_site)
+        line = format_pod_line(
+            pod,
+            datadog_site,
+            link_fn=link_fn,
+            sanitize_fn=sanitize_fn,
+        )
         if line:
             trace_steps.append(f"{step_num}. Affected pod: {line}")
             step_num += 1
@@ -250,13 +277,19 @@ def build_investigation_trace(ctx: ReportContext) -> list[str]:
         ecs = assets["ecs_service"]
         flow_name = ecs.get("flow_name")
         if flow_name:
-            trace_steps.append(f"{step_num}. Workflow '{flow_name}' task failure identified")
+            trace_steps.append(
+                f"{step_num}. Workflow '{sanitize_fn(str(flow_name))}' task failure identified"
+            )
         else:
-            trace_steps.append(f"{step_num}. ECS task failure in {ecs.get('cluster', 'cluster')}")
+            trace_steps.append(
+                f"{step_num}. ECS task failure in {sanitize_fn(str(ecs.get('cluster', 'cluster')))}"
+            )
         step_num += 1
     elif assets.get("batch_service"):
         batch = assets["batch_service"]
-        trace_steps.append(f"{step_num}. AWS Batch job failed: {batch.get('queue', 'job')}")
+        trace_steps.append(
+            f"{step_num}. AWS Batch job failed: {sanitize_fn(str(batch.get('queue', 'job')))}"
+        )
         step_num += 1
 
     # Step 3: Lambda functions involved
@@ -266,11 +299,15 @@ def build_investigation_trace(ctx: ReportContext) -> list[str]:
             role = lf.get("role", "")
             name = lf["name"]
             if role == "trigger":
-                trace_steps.append(f"{step_num}. Traced to trigger Lambda: {name}")
+                trace_steps.append(
+                    f"{step_num}. Traced to trigger Lambda: {sanitize_fn(str(name))}"
+                )
             elif role == "external_api":
-                trace_steps.append(f"{step_num}. External API Lambda identified: {name}")
+                trace_steps.append(
+                    f"{step_num}. External API Lambda identified: {sanitize_fn(str(name))}"
+                )
             elif role == "primary":
-                trace_steps.append(f"{step_num}. Lambda function: {name}")
+                trace_steps.append(f"{step_num}. Lambda function: {sanitize_fn(str(name))}")
             step_num += 1
 
     # Step 4: S3 data inspection
@@ -285,13 +322,13 @@ def build_investigation_trace(ctx: ReportContext) -> list[str]:
             if bucket_type == "landing" and key:
                 s3_url = build_s3_console_url(name, key, region)
                 trace_steps.append(
-                    f"{step_num}. Input data inspected: {format_slack_link('S3 object', s3_url)}"
+                    f"{step_num}. Input data inspected: {link_fn('S3 object', s3_url)}"
                 )
                 step_num += 1
             elif bucket_type == "audit" and key:
                 s3_url = build_s3_console_url(name, key, region)
                 trace_steps.append(
-                    f"{step_num}. Audit trail found: {format_slack_link('S3 audit trail', s3_url)}"
+                    f"{step_num}. Audit trail found: {link_fn('S3 audit trail', s3_url)}"
                 )
                 step_num += 1
 

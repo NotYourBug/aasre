@@ -9,7 +9,6 @@ in their tier's border allowlist.
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 from uuid import uuid4
 
@@ -30,16 +29,19 @@ from lark_oapi.api.im.v1 import (
 )
 
 from config.constants import FEISHU_STREAM_ERROR_CODES
+from integrations.feishu.delivery_types import FeishuCardCallError, FeishuCardCallStage
 
-logger = logging.getLogger(__name__)
 
-
-class FeishuStreamRejected(RuntimeError):
+class FeishuStreamRejected(FeishuCardCallError):
     """Raised when a cardkit call fails with a streaming-specific error code."""
 
-    def __init__(self, code: int, message: str) -> None:
-        super().__init__(f"Feishu cardkit call failed ({code}): {message}")
-        self.code = code
+    def __init__(
+        self,
+        code: int,
+        *,
+        stage: FeishuCardCallStage = FeishuCardCallStage.UPDATE_ELEMENT,
+    ) -> None:
+        super().__init__(code=code, stage=stage)
 
 
 class FeishuCardClient:
@@ -70,16 +72,21 @@ class FeishuCardClient:
             )
         return self._client
 
-    def _check(self, response: Any, *, streaming: bool) -> None:
+    def _check(self, response: Any, *, stage: FeishuCardCallStage) -> None:
         """Raise on a rejected call, preserving the business code."""
         if getattr(response, "success", None) is not None and response.success():
             return
         code = int(getattr(response, "code", 0) or 0)
-        message = str(getattr(response, "msg", "") or "")
-        logger.warning("Feishu cardkit call rejected code=%s", code)
-        if streaming and code in FEISHU_STREAM_ERROR_CODES:
-            raise FeishuStreamRejected(code, message)
-        raise RuntimeError(f"Feishu cardkit call failed ({code}): {message}")
+        if (
+            stage
+            in {
+                FeishuCardCallStage.UPDATE_ELEMENT,
+                FeishuCardCallStage.CLOSE_STREAM,
+            }
+            and code in FEISHU_STREAM_ERROR_CODES
+        ):
+            raise FeishuStreamRejected(code, stage=stage)
+        raise FeishuCardCallError(code=code, stage=stage)
 
     def create_card(self, spec: dict[str, object]) -> str:
         """Create a card entity and return its ``card_id``."""
@@ -94,10 +101,11 @@ class FeishuCardClient:
             .build()
         )
         response = self._ensure_client().cardkit.v1.card.create(request)
-        self._check(response, streaming=False)
-        card_id = str(getattr(response.data, "card_id", "") or "")
+        self._check(response, stage=FeishuCardCallStage.CREATE_CARD)
+        data = getattr(response, "data", None)
+        card_id = str(getattr(data, "card_id", "") or "")
         if not card_id:
-            raise RuntimeError("Feishu cardkit create returned no card_id")
+            raise FeishuCardCallError(code=0, stage=FeishuCardCallStage.CREATE_CARD)
         return card_id
 
     def update_element(
@@ -127,7 +135,10 @@ class FeishuCardClient:
             )
             .build()
         )
-        self._check(self._ensure_client().cardkit.v1.card_element.content(request), streaming=True)
+        self._check(
+            self._ensure_client().cardkit.v1.card_element.content(request),
+            stage=FeishuCardCallStage.UPDATE_ELEMENT,
+        )
 
     def close_streaming(self, card_id: str, sequence: int, *, uuid: str | None = None) -> None:
         """Close ``streaming_mode`` so the card stops accepting element updates.
@@ -146,7 +157,10 @@ class FeishuCardClient:
             )
             .build()
         )
-        self._check(self._ensure_client().cardkit.v1.card.settings(request), streaming=True)
+        self._check(
+            self._ensure_client().cardkit.v1.card.settings(request),
+            stage=FeishuCardCallStage.CLOSE_STREAM,
+        )
 
     def send_card(self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id") -> str:
         """Send a message referencing an existing card; return its ``message_id``."""
@@ -179,8 +193,9 @@ class FeishuCardClient:
                 .build()
             )
             response = self._ensure_client().im.v1.message.create(request)
-        self._check(response, streaming=False)
-        message_id = str(getattr(response.data, "message_id", "") or "")
+        self._check(response, stage=FeishuCardCallStage.SEND_CARD)
+        data = getattr(response, "data", None)
+        message_id = str(getattr(data, "message_id", "") or "")
         if not message_id:
-            raise RuntimeError("Feishu message send returned no message_id")
+            raise FeishuCardCallError(code=0, stage=FeishuCardCallStage.SEND_CARD)
         return message_id

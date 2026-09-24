@@ -112,10 +112,12 @@ Notifications are **off by default**. Set channels with
 | `feishu` | Feishu alert-push app | Set `ALERTPUSH_APP_ID`, `ALERTPUSH_APP_SECRET`, `FEISHU_ALARM_RECEIVE_ID` |
 
 All channels send the same summary structure: **Root cause**, **Top analysis**,
-**What to do next**, plus a short internal stats section. Telegram, Rocket.Chat,
-Buzz, and Feishu messages are plain text and are capped at the 4,096-character
-limit (sections may be shortened to fit). Email can carry a fuller version of
-the same content.
+**What to do next**, plus a short internal stats section. Feishu sends the
+complete summary as automatically paginated Markdown cards and falls back to
+ordered plain-text chunks without truncating content. Telegram, Rocket.Chat,
+and Buzz messages are plain text and are capped at the 4,096-character limit
+(sections may be shortened to fit). Email can carry a fuller version of the
+same content.
 
 Check what was delivered with `/background show <task_id>`. The `notify` row
 shows one result per channel — `sent`, `failed: <error>`, or a setup hint such
@@ -149,6 +151,7 @@ Cron delivery supports a different set of providers than background notification
 | `slack` | Uses incoming webhook or bot token; `--chat-id` optional with webhook |
 | `discord` | Requires `--chat-id` |
 | `rocketchat` | Requires `--chat-id` |
+| `feishu` | Uses `--chat-id` as a `chat_id`, or the configured default Feishu destination |
 | `interactive_shell` | Delivers to the local shell inbox; no `--chat-id` needed |
 
 - **List active cron tasks:** Run `opensre cron list` to view all configured tasks and their next fire times.

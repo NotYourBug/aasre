@@ -9,10 +9,10 @@ from infrastructure.scheduling.scheduler.credentials import resolve_slack_creden
 from infrastructure.scheduling.scheduler.delivery import (
     resolve_slack_delivery_chat_id,
     slack_can_deliver,
-    strip_html,
 )
 from infrastructure.scheduling.scheduler.types import ScheduledTask
 from integrations.slack.delivery import send_slack_webhook_message
+from integrations.slack.formatting import markdown_to_slack_mrkdwn
 
 
 class SlackScheduledDelivery:
@@ -42,14 +42,14 @@ class SlackScheduledDelivery:
                 return False, "Missing chat_id or webhook_url for Slack delivery", ""
             return False, "Scheduled tasks require Slack bot access_token for chat_id delivery", ""
 
-        plain_message = strip_html(message)
+        rendered_message = markdown_to_slack_mrkdwn(message)
 
         if access_token and chat_id:
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json; charset=utf-8",
             }
-            payload = {"channel": chat_id, "text": plain_message}
+            payload = {"channel": chat_id, "text": rendered_message}
             response = post_json(
                 url="https://slack.com/api/chat.postMessage",
                 payload=payload,
@@ -67,5 +67,5 @@ class SlackScheduledDelivery:
                 return False, f"Slack error: {error}", ""
             return True, "", str(response.data.get("ts", ""))
 
-        ok, error = send_slack_webhook_message(plain_message, webhook_url=webhook_url)
+        ok, error = send_slack_webhook_message(rendered_message, webhook_url=webhook_url)
         return ok, error, ""

@@ -77,7 +77,8 @@ def _patch_generate_report_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         "tools.investigation.reporting.node.build_report_messages",
-        lambda _ctx: ReportMessages(
+        lambda _ctx, **_kwargs: ReportMessages(
+            markdown_text="markdown report text",
             slack_text="slack report text",
             telegram_html="telegram report text",
             slack_blocks=[],
@@ -262,3 +263,29 @@ def test_openclaw_writeback_calls_delivery_when_configured(
         )  # type: ignore[arg-type]
 
     mock_openclaw_delivery.assert_called_once()
+
+
+def test_generate_report_returns_markdown_and_dispatch_payload_carries_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_generate_report_deps(monkeypatch)
+    captured_messages: dict[str, object] = {}
+
+    def _capture_dispatch(
+        _state: object,
+        messages: object,
+        **_kwargs: object,
+    ) -> list[dict]:
+        from tools.investigation.reporting.delivery.dispatch import _messages_payload
+
+        captured_messages.update(_messages_payload(messages))  # type: ignore[arg-type]
+        return []
+
+    monkeypatch.setattr("tools.investigation.reporting.node.dispatch_report", _capture_dispatch)
+
+    from tools.investigation.reporting.node import generate_report
+
+    result = generate_report(_make_state())  # type: ignore[arg-type]
+
+    assert result["report_markdown"] == "markdown report text"
+    assert captured_messages["markdown_text"] == "markdown report text"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from config.constants import FEISHU_CARD_BUDGET_BYTES
@@ -46,9 +48,8 @@ def test_bytes_are_utf8_not_character_count() -> None:
     assert spec_bytes(spec) == spec_bytes(render_card_spec("", streaming=False)) + 3
 
 
-def test_short_text_is_one_page() -> None:
-    pages = paginate("hello")
-    assert pages == [CardPage(text="hello", index=1)]
+def test_short_text_has_the_whole_source_range() -> None:
+    assert paginate("hello") == [CardPage(text="hello", index=1, source_start=0, source_end=5)]
 
 
 def test_blank_text_is_no_pages() -> None:
@@ -139,6 +140,24 @@ _TABLE_ROWS = [f"| {i} | {i * 2} |" for i in range(400)]
 _OVERSIZE_TABLE = "\n".join(["| a | b |", "| --- | --- |", *_TABLE_ROWS])
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "first\r\n\r\nsecond\r\nthird",
+        "标题\u2028段落\n\n尾部🙂",
+        _OVERSIZE_FENCE,
+        _OVERSIZE_TABLE,
+    ],
+)
+def test_source_ranges_partition_the_original_text(text: str) -> None:
+    pages = paginate(text, budget=_budget(1_000))
+
+    assert pages[0].source_start == 0
+    assert pages[-1].source_end == len(text)
+    assert all(left.source_end == right.source_start for left, right in pairwise(pages))
+    assert "".join(text[page.source_start : page.source_end] for page in pages) == text
+
+
 def test_an_oversize_code_block_closes_and_reopens_its_fence_on_every_card() -> None:
     """A byte-wise cut would leave page 1 open and the rest rendering as prose."""
     pages = paginate(_OVERSIZE_FENCE, budget=_budget(1_000))
@@ -185,6 +204,15 @@ def test_a_single_oversize_block_is_hard_split_and_still_loses_nothing() -> None
     text = "q" * 200_000
     pages = paginate(text)
     assert len(pages) > 1
+    assert "".join(page.text for page in pages) == text
+
+
+def test_separator_before_an_oversize_block_does_not_become_a_blank_card() -> None:
+    text = "intro\n\n" + ("x" * 70_000)
+
+    pages = paginate(text)
+
+    assert all(page.text.strip() for page in pages)
     assert "".join(page.text for page in pages) == text
 
 

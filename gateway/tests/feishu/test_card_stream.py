@@ -41,7 +41,7 @@ class _FakeClient:
 
     def update_element(self, card_id: str, element_id: str, content: str, sequence: int) -> None:
         if self.reject_code is not None:
-            raise FeishuStreamRejected(self.reject_code, "boom")
+            raise FeishuStreamRejected(self.reject_code)
         if self.reject_update:
             raise RuntimeError("cardkit update failed")
         self.updates.append((card_id, element_id, content, sequence))
@@ -49,7 +49,7 @@ class _FakeClient:
     def close_streaming(self, card_id: str, sequence: int) -> None:
         self.closed.append((card_id, sequence))
         if self.reject_close:
-            raise FeishuStreamRejected(300309, "boom")
+            raise FeishuStreamRejected(300309)
         if self.reject_close_plain:
             raise RuntimeError("cardkit close failed")
 

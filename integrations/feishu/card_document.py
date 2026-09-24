@@ -26,10 +26,12 @@ _DELIMITER = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$")
 
 @dataclass(frozen=True)
 class CardPage:
-    """One card's worth of markdown. ``index`` is 1-based."""
+    """One rendered card and its owned half-open original-source range."""
 
     text: str
     index: int
+    source_start: int
+    source_end: int
 
 
 def render_card_spec(
@@ -77,6 +79,15 @@ class _BlockSpan:
     start: int
     end: int
     text: str
+
+
+@dataclass(frozen=True)
+class _RenderedSpan:
+    """Rendered card text paired with the original source range it owns."""
+
+    text: str
+    source_start: int
+    source_end: int
 
 
 def _opening_fence(line: str) -> tuple[str, int] | None:
@@ -213,7 +224,12 @@ def _largest_row_run(structure: _Structure, start: int, budget: int) -> int:
     return low
 
 
-def _split_structured(structure: _Structure, budget: int) -> list[str] | None:
+def _split_structured(
+    block: str,
+    structure: _Structure,
+    budget: int,
+    source_start: int,
+) -> list[_RenderedSpan] | None:
     """Split *structure* across cards, reopening its markdown on each one.
 
     Returns ``None`` when not even one row fits alongside the wrapper, which
@@ -221,18 +237,37 @@ def _split_structured(structure: _Structure, budget: int) -> list[str] | None:
     """
     if not structure.rows:
         return None
-    pages: list[str] = []
+    line_starts: list[int] = []
+    offset = 0
+    for raw_line in block.splitlines(keepends=True):
+        line_starts.append(offset)
+        offset += len(raw_line)
+    row_starts = line_starts[len(structure.head) :][: len(structure.rows)]
+
+    pages: list[_RenderedSpan] = []
     start = 0
     while start < len(structure.rows):
         end = _largest_row_run(structure, start, budget)
         if end == start:
             return None
-        pages.append(structure.card(structure.rows[start:end]))
+        owned_start = source_start if start == 0 else source_start + row_starts[start]
+        owned_end = (
+            source_start + len(block)
+            if end == len(structure.rows)
+            else source_start + row_starts[end]
+        )
+        pages.append(
+            _RenderedSpan(
+                text=structure.card(structure.rows[start:end]),
+                source_start=owned_start,
+                source_end=owned_end,
+            )
+        )
         start = end
     return pages
 
 
-def _hard_split(block: str, budget: int) -> list[str]:
+def _hard_split(block: str, budget: int, source_start: int) -> list[_RenderedSpan]:
     """Split a block too large for any single card, preserving every character.
 
     A fence or table is split at its own row boundaries and rewrapped, so each
@@ -240,11 +275,12 @@ def _hard_split(block: str, budget: int) -> list[str]:
     """
     structure = _structure(block)
     if structure is not None:
-        structured = _split_structured(structure, budget)
+        structured = _split_structured(block, structure, budget, source_start)
         if structured is not None:
             return structured
-    pieces: list[str] = []
+    pieces: list[_RenderedSpan] = []
     remaining = block
+    offset = 0
     while remaining and not _fits(remaining, budget):
         cut = _largest_prefix(remaining, budget)
         if cut == 0:
@@ -253,10 +289,23 @@ def _hard_split(block: str, budget: int) -> list[str]:
                 f"{len(block)}-character block; minimum is "
                 f"{spec_bytes(render_card_spec(block[:1], streaming=False))} bytes"
             )
-        pieces.append(remaining[:cut])
+        pieces.append(
+            _RenderedSpan(
+                text=remaining[:cut],
+                source_start=source_start + offset,
+                source_end=source_start + offset + cut,
+            )
+        )
         remaining = remaining[cut:]
+        offset += cut
     if remaining:
-        pieces.append(remaining)
+        pieces.append(
+            _RenderedSpan(
+                text=remaining,
+                source_start=source_start + offset,
+                source_end=source_start + len(block),
+            )
+        )
     return pieces
 
 
@@ -311,49 +360,114 @@ def paginate(
     if not text.strip():
         return []
 
-    pages: list[str] = []
+    pages: list[_RenderedSpan] = []
     current = ""
+    current_start = 0
+    current_end = 0
     tables = 0
     cursor = 0
 
     for span in _block_spans(text):
+        unit_start = cursor
         gap = text[cursor : span.start]
         block = span.text
         cursor = span.end
         if not _fits(block, budget):
+            split_block = _hard_split(block, budget, span.start)
             if current:
-                pages.append(current)
+                if gap and _fits(current + gap, budget):
+                    current += gap
+                    current_end = span.start
+                    gap = ""
+                pages.append(
+                    _RenderedSpan(
+                        text=current,
+                        source_start=current_start,
+                        source_end=current_end,
+                    )
+                )
                 current, tables = "", 0
             if gap:
-                pages.extend(_hard_split(gap, budget))
-            for piece in _hard_split(block, budget):
-                pages.append(piece)
+                first = split_block[0]
+                if _fits(gap + first.text, budget):
+                    split_block[0] = _RenderedSpan(
+                        text=gap + first.text,
+                        source_start=unit_start,
+                        source_end=first.source_end,
+                    )
+                else:
+                    pages.extend(_hard_split(gap, budget, unit_start))
+            pages.extend(split_block)
             continue
 
         next_tables = tables + (1 if _is_table(block) else 0)
         unit = gap + block
+        unit_end = span.end
         candidate = current + unit
         fits = _fits(candidate, budget)
         if not fits or (current and next_tables > max_tables):
             if current:
-                pages.append(current)
+                pages.append(
+                    _RenderedSpan(
+                        text=current,
+                        source_start=current_start,
+                        source_end=current_end,
+                    )
+                )
             if not _fits(unit, budget):
                 if gap:
-                    pages.extend(_hard_split(gap, budget))
+                    pages.extend(_hard_split(gap, budget, unit_start))
                 unit = block
+                unit_start = span.start
             current, tables = unit, 1 if _is_table(block) else 0
+            current_start, current_end = unit_start, unit_end
             continue
+        if not current:
+            current_start = unit_start
         current, tables = candidate, next_tables
+        current_end = unit_end
 
     tail = text[cursor:]
     if tail:
         if _fits(current + tail, budget):
+            if not current:
+                current_start = cursor
             current += tail
+            current_end = len(text)
         else:
             if current:
-                pages.append(current)
+                pages.append(
+                    _RenderedSpan(
+                        text=current,
+                        source_start=current_start,
+                        source_end=current_end,
+                    )
+                )
                 current = ""
-            pages.extend(_hard_split(tail, budget))
+            pages.extend(_hard_split(tail, budget, cursor))
     if current:
-        pages.append(current)
-    return [CardPage(text=page, index=i) for i, page in enumerate(pages, 1)]
+        pages.append(
+            _RenderedSpan(
+                text=current,
+                source_start=current_start,
+                source_end=current_end,
+            )
+        )
+
+    if (
+        not pages
+        or pages[0].source_start != 0
+        or pages[-1].source_end != len(text)
+        or any(left.source_end != right.source_start for left, right in zip(pages, pages[1:]))
+    ):
+        raise RuntimeError("card page source ranges do not partition the input")
+
+    return [
+        CardPage(
+            text=span.text,
+            index=index,
+            source_start=span.source_start,
+            source_end=span.source_end,
+        )
+        for index, span in enumerate(pages, 1)
+    ]
