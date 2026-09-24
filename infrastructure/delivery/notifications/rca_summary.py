@@ -12,15 +12,15 @@ point the reader at ``/background show`` for the rest.
 
 from __future__ import annotations
 
+import string
+
 from core.domain.background_investigations import BackgroundInvestigationRecord
 
 _COMMAND_CHARS = 200
 _ROOT_CAUSE_CHARS = 1000
 _ITEM_CHARS = 240
 _MAX_ITEMS = 5
-_MARKDOWN_LITERAL_TRANSLATION = str.maketrans(
-    {char: chr(ord(char) + 0xFEE0) for char in "\\`*_{}[]()#!|<>~&+-="}
-)
+_MARKDOWN_PUNCTUATION = frozenset(string.punctuation)
 
 
 def _markdown_code(value: str) -> str:
@@ -28,14 +28,26 @@ def _markdown_code(value: str) -> str:
     return " ".join(value.split()).replace("`", "'")
 
 
-def _markdown_literal(value: str) -> str:
-    """Neutralize markup without expanding the bounded summary fields."""
-    return " ".join(value.split()).translate(_MARKDOWN_LITERAL_TRANSLATION)
+def _markdown_literal(value: str, budget: int) -> str:
+    """Escape literal text within its serialized budget without splitting escapes."""
+    pieces = [
+        f"\\{char}" if char in _MARKDOWN_PUNCTUATION else char for char in " ".join(value.split())
+    ]
+    if sum(map(len, pieces)) <= budget:
+        return "".join(pieces)
+    used = 0
+    kept: list[str] = []
+    for piece in pieces:
+        if used + len(piece) > budget - 1:
+            break
+        kept.append(piece)
+        used += len(piece)
+    return "".join(kept) + "…"
 
 
 def _markdown_items(values: tuple[str, ...]) -> list[str]:
     """Render bounded item groups with a stable empty fallback."""
-    return [f"- {_markdown_literal(value)}" for value in values] or ["- Unavailable"]
+    return [f"- {_markdown_literal(value, _ITEM_CHARS)}" for value in values] or ["- Unavailable"]
 
 
 def summary_sections(
@@ -65,7 +77,7 @@ def format_background_rca_markdown(record: BackgroundInvestigationRecord) -> str
         f"**Command:** `{_markdown_code(command)}`",
         "",
         "## Root cause",
-        _markdown_literal(root_cause) or "Unavailable",
+        _markdown_literal(root_cause, _ROOT_CAUSE_CHARS) or "Unavailable",
         "",
         "## Top analysis",
         *_markdown_items(top_analysis),

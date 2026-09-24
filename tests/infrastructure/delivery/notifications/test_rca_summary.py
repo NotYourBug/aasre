@@ -52,9 +52,21 @@ def test_untrusted_rca_fields_cannot_add_markdown_structure() -> None:
     body = format_background_rca_markdown(record)
     assert "[label](" not in body
     assert "\n# forged" not in body
-    assert "<at " not in body
+    assert r"\<at " in body
     assert "## What to do next" in body
     record.root_cause = "[" * 2000
     record.top_analysis = ("[" * 500,) * 5
     record.next_steps = ("[" * 500,) * 5
     assert len(format_background_rca_markdown(record)) <= 4096
+
+
+def test_rca_escaping_preserves_copyable_technical_values() -> None:
+    import re
+
+    record = _record()
+    value = "curl https://api.example/path?key=one&other=two --header x_trace_id"
+    record.root_cause = value
+    record.next_steps = (value,)
+    body = format_background_rca_markdown(record)
+    restored = re.sub(r"\\(.)", r"\1", body)
+    assert restored.count(value) == 2
