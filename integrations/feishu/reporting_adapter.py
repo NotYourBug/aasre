@@ -38,7 +38,7 @@ class _FeishuReportDeliveryAdapter:
         # Imported lazily so the lark SDK does not join the report path's import
         # graph unless a delivery is actually attempted.
         from integrations.feishu.credentials import load_chat_credentials_from_env
-        from integrations.feishu.delivery import send_feishu_report
+        from integrations.feishu.document_delivery import deliver_feishu_document
 
         creds = load_chat_credentials_from_env()
         if not creds.app_id or not creds.app_secret or not creds.receive_id:
@@ -47,24 +47,16 @@ class _FeishuReportDeliveryAdapter:
             )
             return False
 
-        # Feishu is a plain-text channel, so it reuses the Slack text rendering —
-        # the same choice rocketchat and buzz make.
-        posted, error = send_feishu_report(
-            messages.get("slack_text", ""),
-            {
-                "app_id": creds.app_id,
-                "app_secret": creds.app_secret,
-                "receive_id": creds.receive_id,
-                "receive_id_type": creds.receive_id_type,
-            },
+        result = deliver_feishu_document(
+            app_id=creds.app_id,
+            app_secret=creds.app_secret,
+            receive_id=creds.receive_id,
+            receive_id_type=creds.receive_id_type,
+            markdown=str(messages.get("markdown_text") or ""),
         )
-        if not posted:
-            logger.warning(
-                "[publish] Feishu delivery failed: target=%s error=%s",
-                creds.receive_id,
-                error,
-            )
-        return True
+        if result.status.value == "failed":
+            logger.warning("[publish] Feishu document delivery failed")
+        return result.attempted
 
 
 feishu_delivery_adapter = _FeishuReportDeliveryAdapter()

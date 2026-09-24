@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from integrations.feishu.delivery import post_feishu_message, send_feishu_report
+from integrations.feishu.delivery import post_feishu_message
 from integrations.feishu.delivery_types import (
     FeishuDeliveryErrorCategory,
     FeishuMessageSendResult,
@@ -189,52 +189,3 @@ def test_post_feishu_message_contains_sdk_construction_errors(
     )
 
 
-def test_send_feishu_report_missing_creds() -> None:
-    ok, error = send_feishu_report("report", {})
-    assert ok is False
-    assert "Missing" in error
-
-
-def test_send_feishu_report_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "integrations.feishu.delivery.post_feishu_message",
-        lambda _app_id, _app_secret, _receive_id, _receive_id_type, _text: FeishuMessageSendResult(
-            accepted=True,
-            message_id="om_2",
-            error_category=None,
-            certainty=FeishuSendCertainty.CONFIRMED_SENT,
-        ),
-    )
-
-    ok, error = send_feishu_report(
-        "Report text",
-        {"app_id": _APP_ID, "app_secret": _APP_SECRET, "receive_id": _RECEIVE_ID},
-    )
-
-    assert ok is True
-    assert error == ""
-
-
-def test_send_feishu_report_truncates_to_4096(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, str] = {}
-
-    def _fake_post(
-        app_id: str, app_secret: str, receive_id: str, receive_id_type: str, text: str
-    ) -> FeishuMessageSendResult:
-        captured["text"] = text
-        return FeishuMessageSendResult(
-            accepted=True,
-            message_id="om_3",
-            error_category=None,
-            certainty=FeishuSendCertainty.CONFIRMED_SENT,
-        )
-
-    monkeypatch.setattr("integrations.feishu.delivery.post_feishu_message", _fake_post)
-
-    send_feishu_report(
-        "x" * 5000,
-        {"app_id": _APP_ID, "app_secret": _APP_SECRET, "receive_id": _RECEIVE_ID},
-    )
-
-    assert len(captured["text"]) == 4096
-    assert captured["text"].endswith("…")

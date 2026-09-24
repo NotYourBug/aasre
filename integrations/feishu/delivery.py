@@ -1,4 +1,4 @@
-"""Feishu delivery helper — posts a message via ``im.message.create``.
+"""Feishu delivery helper —posts a message via ``im.message.create``.
 
 The one-way notification path (background-RCA completion notices and the
 watchdog alarm) shares the raw transport here, mirroring
@@ -9,13 +9,10 @@ owns only the throttling + dispatch policy.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
-from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
-from infrastructure.text.truncation import truncate
 from integrations.feishu.delivery_types import (
     FeishuDeliveryErrorCategory,
     FeishuMessageSendResult,
@@ -103,17 +100,4 @@ def post_feishu_message(
     )
 
 
-def send_feishu_report(report: str, feishu_ctx: dict[str, Any]) -> tuple[bool, str]:
-    """Send a truncated report to Feishu. Returns ``(success, error)``."""
-    app_id = str(feishu_ctx.get("app_id") or "").strip()
-    app_secret = str(feishu_ctx.get("app_secret") or "").strip()
-    receive_id = str(feishu_ctx.get("receive_id") or "").strip()
-    receive_id_type = str(feishu_ctx.get("receive_id_type") or "chat_id").strip()
-    if not app_id or not app_secret or not receive_id:
-        return False, "Missing app_id, app_secret, or receive_id"
-    text = truncate(report, MAX_MESSAGE_SIZE, suffix="…")
-    result = post_feishu_message(app_id, app_secret, receive_id, receive_id_type, text)
-    return (True, "") if result.accepted else (False, "Feishu delivery failed")
-
-
-__all__ = ["post_feishu_message", "send_feishu_report"]
+__all__ = ["post_feishu_message"]
