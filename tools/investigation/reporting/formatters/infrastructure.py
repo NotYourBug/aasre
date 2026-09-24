@@ -282,8 +282,7 @@ def build_investigation_trace(
             )
         else:
             trace_steps.append(
-                f"{step_num}. ECS task failure in "
-                f"{sanitize_fn(str(ecs.get('cluster', 'cluster')))}"
+                f"{step_num}. ECS task failure in {sanitize_fn(str(ecs.get('cluster', 'cluster')))}"
             )
         step_num += 1
     elif assets.get("batch_service"):

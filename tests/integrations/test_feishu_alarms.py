@@ -36,9 +36,7 @@ def _result(status: FeishuDeliveryStatus) -> FeishuDocumentDeliveryResult:
         confirmed_message_ids=("om_1",) if status is not FeishuDeliveryStatus.FAILED else (),
         delivery_mode=FeishuDeliveryMode.CARDS,
         error_category=(
-            FeishuDeliveryErrorCategory.INTERNAL
-            if status is FeishuDeliveryStatus.FAILED
-            else None
+            FeishuDeliveryErrorCategory.INTERNAL if status is FeishuDeliveryStatus.FAILED else None
         ),
         error="safe error",
     )
@@ -115,9 +113,7 @@ def test_dispatch_transport_exception_returns_false_and_keeps_cooldown_armed(
     def _raise(**_kwargs: object) -> FeishuDocumentDeliveryResult:
         raise RuntimeError("network exploded")
 
-    monkeypatch.setattr(
-        "integrations.feishu.document_delivery.deliver_feishu_document", _raise
-    )
+    monkeypatch.setattr("integrations.feishu.document_delivery.deliver_feishu_document", _raise)
     _patch_clock(monkeypatch, [100.0, 105.0])
 
     dispatcher = FeishuAlarmDispatcher(_CREDS, cooldown_seconds=300.0)

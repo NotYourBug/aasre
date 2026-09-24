@@ -539,13 +539,10 @@ def _render_claim_lines_markdown(ctx: ReportContext) -> tuple[list[str], list[st
                 entry = catalog.get(evidence_id, {})
                 display_id = str(entry.get("display_id", evidence_id))
                 url = entry.get("url")
-                citations.append(
-                    format_markdown_link(display_id, str(url) if url else None)
-                )
+                citations.append(format_markdown_link(display_id, str(url) if url else None))
         else:
             citations.extend(
-                escape_markdown_text(str(label))
-                for label in claim_data.get("evidence_labels", [])
+                escape_markdown_text(str(label)) for label in claim_data.get("evidence_labels", [])
             )
         suffix = f" [{', '.join(citations)}]" if citations else ""
         validated_lines.append(f"- {escape_markdown_text(claim)}{suffix}")
@@ -576,9 +573,7 @@ def format_markdown_message(ctx: ReportContext) -> str:
     if validated_lines:
         parts.append("## Findings\n" + "\n".join(validated_lines))
     if non_validated_lines:
-        parts.append(
-            "**Non-Validated Claims (Inferred):**\n" + "\n".join(non_validated_lines)
-        )
+        parts.append("**Non-Validated Claims (Inferred):**\n" + "\n".join(non_validated_lines))
 
     correlation_signals, correlation_drivers = _format_correlation_lines(ctx)
     if correlation_signals or correlation_drivers:
@@ -598,8 +593,7 @@ def format_markdown_message(ctx: ReportContext) -> str:
     provenance_lines = _format_provenance_lines(ctx)
     if provenance_lines:
         parts.append(
-            "**Provenance:**\n"
-            + "\n".join(escape_markdown_text(line) for line in provenance_lines)
+            "**Provenance:**\n" + "\n".join(escape_markdown_text(line) for line in provenance_lines)
         )
 
     remediation_steps = ctx.get("remediation_steps", [])

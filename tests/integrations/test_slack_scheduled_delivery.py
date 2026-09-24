@@ -56,9 +56,7 @@ def test_webhook_delivery_keeps_webhook_branch(monkeypatch: pytest.MonkeyPatch) 
         "integrations.slack.scheduled_delivery.resolve_slack_credentials",
         lambda _params: {"webhook_url": "https://hooks.slack.test/T/B/x"},
     )
-    monkeypatch.setattr(
-        "integrations.slack.scheduled_delivery.send_slack_webhook_message", _send
-    )
+    monkeypatch.setattr("integrations.slack.scheduled_delivery.send_slack_webhook_message", _send)
 
     result = SlackScheduledDelivery().deliver(
         _task(chat_id=""),

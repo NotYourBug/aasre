@@ -66,9 +66,7 @@ def _rich_markdown_context(*, root_cause: str = "The checkout dependency failed.
             "summary": "Confirmed by the request trace.",
         }
     }
-    ctx["source_provenance"] = {
-        "example": {"label": "Example", "summary": "request trace"}
-    }
+    ctx["source_provenance"] = {"example": {"label": "Example", "summary": "request trace"}}
     return ctx
 
 
@@ -84,9 +82,7 @@ def test_markdown_report_uses_gfm_and_not_vendor_markup() -> None:
 
 
 def test_untrusted_markup_cannot_inject_link_or_slack_mention() -> None:
-    ctx = _rich_markdown_context(
-        root_cause="[fake](https://attacker) <!channel> <b>boom</b>"
-    )
+    ctx = _rich_markdown_context(root_cause="[fake](https://attacker) <!channel> <b>boom</b>")
 
     message = format_markdown_message(ctx)  # type: ignore[arg-type]
 

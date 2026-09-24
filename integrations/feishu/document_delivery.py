@@ -25,6 +25,7 @@ _TEXT_CHUNK_MAX_CODEPOINTS = 4_096
 _SUMMARY_LOG = "Feishu document delivery summary"
 _DEGRADED_LOG = "Feishu document delivery degraded to text"
 _FAILED_LOG = "Feishu document delivery failed"
+_LOGGABLE_RECEIVE_ID_TYPES = frozenset({"chat_id", "email", "open_id", "union_id", "user_id"})
 
 _SAFE_ERRORS = {
     FeishuDeliveryErrorCategory.CONFIGURATION: "Feishu delivery is not configured",
@@ -90,6 +91,11 @@ def _safe_error(category: FeishuDeliveryErrorCategory) -> str:
     return _SAFE_ERRORS[category]
 
 
+def _log_receive_id_type(receive_id_type: str) -> str:
+    """Return only a known destination type for structured delivery logs."""
+    return receive_id_type if receive_id_type in _LOGGABLE_RECEIVE_ID_TYPES else "unknown"
+
+
 def _summary(
     result: FeishuDocumentDeliveryResult,
     *,
@@ -102,7 +108,7 @@ def _summary(
         extra={
             "status": result.status.value,
             "delivery_mode": result.delivery_mode.value,
-            "receive_id_type": receive_id_type,
+            "receive_id_type": _log_receive_id_type(receive_id_type),
             "card_page_total": card_page_total,
             "fallback_chunk_total": fallback_chunk_total,
             "confirmed_message_count": len(result.confirmed_message_ids),
@@ -154,7 +160,7 @@ def _fallback_to_text(
         _DEGRADED_LOG,
         extra={
             "delivery_mode": FeishuDeliveryMode.TEXT_FALLBACK.value,
-            "receive_id_type": receive_id_type,
+            "receive_id_type": _log_receive_id_type(receive_id_type),
             "card_page_index": card_page_index,
             "card_page_total": card_page_total,
             "confirmed_message_count": len(confirmed_message_ids),
@@ -191,7 +197,7 @@ def _fallback_to_text(
             extra={
                 "status": FeishuDeliveryStatus.FAILED.value,
                 "delivery_mode": FeishuDeliveryMode.TEXT_FALLBACK.value,
-                "receive_id_type": receive_id_type,
+                "receive_id_type": _log_receive_id_type(receive_id_type),
                 "fallback_chunk_index": chunk.index,
                 "fallback_chunk_total": len(chunks),
                 "confirmed_message_count": len(confirmed_message_ids),

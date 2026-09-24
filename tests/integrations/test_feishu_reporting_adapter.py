@@ -74,9 +74,7 @@ def _result(status: FeishuDeliveryStatus) -> FeishuDocumentDeliveryResult:
         confirmed_message_ids=("om_1",) if status is not FeishuDeliveryStatus.FAILED else (),
         delivery_mode=FeishuDeliveryMode.CARDS,
         error_category=(
-            FeishuDeliveryErrorCategory.INTERNAL
-            if status is FeishuDeliveryStatus.FAILED
-            else None
+            FeishuDeliveryErrorCategory.INTERNAL if status is FeishuDeliveryStatus.FAILED else None
         ),
         error="safe failure",
     )

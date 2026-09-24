@@ -420,3 +420,27 @@ def test_malicious_visible_send_exception_never_reaches_result_or_logs(
         if record.getMessage() == "Feishu document delivery summary"
     )
     assert summary.confirmed_message_count == 0
+
+
+def test_invalid_receive_id_type_is_not_copied_into_summary_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    malicious_type = "secret Authorization: Bearer private-token"
+    caplog.set_level(logging.INFO, logger=delivery.__name__)
+
+    result = delivery.deliver_feishu_document(
+        app_id="cli_test",
+        app_secret="s_secret",
+        receive_id="oc_complete_target",
+        receive_id_type=malicious_type,
+        markdown=" ",
+    )
+
+    assert result.status is FeishuDeliveryStatus.SKIPPED
+    assert malicious_type not in caplog.text
+    summary = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "Feishu document delivery summary"
+    )
+    assert summary.receive_id_type == "unknown"

@@ -187,5 +187,3 @@ def test_post_feishu_message_contains_sdk_construction_errors(
         error_category=FeishuDeliveryErrorCategory.TRANSPORT,
         certainty=FeishuSendCertainty.DEFINITELY_NOT_SENT,
     )
-
-

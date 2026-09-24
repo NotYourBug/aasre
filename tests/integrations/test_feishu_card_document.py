@@ -207,6 +207,15 @@ def test_a_single_oversize_block_is_hard_split_and_still_loses_nothing() -> None
     assert "".join(page.text for page in pages) == text
 
 
+def test_separator_before_an_oversize_block_does_not_become_a_blank_card() -> None:
+    text = "intro\n\n" + ("x" * 70_000)
+
+    pages = paginate(text)
+
+    assert all(page.text.strip() for page in pages)
+    assert "".join(page.text for page in pages) == text
+
+
 def test_the_prefix_stops_at_a_block_boundary_rather_than_inside_a_fence() -> None:
     """A byte cut would land mid-fence; the remainder would then re-pair the fence."""
     fence = "```python\n" + "\n\n".join(f"line_{i} = {i}" for i in range(40)) + "\n```"

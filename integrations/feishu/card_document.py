@@ -373,7 +373,12 @@ def paginate(
         block = span.text
         cursor = span.end
         if not _fits(block, budget):
+            split_block = _hard_split(block, budget, span.start)
             if current:
+                if gap and _fits(current + gap, budget):
+                    current += gap
+                    current_end = span.start
+                    gap = ""
                 pages.append(
                     _RenderedSpan(
                         text=current,
@@ -383,8 +388,16 @@ def paginate(
                 )
                 current, tables = "", 0
             if gap:
-                pages.extend(_hard_split(gap, budget, unit_start))
-            pages.extend(_hard_split(block, budget, span.start))
+                first = split_block[0]
+                if _fits(gap + first.text, budget):
+                    split_block[0] = _RenderedSpan(
+                        text=gap + first.text,
+                        source_start=unit_start,
+                        source_end=first.source_end,
+                    )
+                else:
+                    pages.extend(_hard_split(gap, budget, unit_start))
+            pages.extend(split_block)
             continue
 
         next_tables = tables + (1 if _is_table(block) else 0)

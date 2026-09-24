@@ -27,9 +27,7 @@ def test_delivery_preserves_room_and_message_id(monkeypatch: pytest.MonkeyPatch)
             "user_id": "user",
         },
     )
-    monkeypatch.setattr(
-        "integrations.rocketchat.scheduled_delivery.post_rocketchat_message", _post
-    )
+    monkeypatch.setattr("integrations.rocketchat.scheduled_delivery.post_rocketchat_message", _post)
     task = ScheduledTask(
         id="scheduled-rc",
         kind=TaskKind.DAILY_SUMMARY,
@@ -41,6 +39,4 @@ def test_delivery_preserves_room_and_message_id(monkeypatch: pytest.MonkeyPatch)
     result = RocketChatScheduledDelivery().deliver(task, "**Scheduled** report")
 
     assert result == (True, "", "msg-42")
-    assert calls == [
-        ("https://chat.example.test", "#ops", "**Scheduled** report", "token", "user")
-    ]
+    assert calls == [("https://chat.example.test", "#ops", "**Scheduled** report", "token", "user")]

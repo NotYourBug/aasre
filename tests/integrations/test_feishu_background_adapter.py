@@ -69,9 +69,7 @@ def _result(
         confirmed_message_ids=("om_1",) if status is not FeishuDeliveryStatus.FAILED else (),
         delivery_mode=FeishuDeliveryMode.CARDS,
         error_category=(
-            FeishuDeliveryErrorCategory.INTERNAL
-            if status is FeishuDeliveryStatus.FAILED
-            else None
+            FeishuDeliveryErrorCategory.INTERNAL if status is FeishuDeliveryStatus.FAILED else None
         ),
         error=error,
     )
@@ -97,7 +95,9 @@ def test_success_and_degraded_are_sent(
     assert deliver_feishu_notification(_record()) == "sent"
 
 
-def test_failed_is_fixed_and_does_not_expose_transport_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_failed_is_fixed_and_does_not_expose_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         "integrations.feishu.credentials.load_credentials_from_env",
         lambda: _creds(),
