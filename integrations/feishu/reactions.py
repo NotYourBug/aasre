@@ -12,6 +12,8 @@ from lark_oapi.api.im.v1 import (
     ListMessageReactionRequest,
 )
 
+from config.constants.feishu import FEISHU_PROCESSING_EMOJI
+
 
 class ReactionCallError(RuntimeError):
     """A reaction operation failed without exposing vendor response content."""
@@ -65,7 +67,7 @@ class FeishuReactionClient:
             .message_id(message_id)
             .request_body(
                 CreateMessageReactionRequestBody.builder()
-                .reaction_type(Emoji.builder().emoji_type("EYE").build())
+                .reaction_type(Emoji.builder().emoji_type(FEISHU_PROCESSING_EMOJI).build())
                 .build()
             )
             .build()
@@ -94,7 +96,7 @@ class FeishuReactionClient:
             request = (
                 ListMessageReactionRequest.builder()
                 .message_id(message_id)
-                .reaction_type("EYE")
+                .reaction_type(FEISHU_PROCESSING_EMOJI)
                 .page_size(50)
                 .page_token(page_token)
                 .build()
