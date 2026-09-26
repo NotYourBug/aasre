@@ -647,16 +647,17 @@ git commit -m "feat: handle Feishu feedback callbacks"
 
 1. Worker constructs one reaction lifecycle and one feedback service using host-level gateway paths.
 2. Startup performs bounded ack reconciliation before readiness.
-3. Security, principal/session resolution, cancel registration and pre-cancel check run before ack admission.
-4. `ADMITTED` runs the handler; `DUPLICATE` returns without another turn; `UNTRACKED` runs without ack.
+3. Security and principal resolution precede durable reservation; session setup failure aborts it for retry.
+4. `DUPLICATE` returns before session side effects. Only a real, non-cancelled turn starts EYE after session resolution; no-turn commands settle without a marker. `UNTRACKED` runs without ack.
 5. Success/failure/cancel/timeout/shutdown call one idempotent ack finish with the matching outcome.
 6. Only a normal-success terminal winner may issue feedback against the final-card receipt.
 7. Worker shutdown drains reaction cleanup before closing its side-effect executor; approval drain/close ordering remains intact.
 
 - [ ] **Step 1: Add failing ingress/admission tests**
 
-Assert denied/help/pairing/unsupported and pre-cancel paths never call `begin`; a valid accepted turn calls once after session
-resolution. Deliver the same inbound event concurrently and after reconstruction: only one handler/model invocation is admitted.
+Assert denied/help/pairing/unsupported paths never reserve; pre-cancel and `/new` paths reserve but never create EYE. A valid
+accepted turn starts its marker only after session resolution. Deliver the same inbound event concurrently and after reconstruction:
+only one handler/model invocation is admitted. Session setup failure releases its reservation for retry.
 When admission returns `UNTRACKED`, the handler still runs.
 
 - [ ] **Step 2: Add failing terminal and feedback-target tests**

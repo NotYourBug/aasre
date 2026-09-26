@@ -86,6 +86,8 @@ class ReactionLedger:
                 ):
                     raise ValueError("Invalid reaction ledger")
                 if record.state not in {
+                    "reserved",
+                    "aborted",
                     "adding",
                     "active",
                     "terminal_pending_add",
@@ -149,7 +151,7 @@ class ReactionLedger:
         retained = {
             message_id: record
             for message_id, record in records.items()
-            if record.state != "removed" or record.updated_at >= cutoff
+            if record.state not in {"removed", "aborted"} or record.updated_at >= cutoff
         }
         descriptor, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=".ack-")
         try:
@@ -171,11 +173,13 @@ class ReactionLedger:
 
         def update(previous: AckRecord | None) -> AckRecord:
             nonlocal admitted
-            if previous is not None:
+            if previous is not None and previous.state != "aborted":
                 return previous
             admitted = True
             now = time.time()
-            return AckRecord(message_id=message_id, created_at=now, updated_at=now)
+            return AckRecord(
+                message_id=message_id, state="reserved", created_at=now, updated_at=now
+            )
 
         self.change(message_id, update)
         return admitted

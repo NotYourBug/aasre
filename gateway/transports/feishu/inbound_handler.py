@@ -138,7 +138,10 @@ def _run_turn(
             )
             return
 
-        if reactions is not None and reactions.begin(inbound.message_id) is AckAdmission.DUPLICATE:
+        if (
+            reactions is not None
+            and reactions.reserve(inbound.message_id) is AckAdmission.DUPLICATE
+        ):
             return
 
         try:
@@ -152,7 +155,7 @@ def _run_turn(
                 )
         except Exception:
             if reactions is not None:
-                reactions.finish(inbound.message_id, AckOutcome.FAILURE)
+                reactions.abort(inbound.message_id)
             raise
         if session is None:
             if reactions is not None:
@@ -257,6 +260,9 @@ def _run_turn(
                 except Exception:
                     logger.debug("[feishu-gateway] user-stop finalize failed", exc_info=True)
             return
+
+        if reactions is not None:
+            reactions.start_marker(inbound.message_id)
 
         with terminal.timeout_after(settings.turn_timeout_seconds, _on_turn_timeout):
             try:

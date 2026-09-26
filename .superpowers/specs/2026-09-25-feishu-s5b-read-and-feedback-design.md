@@ -256,7 +256,11 @@ It does not contain chat ID, sender ID, session ID, message text, attachments, c
 
 ```text
 NEW
- └─ begin accepted ───────────────> ADDING
+ └─ reserve accepted ─────────────> RESERVED
+RESERVED
+ ├─ session setup fails ─────────> ABORTED (retryable)
+ ├─ no turn / pre-cancel ────────> REMOVED
+ └─ real turn starts ────────────> ADDING
 ADDING
  ├─ create success ──────────────> ACTIVE
  ├─ create failure ──────────────> ADD_FAILED
@@ -272,15 +276,16 @@ REMOVING
 ```
 
 `ADD_FAILED`, `REMOVED` and `REMOVE_FAILED` are terminal local records. `REMOVE_FAILED` remains eligible for startup
-reconciliation until retention expiry. A duplicate `begin(message_id)` observes the existing record, never calls create again,
+reconciliation until cleanup succeeds. A duplicate reservation observes the existing non-aborted record, never calls create again,
 and is not admitted to the handler. This is required for lifecycle correctness: allowing a duplicate turn would let the first
 completion remove EYE while the second copy was still running, and could emit two billable answers and two feedback cards for one
 platform delivery.
 
 ### 8.3 Ordering and non-blocking behavior
 
-One dedicated bounded executor is owned by `ReactionLifecycleManager`. `begin` first performs a bounded local ledger admission and
-then enqueues remote work; turn threads never wait for IM API completion. Per-message state and generation checks ensure a delete
+One dedicated bounded executor is owned by `ReactionLifecycleManager`. `reserve` performs bounded durable deduplication before
+session side effects; `start_marker` enqueues remote work only after a real turn is confirmed. A failed session setup aborts the
+reservation for retry. Turn threads never wait for IM API completion. Per-message state and generation checks ensure a delete
 cannot be lost when the terminal event races the add response. If local persistence, the queue or the manager is unavailable, ack
 falls back to `UNTRACKED` and the turn proceeds: ack/dedupe support must never become a new availability dependency for the agent.
 
@@ -290,7 +295,7 @@ budget. Work that exceeds the budget remains durable for next-start reconciliati
 
 ### 8.4 Start boundary
 
-`begin(message_id)` occurs only after:
+`reserve(message_id)` occurs after inbound security and principal resolution but before session side effects. `start_marker` occurs only after:
 
 1. normalized user message validation;
 2. inbound security/allowlist decision;
