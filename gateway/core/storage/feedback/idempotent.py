@@ -51,6 +51,10 @@ def append_feedback_entry_once(
                             raise ValueError("Invalid feedback history")
                         keys.add(_key(row, idempotency_fields))
             if key in keys:
+                # A previous writer may have appended the row but failed fsync.
+                # Repair durability before acknowledging a duplicate as settled.
+                with path.open("ab") as existing:
+                    os.fsync(existing.fileno())
                 return FeedbackWriteResult.DUPLICATE
             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             with os.fdopen(descriptor, "a", encoding="utf-8", newline="\n") as target:

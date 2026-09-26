@@ -58,4 +58,7 @@ def test_uncertain_fsync_is_not_reported_as_success(
         raise OSError("sensitive detail")
 
     monkeypatch.setattr(module.os, "fsync", fail_sync)
-    assert _write(tmp_path / "feedback.jsonl") is FeedbackWriteResult.FAILED
+    path = tmp_path / "feedback.jsonl"
+    assert _write(path) is FeedbackWriteResult.FAILED
+    assert _write(path) is FeedbackWriteResult.FAILED
+    assert len(path.read_text().splitlines()) == 1
