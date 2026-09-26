@@ -119,7 +119,14 @@ def _run_turn(
         def _send(text: str) -> None:
             send_text(inbound.chat_id, text)
 
+        rotation_committed = False
+
         def _send_session_notice(text: str) -> None:
+            nonlocal rotation_committed
+            if decision.reply_text == ROTATE_SESSION and text == NEW_SESSION_MESSAGE:
+                rotation_committed = True
+                if reactions is not None:
+                    reactions.mark_rotated(inbound.message_id)
             try:
                 _send(text)
             except Exception:
@@ -157,6 +164,14 @@ def _run_turn(
         ):
             return
 
+        def _settle_pre_turn_failure() -> None:
+            if reactions is None:
+                return
+            if rotation_committed:
+                reactions.finish(inbound.message_id, AckOutcome.FAILURE)
+            else:
+                reactions.abort(inbound.message_id)
+
         try:
             with bound_storage_scope(scope):
                 session = resolve_or_rotate_session(
@@ -167,8 +182,7 @@ def _run_turn(
                     send=_send_session_notice,
                 )
         except Exception:
-            if reactions is not None:
-                reactions.abort(inbound.message_id)
+            _settle_pre_turn_failure()
             raise
         if session is None:
             if reactions is not None:
@@ -208,8 +222,7 @@ def _run_turn(
                 output_registry=output_registry,
             )
         except Exception:
-            if reactions is not None:
-                reactions.abort(inbound.message_id)
+            _settle_pre_turn_failure()
             raise
 
         def _on_turn_timeout() -> None:
@@ -263,15 +276,14 @@ def _run_turn(
                 active_cancels.bind_user_stop(key, turn_cancel, _on_user_stop)
                 registration = nullcontext()
         except Exception:
-            if reactions is not None:
-                reactions.abort(inbound.message_id)
+            _settle_pre_turn_failure()
             if output_registry is not None:
                 output_registry.discard(output)
             raise
 
-        # A /stop that landed between dispatch registration and here only set
-        # the Event; nothing has run yet, so answer it instead of the agent.
-        if terminal.cancel_event.is_set():
+        def _stop_before_turn() -> bool:
+            if not terminal.cancel_event.is_set():
+                return False
             if reactions is not None:
                 reactions.finish(inbound.message_id, AckOutcome.CANCELLED)
             if terminal.claim():
@@ -279,10 +291,16 @@ def _run_turn(
                     output.finalize(USER_STOP_MESSAGE)
                 except Exception:
                     logger.debug("[feishu-gateway] user-stop finalize failed", exc_info=True)
+            return True
+
+        # Cancellation can arrive before this check or during marker startup.
+        if _stop_before_turn():
             return
 
         if reactions is not None:
             reactions.start_marker(inbound.message_id)
+        if _stop_before_turn():
+            return
 
         with terminal.timeout_after(settings.turn_timeout_seconds, _on_turn_timeout):
             try:

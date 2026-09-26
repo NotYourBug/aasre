@@ -14,6 +14,8 @@ from functools import partial
 from pathlib import Path
 from typing import Protocol
 
+from filelock import FileLock, Timeout
+
 from config.constants.feishu import FEISHU_ACK_QUEUE_LIMIT
 from gateway.transports.feishu.reaction_ledger import AckRecord, ReactionLedger
 from integrations.feishu import FeishuReaction
@@ -58,6 +60,13 @@ class ReactionLifecycleManager:
         queue_limit: int = FEISHU_ACK_QUEUE_LIMIT,
     ) -> None:
         self._ledger = ReactionLedger(path)
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._owner_lock = FileLock(str(path) + ".owner.lock")
+        try:
+            self._owner_lock.acquire(timeout=0)
+        except Timeout as exc:
+            raise RuntimeError("Feishu reaction ledger already active") from exc
+        self._owner_released = False
         self._client = client
         self._app_id = app_id
         self._lock = threading.RLock()
@@ -84,6 +93,7 @@ class ReactionLifecycleManager:
                 self._futures.discard(completed)
                 self._permits.release()
                 self._drain_cleanup()
+                self._release_owner_if_safe()
 
         future.add_done_callback(done)
         return True
@@ -138,6 +148,21 @@ class ReactionLifecycleManager:
                     self._owned.discard(message_id)
             except Exception:
                 logger.warning("Feishu ack reservation release unavailable")
+            self._release_owner_if_safe()
+
+    def mark_rotated(self, message_id: str) -> None:
+        """Persist that this message already committed a session rotation."""
+        with self._lock:
+            if message_id not in self._owned:
+                return
+            self._ledger.change(
+                message_id,
+                lambda previous: (
+                    replace(previous, state="rotated", updated_at=time.time())
+                    if previous is not None and previous.state == "reserved"
+                    else previous
+                ),
+            )
 
     def start_marker(self, message_id: str) -> AckAdmission:
         """Start the processing marker only after a real turn is confirmed."""
@@ -151,7 +176,7 @@ class ReactionLifecycleManager:
 
                 def update(record: AckRecord | None) -> AckRecord | None:
                     nonlocal changed
-                    if record is None or record.state != "reserved":
+                    if record is None or record.state not in {"reserved", "rotated"}:
                         return record
                     changed = True
                     return replace(record, state="adding", updated_at=time.time())
@@ -273,7 +298,7 @@ class ReactionLifecycleManager:
                     updated_at=time.time(),
                     state=(
                         "removed"
-                        if record.state == "reserved"
+                        if record.state in {"reserved", "rotated"}
                         else "removing"
                         if record.reaction_id
                         else "terminal_pending_add"
@@ -290,6 +315,7 @@ class ReactionLifecycleManager:
                         self._pending_cleanup.add(identity)
             except Exception:
                 logger.warning("Feishu ack terminal persistence unavailable")
+            self._release_owner_if_safe()
 
     def reconcile(self, *, budget_seconds: float, record_limit: int) -> None:
         """Schedule bounded recovery before admitting new turns."""
@@ -320,6 +346,11 @@ class ReactionLifecycleManager:
             return
         try:
             if record.state in {"reserved", "aborted"}:
+                return
+            if record.state == "rotated":
+                self._transition(
+                    record.message_id, state="removed", outcome=AckOutcome.SHUTDOWN.value
+                )
                 return
             self._transition(record.message_id, outcome=record.outcome or AckOutcome.SHUTDOWN.value)
             if record.reaction_id:
@@ -361,6 +392,32 @@ class ReactionLifecycleManager:
             futures = tuple(self._futures)
         if futures:
             wait(futures, timeout=max(0, deadline - time.monotonic()))
+        with self._lock:
+            self._release_owner_if_safe()
+
+    def _release_owner_if_safe(self) -> None:
+        if not self._closed or self._owner_released:
+            return
+        if any(not future.done() for future in self._futures):
+            return
+        try:
+            for message_id in self._owned:
+                record = self._ledger.find(message_id)
+                if (
+                    record is not None
+                    and not record.outcome
+                    and record.state
+                    not in {
+                        "removed",
+                        "aborted",
+                    }
+                ):
+                    return
+        except Exception:
+            logger.warning("Feishu ack owner state unavailable")
+            return
+        self._owner_lock.release()
+        self._owner_released = True
 
     def _shutdown_cleanup(self) -> None:
         with self._lock:

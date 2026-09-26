@@ -281,9 +281,8 @@ def test_aborted_reservation_is_retryable_without_creating_a_marker(tmp_path: Pa
 def test_restart_releases_unstarted_reservation(tmp_path: Path) -> None:
     client = ReactionClient()
     path = tmp_path / "ack.jsonl"
-    original = ReactionLifecycleManager(path=path, client=client, app_id="app")
-    assert original.reserve("m") is AckAdmission.ADMITTED
-    original.shutdown(timeout_seconds=5)
+    # A ledger record without a live owner represents a prior crashed process.
+    assert ReactionLedger(path).admit("m")
     restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
     try:
         restarted.reconcile(budget_seconds=5, record_limit=10)
@@ -291,6 +290,44 @@ def test_restart_releases_unstarted_reservation(tmp_path: Path) -> None:
         assert not client.added
     finally:
         restarted.shutdown(timeout_seconds=5)
+
+
+def test_second_manager_cannot_release_live_reservation(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    original = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert original.reserve("inflight") is AckAdmission.ADMITTED
+        with pytest.raises(RuntimeError, match="already active"):
+            competing = ReactionLifecycleManager(path=path, client=client, app_id="app")
+            competing.reconcile(budget_seconds=5, record_limit=10)
+        assert ReactionLedger(path).find("inflight").state == "reserved"
+        assert original.reserve("inflight") is AckAdmission.DUPLICATE
+        original.shutdown(timeout_seconds=5)
+        with pytest.raises(RuntimeError, match="already active"):
+            ReactionLifecycleManager(path=path, client=client, app_id="app")
+        original.finish("inflight", AckOutcome.FAILURE)
+        original.shutdown(timeout_seconds=5)
+        restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+        restarted.shutdown(timeout_seconds=5)
+    finally:
+        original.shutdown(timeout_seconds=5)
+
+
+def test_rotated_reservation_is_not_retryable_after_setup_failure(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert manager.reserve("rotated") is AckAdmission.ADMITTED
+        manager.mark_rotated("rotated")
+        assert ReactionLedger(path).find("rotated").state == "rotated"
+        manager.finish("rotated", AckOutcome.FAILURE)
+        assert manager.reserve("rotated") is AckAdmission.DUPLICATE
+        assert ReactionLedger(path).find("rotated").state == "removed"
+        assert not client.added
+    finally:
+        manager.shutdown(timeout_seconds=5)
 
 
 def test_restart_releases_reservation_beyond_recovery_budget(tmp_path: Path) -> None:

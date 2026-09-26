@@ -356,6 +356,29 @@ def test_new_message_is_deduped_without_processing_marker(monkeypatch: pytest.Mo
     reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
 
 
+def test_stop_during_marker_start_never_runs_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    turn_cancel = threading.Event()
+    reactions = MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+    reactions.start_marker.side_effect = lambda _message_id: turn_cancel.set()
+    handler = MagicMock()
+    outbound, _replies = _run(
+        monkeypatch,
+        inbound=_inbound(),
+        handler=handler,
+        resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+        settings=_settings(),
+        active_cancels=ActiveTurnRegistry(),
+        turn_cancel=turn_cancel,
+        reactions=reactions,
+    )
+    handler.assert_not_called()
+    reactions.finish.assert_called_once_with("m1", AckOutcome.CANCELLED)
+    assert outbound[-1][1] == USER_STOP_MESSAGE
+
+
 def test_failed_new_session_notice_does_not_repeat_rotation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -383,6 +406,41 @@ def test_failed_new_session_notice_does_not_repeat_rotation(
     assert resolver.rotation_count == 1
     reactions.abort.assert_not_called()
     reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
+
+
+def test_rotated_turn_output_failure_cannot_repeat_rotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    monkeypatch.setattr(
+        inbound_handler,
+        "enforce_inbound_feishu_message_security",
+        lambda **_kwargs: FeishuInboundDecision(allowed=True, reply_text=ROTATE_SESSION),
+    )
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+    reactions = MagicMock()
+    reactions.reserve.side_effect = [AckAdmission.ADMITTED, AckAdmission.DUPLICATE]
+
+    def fail_output(**_kwargs: object) -> None:
+        raise RuntimeError("output unavailable")
+
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", fail_output)
+    arguments = {
+        "inbound": _inbound("/new investigate"),
+        "handler": MagicMock(),
+        "resolver": resolver,
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "reactions": reactions,
+    }
+    with pytest.raises(RuntimeError, match="output unavailable"):
+        _run(monkeypatch, **arguments)
+    _run(monkeypatch, **arguments)
+    assert resolver.rotation_count == 1
+    reactions.mark_rotated.assert_called_once_with("m1")
+    reactions.abort.assert_not_called()
+    reactions.finish.assert_called_once_with("m1", AckOutcome.FAILURE)
 
 
 def test_pairing_reply_does_not_require_an_organization(

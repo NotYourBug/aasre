@@ -87,6 +87,7 @@ class ReactionLedger:
                     raise ValueError("Invalid reaction ledger")
                 if record.state not in {
                     "reserved",
+                    "rotated",
                     "aborted",
                     "adding",
                     "active",

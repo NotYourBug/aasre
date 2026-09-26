@@ -84,6 +84,10 @@ Use `opensre gateway start -f` to run attached to the terminal, and
 credential verification does not prove that permissions, subscriptions, the
 published version, or chat membership are correct.
 
+Run only one Feishu gateway per `OPENSRE_HOME`. A second instance using the same
+home cannot start until the first process exits, protecting in-flight messages
+from duplicate processing.
+
 ## Document delivery
 
 Watchdog alarms, investigation reports, background RCA summaries, and scheduled
