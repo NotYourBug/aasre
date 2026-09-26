@@ -1,7 +1,7 @@
 # 飞书通讯能力补全设计（Feishu Capability Completion）
 
 - Date: 2026-09-12（2026-09-18 修订后续路线）
-- Status: Revision approved by user（2026-09-18）；S1–S4 已交付，S5a–S8b 待实施
+- Status: Revision approved by user（2026-09-18）；S1–S4、S5a、S6 已交付，S5b 为下一项
 - 上游 spec: [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
@@ -198,9 +198,9 @@ Slack Block Kit 的 markdown 原生渲染，在飞书的对应物是 **CardKit 2
 | **S2** | 感知层：附件与图片 | 下载+内联、图片 vision、停止丢弃非文本 | 无（需飞书 `im:message` / `im:message:readonly` 权限；**不是** `im:resource`，那是上传接口） | 发截图/日志文件，agent 能看到内容 | 已完成 |
 | **S3** | **卡片基建层（新地基）** | CardKit 2.0 卡片构建 + `schema 2.0` 的 `tag:"markdown"` 渲染 + CardKit v1 流式 + 分页降级 | 无 | 任意长文本可渲染成卡片；达到 64 KiB 工程预算或平台拒绝时分页承载，内容不丢失 | 已完成 |
 | **S4** | 对话输出接线 | 把 turn 输出接到 S3：流式卡片 + 长消息分片 + outbound 回复线程 | S3 | 长调查可见进度；超长回答不截断；回复线程正确 | 已完成 |
-| **S5a** | 卡片审批 | Approve/Deny 卡片按钮**取代**文本审批；迁移既有授权与生命周期语义 | S3、S4；控制台订阅 `card.action.trigger` 并重新发布应用 | 只有原请求者可决定；重复、过期、旁观者、关闭排空均安全；真实回调验收通过后删除文本审批，合并态不存在双轨 | 下一项 |
-| **S6** | 告警与投递卡片化 | watchdog 告警、调查报告、定时投递改走 S3 渲染层 | S3 | 三条路径均以卡片保留 markdown/表格；超预算分页、卡片失败时兜底也不截断内容 | 待实施 |
-| **S5b** | 已读与正式反馈 | 用户原消息上的 👀 生命周期；流式结束后追加 ✅采纳按钮；复用 transport-neutral feedback JSONL 存储 | S4、S5a | ack 失败不阻塞 turn；成功、失败、取消、超时均有确定终态；仅原请求者可采纳；按最终 `message_id` + 操作者幂等记录 `good`，不保存回答正文、不启动新 turn | 待实施 |
+| **S5a** | 卡片审批 | Approve/Deny 卡片按钮**取代**文本审批；迁移既有授权与生命周期语义 | S3、S4；控制台订阅 `card.action.trigger` 并重新发布应用 | 只有原请求者可决定；重复、过期、旁观者、关闭排空均安全；真实回调验收通过后删除文本审批，合并态不存在双轨 | 已完成 |
+| **S6** | 告警与投递卡片化 | watchdog 告警、调查报告、定时投递改走 S3 渲染层 | S3 | 三条路径均以卡片保留 markdown/表格；超预算分页、卡片失败时兜底也不截断内容 | 已完成 |
+| **S5b** | 已读与正式反馈 | 用户原消息上的 👀 生命周期；流式结束后追加 ✅采纳按钮；复用 transport-neutral feedback JSONL 存储 | S4、S5a | ack 失败不阻塞 turn；成功、失败、取消、超时均有确定终态；仅原请求者可采纳；按最终 `message_id` + 操作者幂等记录 `good`，不保存回答正文、不启动新 turn | 下一项 |
 | **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CROSS` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 待实施 |
 | **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 待实施 |
 | **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 重写 persona / action / gather / assistant 片段；只暴露当前渠道能力 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | 待实施 |
@@ -270,7 +270,7 @@ R27 让卡片按钮取代文本审批，那就必须把文本审批的授权校�
 **→ S3 的退出标准“达到工程预算或平台拒绝时不丢内容”覆盖级 0–3；级 4 已由 S4 的纯文本
 分片补齐。**
 
-**当前顺序（R33）**：S1–S4 已完成；后续为 **S5a → S6 → S5b → S5c → S8a → S7 → S8b**。
+**当前顺序（R33）**：S1–S4、S5a、S6 已完成；后续为 **S5b → S5c → S8a → S7 → S8b**。
 不得再以“S7/S8 无依赖、可随时插入”为由提前全局改 prompt 或一次性铺开未调研工具。
 
 ## 5. 明确排除（YAGNI）
@@ -389,10 +389,10 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 
 ## 8. 后续
 
-S1–S4 已交付。本文只固定剩余子项目的边界、依赖、顺序与退出标准，**不作为一个跨项目实现计划**。
+S1–S4、S5a、S6 已交付。本文只固定剩余子项目的边界、依赖、顺序与退出标准，**不作为一个跨项目实现计划**。
 
-下一项是 **S5a 卡片审批**：先单独 brainstorm 并形成 S5a spec，经用户评审后再用 `writing-plans`
-生成只覆盖 S5a 的实现计划。S5a 合并并完成 post-merge 验证后进入 S6；其余项目依 R33 顺序重复
+下一项是 **S5b 已读与正式反馈**：先单独 brainstorm 并形成 S5b spec，经用户评审后再用 `writing-plans`
+生成只覆盖 S5b 的实现计划。其余项目依 R33 顺序重复
 spec → plan → 实现 → PR 闭环。任何阶段发现需要改变相邻项目接口，先回写本文并重新取得用户确认。
 
 后续每个项目的现场验收除自身退出标准外，共用以下门禁：不提交 `.env` 或凭据；测试 chat 的外部发送

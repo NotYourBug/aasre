@@ -12,6 +12,50 @@ from integrations.feishu.card_client import FeishuStreamRejected
 _TABLE = "| a | b |\n| --- | --- |\n| 1 | 2 |"
 
 
+def test_final_target_follows_last_complete_page() -> None:
+    client = _FakeClient()
+    session, _ = _session(client, budget=2_000)
+    session.start()
+    session.update("\n\n".join("x" * 400 for _ in range(40)))
+    target = session.finish()
+    assert target is not None
+    assert target.card_id == client.sent[-1][1]
+    assert target.message_id == f"om_{len(client.sent)}"
+    assert target.append_sequence == 1
+    assert session.finish() == target
+
+
+def test_final_target_sequence_follows_confirmed_close() -> None:
+    client = _FakeClient()
+    session, _ = _session(client)
+    session.start()
+    session.update("answer")
+    target = session.finish()
+    assert target is not None
+    assert target.message_id == "om_1"
+    assert target.append_sequence == client.closed[-1][1] + 1
+
+
+def test_failed_close_disqualifies_even_complete_fallback() -> None:
+    client = _FakeClient()
+    session, _ = _session(client)
+    session.start()
+    client.reject_update = True
+    client.reject_close = True
+    session.update("answer")
+    assert len(client.sent) == 2
+    assert session.finish() is None
+
+
+def test_partial_overflow_does_not_offer_feedback() -> None:
+    client = _FakeClient()
+    session, _ = _session(client, budget=2_000)
+    session.start()
+    client.reject_create_at = 2
+    session.update("\n\n".join("x" * 400 for _ in range(40)))
+    assert session.finish() is None
+
+
 class _FakeClient:
     """Records calls and can be told to reject with a given code."""
 

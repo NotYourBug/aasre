@@ -47,6 +47,7 @@ class FeishuCardCallStage(StrEnum):
     SEND_CARD = "send_card"
     UPDATE_ELEMENT = "update_element"
     CLOSE_STREAM = "close_stream"
+    APPEND_ELEMENTS = "append_elements"
 
 
 class FeishuCardCallError(RuntimeError):

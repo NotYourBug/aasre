@@ -7,11 +7,32 @@ import pytest
 from gateway.core.middleware.identity_policy import persist_policy_if_needed
 from gateway.transports.feishu.inbound_security import (
     enforce_inbound_feishu_message_security,
+    is_feedback_actor_authorized,
     is_open_id_authorized,
 )
 from integrations.messaging_security import MessagingIdentityPolicy
 
 _SECURITY = "gateway.transports.feishu.inbound_security"
+
+
+@pytest.mark.usefixtures("mock_integration_store")
+def test_feedback_authorization_does_not_log_actor_metadata() -> None:
+    with patch(f"{_SECURITY}.audit_log_inbound_message") as audit:
+        assert is_feedback_actor_authorized(
+            open_id="actor", chat_id="chat", env_allowed_open_ids=["actor"]
+        )
+        assert not is_feedback_actor_authorized(
+            open_id="denied", chat_id="chat", env_allowed_open_ids=["actor"]
+        )
+        audit.assert_not_called()
+
+
+def test_feedback_actor_follows_current_stored_policy_like_inbound() -> None:
+    policy = MessagingIdentityPolicy(inbound_enabled=True, allowed_user_ids=["actor"])
+    with patch(f"{_SECURITY}.load_identity_policy", return_value=(None, policy)):
+        assert is_feedback_actor_authorized(
+            open_id="actor", chat_id="chat", env_allowed_open_ids=["someone_else"]
+        )
 
 
 @pytest.fixture

@@ -76,6 +76,7 @@ class _FakeSessionResolver:
     def __init__(self, session: SessionCore) -> None:
         self._session = session
         self.rotated = False
+        self.rotation_count = 0
         self.resolved = False
 
     def resolve(self, **_kwargs: object) -> SessionCore:
@@ -84,6 +85,7 @@ class _FakeSessionResolver:
 
     def rotate(self, **_kwargs: object) -> SessionCore:
         self.rotated = True
+        self.rotation_count += 1
         return self._session
 
 
@@ -118,6 +120,9 @@ def _run(
     active_cancels: ActiveTurnRegistry,
     turn_cancel: threading.Event | None = None,
     downloader: Any = None,
+    reactions: Any = None,
+    feedback: Any = None,
+    fail_send_text: bool = False,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Run one turn synchronously; returns (outbound sends, chat replies)."""
     outbound: list[tuple[str, str]] = []
@@ -129,6 +134,8 @@ def _run(
         outbound.append((chat_id, text))
 
     def send_text(chat_id: str, text: str) -> str:
+        if fail_send_text:
+            raise RuntimeError("notice send failed")
         replies.append((chat_id, text))
         return "message-id"
 
@@ -147,8 +154,109 @@ def _run(
         logger=LOGGER,
         turn_cancel=turn_cancel,
         downloader=downloader,
+        reactions=reactions,
+        feedback=feedback,
     )
     return outbound, replies
+
+
+def test_processing_admission_and_feedback_require_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.card_stream import FinalCardTarget
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    reactions, feedback, output = MagicMock(), MagicMock(), MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+    target = FinalCardTarget("card", "final", 4)
+    output.take_feedback_target.return_value = target
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", lambda **_kwargs: output)
+    handler = MagicMock()
+    arguments = {
+        "inbound": _inbound(root_id="root"),
+        "handler": handler,
+        "resolver": _FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "reactions": reactions,
+        "feedback": feedback,
+    }
+    _run(monkeypatch, **arguments)
+    reactions.reserve.assert_called_once_with("m1")
+    reactions.start_marker.assert_called_once_with("m1")
+    reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
+    feedback.issue.assert_called_once_with(
+        target, requester_open_id="ou_user-1", chat_id="oc_chat-1"
+    )
+    reactions.reserve.return_value = AckAdmission.DUPLICATE
+    _run(monkeypatch, **arguments)
+    assert handler.call_count == 1
+    assert feedback.issue.call_count == 1
+    reactions.track_turn.assert_called_once_with("m1")
+    reactions.release_turn.assert_called_once_with("m1")
+
+
+def test_error_cleans_ack_without_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    reactions, feedback = MagicMock(), MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+    with pytest.raises(RuntimeError):
+        _run(
+            monkeypatch,
+            inbound=_inbound(),
+            handler=MagicMock(side_effect=RuntimeError("failure")),
+            resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+            settings=_settings(),
+            active_cancels=ActiveTurnRegistry(),
+            reactions=reactions,
+            feedback=feedback,
+        )
+    reactions.finish.assert_called_once_with("m1", AckOutcome.FAILURE)
+    feedback.issue.assert_not_called()
+
+
+def test_output_setup_failure_releases_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission
+
+    reactions = MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+
+    def fail_output(**_kwargs: object) -> None:
+        raise RuntimeError("output setup failed")
+
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", fail_output)
+    with pytest.raises(RuntimeError, match="output setup failed"):
+        _run(
+            monkeypatch,
+            inbound=_inbound(),
+            handler=MagicMock(),
+            resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+            settings=_settings(),
+            active_cancels=ActiveTurnRegistry(),
+            reactions=reactions,
+        )
+    reactions.abort.assert_called_once_with("m1")
+    reactions.start_marker.assert_not_called()
+
+
+def test_cancel_registration_failure_releases_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission
+
+    reactions = MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+    cancels = MagicMock(spec=ActiveTurnRegistry)
+    cancels.track.side_effect = RuntimeError("temporary registration failure")
+    with pytest.raises(RuntimeError, match="temporary registration failure"):
+        _run(
+            monkeypatch,
+            inbound=_inbound(),
+            handler=MagicMock(),
+            resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+            settings=_settings(),
+            active_cancels=cancels,
+            reactions=reactions,
+        )
+    reactions.abort.assert_called_once_with("m1")
+    reactions.start_marker.assert_not_called()
 
 
 def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,6 +280,169 @@ def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) 
     assert resolver.rotated is True
     assert resolver.resolved is False
     callback.assert_not_called()
+
+
+def test_replayed_new_message_cannot_rotate_session_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    monkeypatch.setattr(
+        inbound_handler,
+        "enforce_inbound_feishu_message_security",
+        lambda **_kwargs: FeishuInboundDecision(allowed=True, reply_text=ROTATE_SESSION),
+    )
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+    reactions = MagicMock()
+    reactions.reserve.side_effect = [AckAdmission.ADMITTED, AckAdmission.DUPLICATE]
+    arguments = {
+        "inbound": _inbound("/new"),
+        "handler": MagicMock(),
+        "resolver": resolver,
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "reactions": reactions,
+    }
+    _run(monkeypatch, **arguments)
+    _run(monkeypatch, **arguments)
+    assert resolver.rotation_count == 1
+    reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
+
+
+def test_session_setup_failure_releases_admission_for_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission
+
+    reactions = MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+    session = SessionCore(store=InMemorySessionStore())
+    resolve = MagicMock(side_effect=[RuntimeError("temporary setup failure"), session])
+    monkeypatch.setattr(inbound_handler, "resolve_or_rotate_session", resolve)
+    handler = MagicMock()
+    arguments = {
+        "inbound": _inbound(),
+        "handler": handler,
+        "resolver": _FakeSessionResolver(session),
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "reactions": reactions,
+    }
+    with pytest.raises(RuntimeError, match="temporary setup failure"):
+        _run(monkeypatch, **arguments)
+    reactions.abort.assert_called_once_with("m1")
+    reactions.start_marker.assert_not_called()
+    _run(monkeypatch, **arguments)
+    assert handler.call_count == 1
+
+
+def test_new_message_is_deduped_without_processing_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    monkeypatch.setattr(
+        inbound_handler,
+        "enforce_inbound_feishu_message_security",
+        lambda **_kwargs: FeishuInboundDecision(allowed=True, reply_text=ROTATE_SESSION),
+    )
+    reactions = MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+    _run(
+        monkeypatch,
+        inbound=_inbound("/new"),
+        handler=MagicMock(),
+        resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+        settings=_settings(),
+        active_cancels=ActiveTurnRegistry(),
+        reactions=reactions,
+    )
+    reactions.reserve.assert_called_once_with("m1")
+    reactions.start_marker.assert_not_called()
+    reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
+
+
+def test_stop_during_marker_start_never_runs_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    turn_cancel = threading.Event()
+    reactions = MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+    reactions.start_marker.side_effect = lambda _message_id: turn_cancel.set()
+    handler = MagicMock()
+    outbound, _replies = _run(
+        monkeypatch,
+        inbound=_inbound(),
+        handler=handler,
+        resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+        settings=_settings(),
+        active_cancels=ActiveTurnRegistry(),
+        turn_cancel=turn_cancel,
+        reactions=reactions,
+    )
+    handler.assert_not_called()
+    reactions.finish.assert_called_once_with("m1", AckOutcome.CANCELLED)
+    assert outbound[-1][1] == USER_STOP_MESSAGE
+
+
+def test_failed_new_session_notice_does_not_repeat_rotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    monkeypatch.setattr(
+        inbound_handler,
+        "enforce_inbound_feishu_message_security",
+        lambda **_kwargs: FeishuInboundDecision(allowed=True, reply_text=ROTATE_SESSION),
+    )
+    reactions = MagicMock()
+    reactions.reserve.side_effect = [AckAdmission.ADMITTED, AckAdmission.DUPLICATE]
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+    arguments = {
+        "inbound": _inbound("/new"),
+        "handler": MagicMock(),
+        "resolver": resolver,
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "reactions": reactions,
+        "fail_send_text": True,
+    }
+    _run(monkeypatch, **arguments)
+    _run(monkeypatch, **arguments)
+    assert resolver.rotation_count == 1
+    reactions.abort.assert_not_called()
+    reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
+
+
+def test_rotated_turn_output_failure_cannot_repeat_rotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    monkeypatch.setattr(
+        inbound_handler,
+        "enforce_inbound_feishu_message_security",
+        lambda **_kwargs: FeishuInboundDecision(allowed=True, reply_text=ROTATE_SESSION),
+    )
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+    reactions = MagicMock()
+    reactions.reserve.side_effect = [AckAdmission.ADMITTED, AckAdmission.DUPLICATE]
+
+    def fail_output(**_kwargs: object) -> None:
+        raise RuntimeError("output unavailable")
+
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", fail_output)
+    arguments = {
+        "inbound": _inbound("/new investigate"),
+        "handler": MagicMock(),
+        "resolver": resolver,
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "reactions": reactions,
+    }
+    with pytest.raises(RuntimeError, match="output unavailable"):
+        _run(monkeypatch, **arguments)
+    _run(monkeypatch, **arguments)
+    assert resolver.rotation_count == 1
+    reactions.mark_rotated.assert_called_once_with("m1")
+    reactions.abort.assert_not_called()
+    reactions.finish.assert_called_once_with("m1", AckOutcome.FAILURE)
 
 
 def test_pairing_reply_does_not_require_an_organization(
@@ -248,6 +519,7 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     release = threading.Event()
+    reactions, feedback = MagicMock(), MagicMock()
     seen_cancel: list[threading.Event] = []
 
     def hanging_handler(
@@ -287,6 +559,8 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
                 send_text=lambda _c, _t: "",
                 handler=hanging_handler,
                 logger=LOGGER,
+                reactions=reactions,
+                feedback=feedback,
             )
         except Exception as exc:  # pragma: no cover - failure path
             error.append(exc)
@@ -306,6 +580,10 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
     assert not error, error
     assert any(TURN_TIMEOUT_MESSAGE in text for _, text in outbound), outbound
     assert seen_cancel and seen_cancel[0].is_set()
+    from gateway.transports.feishu.reaction_lifecycle import AckOutcome
+
+    reactions.finish.assert_called_once_with("m1", AckOutcome.TIMEOUT)
+    feedback.issue.assert_not_called()
 
 
 def test_pre_registered_cancel_short_circuits_before_agent(
@@ -321,6 +599,7 @@ def test_pre_registered_cancel_short_circuits_before_agent(
 
     resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
     callback = MagicMock()
+    reactions = MagicMock()
 
     outbound, _replies = _run(
         monkeypatch,
@@ -330,9 +609,11 @@ def test_pre_registered_cancel_short_circuits_before_agent(
         settings=_settings(),
         active_cancels=registry,
         turn_cancel=turn_cancel,
+        reactions=reactions,
     )
 
     callback.assert_not_called()
+    reactions.start_marker.assert_not_called()
     assert turn_cancel.is_set()
     assert outbound[-1][1] == USER_STOP_MESSAGE
 
@@ -342,6 +623,7 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
 ) -> None:
     """A /stop during the agent cancels it through the dispatch-time Event (R19)."""
     turn_cancel = threading.Event()
+    reactions, feedback = MagicMock(), MagicMock()
     registry = ActiveTurnRegistry()
     inbound = _inbound("hello")
     key = conversation_key(inbound)
@@ -392,6 +674,8 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
                 handler=cooperative_agent,
                 logger=LOGGER,
                 turn_cancel=turn_cancel,
+                reactions=reactions,
+                feedback=feedback,
             )
         except Exception as exc:  # pragma: no cover - failure path
             error.append(exc)
@@ -409,6 +693,10 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
     assert turn_cancel.is_set()
     callback.assert_not_called()
     assert any(USER_STOP_MESSAGE in text for _, text in outbound), outbound
+    from gateway.transports.feishu.reaction_lifecycle import AckOutcome
+
+    reactions.finish.assert_called_once_with("m1", AckOutcome.CANCELLED)
+    feedback.issue.assert_not_called()
 
 
 def test_run_turn_wires_approval_tool_hooks_into_output(

@@ -5,10 +5,12 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 
 from config.constants.gateway import (
     CREDITS_DENIED_MESSAGE,
+    NEW_SESSION_MESSAGE,
+    ROTATE_SESSION,
     TURN_ERROR_MESSAGE,
     TURN_TIMEOUT_MESSAGE,
     USER_STOP_MESSAGE,
@@ -28,9 +30,15 @@ from gateway.transports.feishu.attachments import (
     feishu_resource_downloader,
 )
 from gateway.transports.feishu.events import FeishuInboundMessage
+from gateway.transports.feishu.feedback import FeishuFeedbackService
 from gateway.transports.feishu.inbound_security import enforce_inbound_feishu_message_security
 from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.principal import PrincipalResolutionError, resolve_feishu_scope
+from gateway.transports.feishu.reaction_lifecycle import (
+    AckAdmission,
+    AckOutcome,
+    ReactionLifecycleManager,
+)
 from gateway.transports.feishu.session_rotation import conversation_key, resolve_or_rotate_session
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import FeishuTurnOutput, FeishuTurnOutputRegistry
@@ -85,6 +93,8 @@ def _run_turn(
     turn_cancel: threading.Event | None = None,
     downloader: Downloader | None = None,
     output_registry: FeishuTurnOutputRegistry | None = None,
+    reactions: ReactionLifecycleManager | None = None,
+    feedback: FeishuFeedbackService | None = None,
 ) -> None:
     """Run one inbound Feishu message through the gateway agent callback.
 
@@ -98,7 +108,7 @@ def _run_turn(
     rather than lost.
     """
     key = conversation_key(inbound)
-    with conversation_locks.hold(key):
+    with conversation_locks.hold(key), ExitStack() as turn_scope:
         decision = enforce_inbound_feishu_message_security(
             user_id=inbound.open_id,
             chat_id=inbound.chat_id,
@@ -108,6 +118,24 @@ def _run_turn(
 
         def _send(text: str) -> None:
             send_text(inbound.chat_id, text)
+
+        rotation_committed = False
+
+        def _send_session_notice(text: str) -> None:
+            nonlocal rotation_committed
+            if decision.reply_text == ROTATE_SESSION and text == NEW_SESSION_MESSAGE:
+                rotation_committed = True
+                if reactions is not None:
+                    reactions.mark_rotated(inbound.message_id)
+            try:
+                _send(text)
+            except Exception:
+                if decision.reply_text != ROTATE_SESSION or text != NEW_SESSION_MESSAGE:
+                    raise
+                # Rotation has already committed. Retrying the inbound delivery
+                # would rotate again, so keep this event settled even if the
+                # notice could not be delivered.
+                logger.warning("Feishu new session notice unavailable")
 
         # Pairing, help and authorization denials do not own or access a turn
         # session. Apply them before resolving the deployment principal so a
@@ -130,15 +158,37 @@ def _run_turn(
             )
             return
 
-        with bound_storage_scope(scope):
-            session = resolve_or_rotate_session(
-                inbound,
-                decision,
-                session_resolver=session_resolver,
-                scope=scope,
-                send=_send,
-            )
+        if reactions is not None:
+            admission = reactions.reserve(inbound.message_id)
+            if admission is AckAdmission.DUPLICATE:
+                return
+            if admission is AckAdmission.ADMITTED:
+                reactions.track_turn(inbound.message_id)
+                turn_scope.callback(reactions.release_turn, inbound.message_id)
+
+        def _settle_pre_turn_failure() -> None:
+            if reactions is None:
+                return
+            if rotation_committed:
+                reactions.finish(inbound.message_id, AckOutcome.FAILURE)
+            else:
+                reactions.abort(inbound.message_id)
+
+        try:
+            with bound_storage_scope(scope):
+                session = resolve_or_rotate_session(
+                    inbound,
+                    decision,
+                    session_resolver=session_resolver,
+                    scope=scope,
+                    send=_send_session_notice,
+                )
+        except Exception:
+            _settle_pre_turn_failure()
+            raise
         if session is None:
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.SUCCESS)
             return
 
         preview = inbound.text.replace("\n", " ").strip()
@@ -153,27 +203,34 @@ def _run_turn(
         )
 
         terminal = TerminalOutcomeArbiter(turn_cancel)
-        output = FeishuTurnOutput(
-            app_id=settings.app_id,
-            app_secret=settings.app_secret,
-            chat_id=inbound.chat_id,
-            reply_to_message_id=inbound.root_id or inbound.message_id,
-            reply_in_thread=bool(inbound.root_id),
-            edit_interval_seconds=settings.status_update_interval_seconds,
-            tool_hooks=approval_tool_hooks(
-                FeishuApprovalPrompter(
-                    broker=approvals,
-                    card_client=FeishuCardClient(settings.app_id, settings.app_secret),
-                    chat_id=inbound.chat_id,
-                    requester_open_id=inbound.open_id,
-                    pending_approvals=pending_approvals,
-                )
-            ),
-            turn_cancel=terminal.cancel_event,
-            output_registry=output_registry,
-        )
+        try:
+            output = FeishuTurnOutput(
+                app_id=settings.app_id,
+                app_secret=settings.app_secret,
+                chat_id=inbound.chat_id,
+                reply_to_message_id=inbound.root_id or inbound.message_id,
+                reply_in_thread=bool(inbound.root_id),
+                edit_interval_seconds=settings.status_update_interval_seconds,
+                tool_hooks=approval_tool_hooks(
+                    FeishuApprovalPrompter(
+                        broker=approvals,
+                        card_client=FeishuCardClient(settings.app_id, settings.app_secret),
+                        chat_id=inbound.chat_id,
+                        requester_open_id=inbound.open_id,
+                        pending_approvals=pending_approvals,
+                    )
+                ),
+                turn_cancel=terminal.cancel_event,
+                output_registry=output_registry,
+            )
+        except Exception:
+            _settle_pre_turn_failure()
+            raise
 
         def _on_turn_timeout() -> None:
+            output.disqualify_feedback()
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.TIMEOUT)
             logger.warning(
                 "[feishu-gateway] turn TIMED OUT after %.0fs chat=%s session=%s",
                 settings.turn_timeout_seconds,
@@ -188,6 +245,9 @@ def _run_turn(
         def _on_user_stop() -> None:
             if not terminal.claim():
                 return
+            output.disqualify_feedback()
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.CANCELLED)
             try:
                 output.finalize(USER_STOP_MESSAGE)
             except Exception:
@@ -199,29 +259,49 @@ def _run_turn(
                 inbound.chat_id,
             )
             if terminal.claim():
+                output.disqualify_feedback()
+                if reactions is not None:
+                    reactions.finish(inbound.message_id, AckOutcome.FAILURE)
                 try:
                     output.finalize(CREDITS_DENIED_MESSAGE)
                 except Exception:
                     logger.debug("[feishu-gateway] credits-denied finalize failed", exc_info=True)
 
-        if turn_cancel is None:
-            registration: AbstractContextManager[None] = active_cancels.track(
-                key,
-                terminal.cancel_event,
-                on_user_stop=_on_user_stop,
-            )
-        else:
-            active_cancels.bind_user_stop(key, turn_cancel, _on_user_stop)
-            registration = nullcontext()
+        try:
+            if turn_cancel is None:
+                registration: AbstractContextManager[None] = active_cancels.track(
+                    key,
+                    terminal.cancel_event,
+                    on_user_stop=_on_user_stop,
+                )
+            else:
+                active_cancels.bind_user_stop(key, turn_cancel, _on_user_stop)
+                registration = nullcontext()
+        except Exception:
+            _settle_pre_turn_failure()
+            if output_registry is not None:
+                output_registry.discard(output)
+            raise
 
-        # A /stop that landed between dispatch registration and here only set
-        # the Event; nothing has run yet, so answer it instead of the agent.
-        if terminal.cancel_event.is_set():
+        def _stop_before_turn() -> bool:
+            if not terminal.cancel_event.is_set():
+                return False
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.CANCELLED)
             if terminal.claim():
                 try:
                     output.finalize(USER_STOP_MESSAGE)
                 except Exception:
                     logger.debug("[feishu-gateway] user-stop finalize failed", exc_info=True)
+            return True
+
+        # Cancellation can arrive before this check or during marker startup.
+        if _stop_before_turn():
+            return
+
+        if reactions is not None:
+            reactions.start_marker(inbound.message_id)
+        if _stop_before_turn():
             return
 
         with terminal.timeout_after(settings.turn_timeout_seconds, _on_turn_timeout):
@@ -251,6 +331,9 @@ def _run_turn(
                     session.session_id[:8],
                 )
                 if terminal.claim():
+                    output.disqualify_feedback()
+                    if reactions is not None:
+                        reactions.finish(inbound.message_id, AckOutcome.FAILURE)
                     try:
                         output.render_error(TURN_ERROR_MESSAGE)
                     except Exception:
@@ -258,6 +341,11 @@ def _run_turn(
                 raise
 
         if terminal.claim():
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.SUCCESS)
+            target = output.take_feedback_target()
+            if feedback is not None and target is not None:
+                feedback.issue(target, requester_open_id=inbound.open_id, chat_id=inbound.chat_id)
             logger.info(
                 "[feishu-gateway] turn done chat=%s session=%s",
                 inbound.chat_id,

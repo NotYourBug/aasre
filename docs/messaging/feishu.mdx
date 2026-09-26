@@ -13,6 +13,10 @@ Grant it permission to:
 - send messages as the app;
 - create and update cards.
 
+For processing markers, also grant **Add and delete message reactions**
+(`im:message.reactions:write_only`) and **Get message reactions**
+(`im:message.reactions:read`). Republish the app after granting them.
+
 Add the bot to each chat where OpenSRE should run. After changing permissions,
 subscriptions, or bot settings, create and publish a new app version.
 
@@ -80,6 +84,10 @@ Use `opensre gateway start -f` to run attached to the terminal, and
 credential verification does not prove that permissions, subscriptions, the
 published version, or chat membership are correct.
 
+Run only one Feishu gateway per `OPENSRE_HOME`. A second instance using the same
+home cannot start until the first process exits, protecting in-flight messages
+from duplicate processing.
+
 ## Document delivery
 
 Watchdog alarms, investigation reports, background RCA summaries, and scheduled
@@ -100,6 +108,29 @@ original chat. Another group member cannot consume the request.
 Typing `approve` or `deny` is an ordinary chat message and does not authorize a
 tool. An expired or already unavailable card fails closed; it never falls back to
 text approval.
+
+## Processing markers and answer feedback
+
+An accepted message receives 👀 while OpenSRE processes it. The bot removes its
+own marker when the turn finishes, fails, is cancelled, or times out. Missing
+reaction permissions do not stop the answer. After a gateway restart, OpenSRE
+attempts to clean up unfinished markers; it never removes another user's reaction.
+
+A successfully completed card answer offers **✅ 采纳**. Only the original
+requester, still on the allowlist and clicking in the original chat, can record
+positive feedback. Buttons remain valid for 14 days across gateway restarts.
+Plain-text fallbacks, incomplete answers and cancelled turns have no feedback entry.
+
+The private **已收到** message acknowledges queue admission, not durable recording.
+If the gateway stops or storage fails before recording, clicking again is safe:
+repeat clicks cannot create a second feedback entry. A busy message means retry later.
+Feedback never starts a new turn or changes the shared card.
+
+Feedback stores only time, platform, actor, chat, final message ID and the positive
+verdict in `gateway/feishu_feedback.jsonl` under `OPENSRE_HOME` (default `~/.opensre`);
+it stores no question or answer text. Preserve this file and the adjacent feedback-authority file when
+migrating the gateway if existing buttons must keep working. Do not subscribe to
+reaction-created or reaction-deleted events for this feature.
 
 ## Troubleshooting
 

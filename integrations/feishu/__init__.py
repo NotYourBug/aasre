@@ -25,6 +25,8 @@ from integrations.feishu.credentials import (
     load_chat_credentials_from_env,
     load_credentials_from_env,
 )
+from integrations.feishu.delivery_types import FeishuCardCallError
+from integrations.feishu.feedback_cards import render_feedback_button_elements
 from integrations.feishu.inbound_content import (
     TRACKED_MESSAGE_TYPES,
     ResourceRef,
@@ -34,8 +36,13 @@ from integrations.feishu.inbound_content import (
     resource_refs,
     resource_url,
 )
+from integrations.feishu.reactions import FeishuReaction, FeishuReactionClient, ReactionCallError
 
 __all__ = [
+    "FeishuCardCallError",
+    "FeishuReaction",
+    "FeishuReactionClient",
+    "ReactionCallError",
     "CardPage",
     "FeishuAlarmCredentials",
     "FeishuChatCredentials",
@@ -50,6 +57,7 @@ __all__ = [
     "render_approval_prompt_card",
     "render_approval_result_card",
     "render_card_spec",
+    "render_feedback_button_elements",
     "resource_refs",
     "resource_url",
     "safe_prefix",

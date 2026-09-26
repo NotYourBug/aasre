@@ -26,6 +26,10 @@ def _stub_lark(
             return impl(request)
 
     class _Element:
+        def create(self, request: Any) -> Any:
+            calls.append(("element.create", request))
+            return impl(request)
+
         def content(self, request: Any) -> Any:
             calls.append(("element.content", request))
             return impl(request)
@@ -293,3 +297,40 @@ def test_the_client_is_built_once_across_calls(monkeypatch: pytest.MonkeyPatch) 
     client.create_card({"schema": "2.0"})
 
     assert len(built) == 1
+
+
+def test_append_uses_explicit_uuid_sequence_and_body_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import integrations.feishu.card_client as module
+
+    calls: list[Any] = []
+    _stub_lark(monkeypatch, module, impl=lambda _r: _ok(), calls=calls)
+    elements: list[dict[str, object]] = [{"tag": "button"}]
+    FeishuCardClient("app", "secret").append_elements("card", elements, 9, uuid="logical")
+    assert len(calls) == 1
+    method, request = calls[0]
+    assert method == "element.create"
+    assert request.card_id == "card"
+    assert request.request_body.type == "append"
+    assert request.request_body.target_element_id is None
+    assert request.request_body.sequence == 9
+    assert request.request_body.uuid == "logical"
+    assert json.loads(request.request_body.elements) == elements
+
+
+def test_append_rejection_is_not_retried_or_exposed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import integrations.feishu.card_client as module
+
+    calls: list[Any] = []
+    _stub_lark(monkeypatch, module, impl=lambda _r: _err(11310), calls=calls)
+    with pytest.raises(FeishuCardCallError) as caught:
+        FeishuCardClient("app", "secret").append_elements("card", [], 9, uuid="logical")
+    assert len(calls) == 1
+    assert caught.value.stage is FeishuCardCallStage.APPEND_ELEMENTS
+    assert "vendor detail" not in str(caught.value)
+
+
+def test_explicit_network_timeout_is_applied_without_a_request() -> None:
+    client = FeishuCardClient("app", "secret", timeout_seconds=2.0)
+    assert client._ensure_client().config.timeout == 2.0

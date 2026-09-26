@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from config.constants import (
@@ -33,6 +34,15 @@ from integrations.feishu import (
 from integrations.feishu.card_client import FeishuStreamRejected
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class FinalCardTarget:
+    """A completely delivered card and its next mutation sequence."""
+
+    card_id: str
+    message_id: str
+    append_sequence: int
 
 
 class CardStreamSession:
@@ -77,6 +87,10 @@ class CardStreamSession:
         self._closed = False
         self._degraded = False
         self._delivery_failed = False
+        self._close_failed = False
+        self._last_complete: FinalCardTarget | None = None
+        self._finished = False
+        self._final_target: FinalCardTarget | None = None
 
     @property
     def card_id(self) -> str:
@@ -101,6 +115,8 @@ class CardStreamSession:
         self._message_id = self._client.send_card(
             self._chat_id, self._card_id, receive_id_type=self._receive_id_type
         )
+        if not self._card_id or not self._message_id:
+            raise ValueError("Card delivery requires nonempty IDs")
         self._started = True
         self._last_flush = self._clock()
 
@@ -111,7 +127,7 @@ class CardStreamSession:
         past the trip, and that is most of a long answer. It is delivered as
         further cards instead, in whole-card batches.
         """
-        if not self._started:
+        if not self._started or self._finished:
             return
         self._pending = full_text
         if self._closed:
@@ -218,9 +234,12 @@ class CardStreamSession:
             for page in paginate(remainder, budget=self._budget):
                 spec = render_card_spec(page.text, streaming=False)
                 card_id = self._client.create_card(spec)
-                self._client.send_card(
+                message_id = self._client.send_card(
                     self._chat_id, card_id, receive_id_type=self._receive_id_type
                 )
+                if not card_id or not message_id:
+                    raise ValueError("Card delivery requires nonempty IDs")
+                self._last_complete = FinalCardTarget(card_id, message_id, 1)
         except Exception:
             logger.exception("Feishu overflow cards could not all be delivered")
             self._delivery_failed = True
@@ -241,9 +260,31 @@ class CardStreamSession:
     def _close_current(self) -> None:
         if not self._card_id:
             return
-        self._client.close_streaming(self._card_id, self._next_sequence())
+        try:
+            self._client.close_streaming(self._card_id, self._next_sequence())
+        except Exception:
+            self._close_failed = True
+            raise
 
-    def finish(self) -> None:
+    def finish(self) -> FinalCardTarget | None:
+        """Finish delivery once and expose only a certain final card."""
+        if self._finished:
+            return self._final_target
+        self._finish_delivery()
+        self._finished = True
+        if (
+            self._started
+            and not self._delivery_failed
+            and not self._close_failed
+            and self._pending.strip()
+            and self._delivered >= len(self._pending.rstrip())
+        ):
+            self._final_target = self._last_complete or FinalCardTarget(
+                self._card_id, self._message_id, self._sequence + 1
+            )
+        return self._final_target
+
+    def _finish_delivery(self) -> None:
         """Flush the last text and close streaming, exactly once."""
         if not self._started:
             return

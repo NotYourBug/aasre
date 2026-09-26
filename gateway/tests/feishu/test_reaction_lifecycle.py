@@ -1,0 +1,470 @@
+"""Durable admission and terminal-before-create cleanup races."""
+
+import json
+import time
+from collections.abc import Callable
+from concurrent.futures import Future
+from pathlib import Path
+from threading import Event, Thread
+
+import pytest
+
+from gateway.transports.feishu import reaction_ledger
+from gateway.transports.feishu.reaction_ledger import ReactionLedger
+from gateway.transports.feishu.reaction_lifecycle import (
+    AckAdmission,
+    AckOutcome,
+    ReactionLifecycleManager,
+)
+from integrations.feishu.reactions import FeishuReaction
+
+
+class ReactionClient:
+    def __init__(self) -> None:
+        self.entered = Event()
+        self.release = Event()
+        self.deleted = Event()
+        self.added: list[str] = []
+        self.removed: list[tuple[str, str]] = []
+        self.reactions: tuple[FeishuReaction, ...] = ()
+        self.fail_delete = False
+
+    def add_eye(self, message_id: str) -> FeishuReaction:
+        self.added.append(message_id)
+        self.entered.set()
+        assert self.release.wait(5)
+        return FeishuReaction("reaction", "app", "app")
+
+    def delete(self, message_id: str, reaction_id: str) -> None:
+        if self.fail_delete:
+            raise RuntimeError("sensitive detail")
+        self.removed.append((message_id, reaction_id))
+        self.deleted.set()
+
+    def list_eye(self, message_id: str) -> tuple[FeishuReaction, ...]:
+        assert message_id
+        return self.reactions
+
+
+def test_terminal_before_add_and_replay(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert manager.begin("message") == AckAdmission.ADMITTED
+        assert client.entered.wait(5)
+        assert manager.begin("message") == AckAdmission.DUPLICATE
+        manager.finish("message", AckOutcome.CANCELLED)
+        client.release.set()
+        assert client.deleted.wait(5)
+    finally:
+        client.release.set()
+        manager.shutdown(timeout_seconds=5)
+    restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert restarted.begin("message") == AckAdmission.DUPLICATE
+        assert client.added == ["message"]
+        assert client.removed == [("message", "reaction")]
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        assert rows[-1]["state"] == "removed"
+        assert rows[-1]["outcome"] == "cancelled"
+    finally:
+        restarted.shutdown(timeout_seconds=5)
+
+
+def test_queue_is_bounded_and_corrupt_ledger_is_preserved(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app", queue_limit=1)
+    try:
+        assert manager.begin("first") == AckAdmission.ADMITTED
+        assert client.entered.wait(5)
+        assert manager.begin("second") == AckAdmission.UNTRACKED
+        manager.shutdown(timeout_seconds=0)
+        assert manager.begin("third") == AckAdmission.UNTRACKED
+        client.release.set()
+        assert client.deleted.wait(5)
+    finally:
+        client.release.set()
+        manager.shutdown(timeout_seconds=5)
+    corrupt = tmp_path / "corrupt.jsonl"
+    corrupt.write_text('{"partial":', encoding="utf-8")
+    manager = ReactionLifecycleManager(path=corrupt, client=client, app_id="app")
+    try:
+        assert manager.begin("new") == AckAdmission.UNTRACKED
+        assert corrupt.read_text() == '{"partial":'
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_restart_reconciles_only_proven_app_owned_reaction(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "message_id": "message",
+                "reaction_id": "",
+                "operator_id": "",
+                "operator_type": "",
+                "state": "adding",
+                "outcome": "",
+                "created_at": 1.0,
+                "updated_at": 1.0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    client = ReactionClient()
+    client.reactions = (
+        FeishuReaction("user-reaction", "user", "user"),
+        FeishuReaction("other-app", "other", "app"),
+        FeishuReaction("ours", "app", "app"),
+    )
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        manager.reconcile(budget_seconds=5, record_limit=10)
+        assert client.deleted.wait(5)
+    finally:
+        manager.shutdown(timeout_seconds=5)
+    assert client.removed == [("message", "ours")]
+
+
+@pytest.mark.parametrize("outcome", list(AckOutcome))
+def test_terminal_outcomes_remove_once(tmp_path: Path, outcome: AckOutcome) -> None:
+    client = ReactionClient()
+    client.release.set()
+    manager = ReactionLifecycleManager(path=tmp_path / "ack.jsonl", client=client, app_id="app")
+    try:
+        assert manager.begin("m") == AckAdmission.ADMITTED
+        manager.finish("m", outcome)
+        manager.finish("m", AckOutcome.FAILURE)
+        assert client.deleted.wait(5)
+    finally:
+        manager.shutdown(timeout_seconds=5)
+    assert client.removed == [("m", "reaction")]
+
+
+def test_failed_cleanup_survives_restart(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    client.release.set()
+    client.fail_delete = True
+    client.reactions = (FeishuReaction("reaction", "app", "app"),)
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    manager.begin("m")
+    manager.finish("m", AckOutcome.SUCCESS)
+    manager.shutdown(timeout_seconds=5)
+    record = ReactionLedger(path).find("m")
+    assert record is not None and record.state == "remove_failed"
+    client.fail_delete = False
+    restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        restarted.reconcile(budget_seconds=5, record_limit=10)
+        assert client.deleted.wait(5)
+    finally:
+        restarted.shutdown(timeout_seconds=5)
+    assert client.added == ["m"]
+
+
+def test_compaction_only_expires_completed_cleanup(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    records = [
+        {
+            "message_id": message_id,
+            "state": state,
+            "updated_at": 1,
+            "created_at": 1,
+            "outcome": "success",
+        }
+        for message_id, state in (
+            ("cleaned", "removed"),
+            ("aborted", "aborted"),
+            ("pending", "remove_failed"),
+        )
+    ]
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    ledger = ReactionLedger(path)
+    ledger.compact()
+    assert ledger.find("cleaned") is None
+    assert ledger.find("aborted") is None
+    assert ledger.find("pending") is not None
+
+
+def test_restart_confirms_already_deleted_reaction_without_recreating(tmp_path: Path) -> None:
+    from gateway.transports.feishu.reaction_ledger import AckRecord
+
+    path = tmp_path / "ack.jsonl"
+    ledger = ReactionLedger(path)
+    ledger.change(
+        "m",
+        lambda _previous: AckRecord(
+            message_id="m",
+            reaction_id="gone",
+            operator_id="app",
+            operator_type="app",
+            state="removing",
+            outcome="success",
+            created_at=1,
+            updated_at=1,
+        ),
+    )
+    client = ReactionClient()
+    client.fail_delete = True
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    manager.reconcile(budget_seconds=5, record_limit=10)
+    manager.shutdown(timeout_seconds=5)
+    record = ledger.find("m")
+    assert record is not None and record.state == "removed"
+    assert not client.added
+
+
+def test_recovery_limit_counts_pending_records_not_completed_history(tmp_path: Path) -> None:
+    import time
+
+    from gateway.transports.feishu.reaction_ledger import AckRecord
+
+    path = tmp_path / "ack.jsonl"
+    ledger = ReactionLedger(path)
+    ledger.change(
+        "done",
+        lambda _previous: AckRecord(
+            message_id="done",
+            state="removed",
+            outcome="success",
+            updated_at=time.time(),
+        ),
+    )
+    ledger.change(
+        "pending",
+        lambda _previous: AckRecord(
+            message_id="pending",
+            reaction_id="r",
+            state="active",
+            updated_at=time.time(),
+        ),
+    )
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    manager.reconcile(budget_seconds=5, record_limit=1)
+    manager.shutdown(timeout_seconds=5)
+    assert client.removed == [("pending", "r")]
+
+
+def test_empty_inbound_id_cannot_poison_admission_ledger(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    client.release.set()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert manager.begin("") == AckAdmission.UNTRACKED
+        assert not path.exists()
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_aborted_reservation_is_retryable_without_creating_a_marker(tmp_path: Path) -> None:
+    client = ReactionClient()
+    path = tmp_path / "ack.jsonl"
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert manager.reserve("m") is AckAdmission.ADMITTED
+        manager.abort("m")
+        assert manager.reserve("m") is AckAdmission.ADMITTED
+        manager.finish("m", AckOutcome.CANCELLED)
+        assert not client.added
+        assert ReactionLedger(path).find("m").state == "removed"
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_restart_releases_unstarted_reservation(tmp_path: Path) -> None:
+    client = ReactionClient()
+    path = tmp_path / "ack.jsonl"
+    # A ledger record without a live owner represents a prior crashed process.
+    assert ReactionLedger(path).admit("m")
+    restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        restarted.reconcile(budget_seconds=5, record_limit=10)
+        assert restarted.reserve("m") is AckAdmission.ADMITTED
+        assert not client.added
+    finally:
+        restarted.shutdown(timeout_seconds=5)
+
+
+def test_second_manager_cannot_release_live_reservation(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    original = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert original.reserve("inflight") is AckAdmission.ADMITTED
+        with pytest.raises(RuntimeError, match="already active"):
+            competing = ReactionLifecycleManager(path=path, client=client, app_id="app")
+            competing.reconcile(budget_seconds=5, record_limit=10)
+        assert ReactionLedger(path).find("inflight").state == "reserved"
+        assert original.reserve("inflight") is AckAdmission.DUPLICATE
+        original.shutdown(timeout_seconds=5)
+        with pytest.raises(RuntimeError, match="already active"):
+            ReactionLifecycleManager(path=path, client=client, app_id="app")
+        original.finish("inflight", AckOutcome.FAILURE)
+        original.shutdown(timeout_seconds=5)
+        restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+        restarted.shutdown(timeout_seconds=5)
+    finally:
+        original.shutdown(timeout_seconds=5)
+
+
+def test_rotated_reservation_is_not_retryable_after_setup_failure(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert manager.reserve("rotated") is AckAdmission.ADMITTED
+        manager.mark_rotated("rotated")
+        assert ReactionLedger(path).find("rotated").state == "rotated"
+        manager.finish("rotated", AckOutcome.FAILURE)
+        assert manager.reserve("rotated") is AckAdmission.DUPLICATE
+        assert ReactionLedger(path).find("rotated").state == "removed"
+        assert not client.added
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_owner_lock_releases_after_other_thread_finishes_turn(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    assert manager.reserve("inflight") is AckAdmission.ADMITTED
+    manager.shutdown(timeout_seconds=5)
+    settled = Thread(target=lambda: manager.finish("inflight", AckOutcome.FAILURE))
+    settled.start()
+    settled.join(timeout=5)
+    assert not settled.is_alive()
+    restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    restarted.shutdown(timeout_seconds=5)
+
+
+def test_shutdown_cleanup_keeps_owner_until_turn_scope_exits(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    client.release.set()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert manager.reserve("running") is AckAdmission.ADMITTED
+        manager.track_turn("running")
+        assert manager.start_marker("running") is AckAdmission.ADMITTED
+        deadline = time.monotonic() + 5
+        while (record := ReactionLedger(path).find("running")) is None or record.state != "active":
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        manager.shutdown(timeout_seconds=5)
+        assert ReactionLedger(path).find("running").state == "removed"
+        with pytest.raises(RuntimeError, match="already active"):
+            ReactionLifecycleManager(path=path, client=client, app_id="app")
+        manager.release_turn("running")
+        restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+        restarted.shutdown(timeout_seconds=5)
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_restart_releases_reservation_beyond_recovery_budget(tmp_path: Path) -> None:
+    from gateway.transports.feishu.reaction_ledger import AckRecord
+
+    path = tmp_path / "ack.jsonl"
+    ledger = ReactionLedger(path)
+    ledger.change(
+        "older",
+        lambda _previous: AckRecord(message_id="older", state="active", reaction_id="r"),
+    )
+    assert ledger.admit("skipped")
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        manager.reconcile(budget_seconds=0, record_limit=0)
+        assert manager.reserve("skipped") is AckAdmission.ADMITTED
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_terminal_cleanup_waits_for_queue_capacity(tmp_path: Path) -> None:
+    class BlockingSecondClient(ReactionClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.release.set()
+            self.second_entered = Event()
+            self.second_release = Event()
+
+        def add_eye(self, message_id: str) -> FeishuReaction:
+            if message_id == "second":
+                self.second_entered.set()
+                assert self.second_release.wait(5)
+            return super().add_eye(message_id)
+
+    path = tmp_path / "ack.jsonl"
+    client = BlockingSecondClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app", queue_limit=1)
+    try:
+        assert manager.begin("first") is AckAdmission.ADMITTED
+        deadline = time.monotonic() + 5
+        while (record := ReactionLedger(path).find("first")) is None or record.state != "active":
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        assert manager.begin("second") is AckAdmission.ADMITTED
+        assert client.second_entered.wait(5)
+        manager.finish("first", AckOutcome.SUCCESS)
+        client.second_release.set()
+        deadline = time.monotonic() + 5
+        while ("first", "reaction") not in client.removed:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+    finally:
+        client.second_release.set()
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_immediate_cleanup_completion_does_not_resubmit_itself(tmp_path: Path) -> None:
+    class ImmediateExecutor:
+        def submit(self, work: Callable[[], None]) -> Future[None]:
+            future: Future[None] = Future()
+            try:
+                work()
+            except Exception as exc:
+                future.set_exception(exc)
+            else:
+                future.set_result(None)
+            return future
+
+        def shutdown(self, *, wait: bool) -> None:
+            assert not wait
+
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=tmp_path / "ack.jsonl", client=client, app_id="app")
+    manager._executor.shutdown(wait=False)
+    manager._executor = ImmediateExecutor()  # type: ignore[assignment]
+    manager._pending_cleanup.add(("m", "reaction"))
+    try:
+        manager._drain_cleanup()
+        assert client.removed == [("m", "reaction")]
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_ledger_compacts_live_append_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    from gateway.transports.feishu.reaction_ledger import AckRecord
+
+    monkeypatch.setattr(reaction_ledger, "FEISHU_ACK_LEDGER_COMPACT_EVERY", 2, raising=False)
+    path = tmp_path / "ack.jsonl"
+    first = ReactionLedger(path)
+    second = ReactionLedger(path)
+    first.change("m", lambda _previous: AckRecord(message_id="m", state="adding"))
+    assert second.find("m") is not None
+    first.change("m", lambda previous: replace(previous, state="active"))
+    assert second.find("m").state == "active"
+    first.change("m", lambda previous: replace(previous, state="removed"))
+    assert second.find("m").state == "removed"
+    assert len(path.read_text().splitlines()) <= 2
