@@ -61,7 +61,7 @@ class ReactionLifecycleManager:
     ) -> None:
         self._ledger = ReactionLedger(path)
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self._owner_lock = FileLock(str(path) + ".owner.lock")
+        self._owner_lock = FileLock(str(path) + ".owner.lock", thread_local=False)
         try:
             self._owner_lock.acquire(timeout=0)
         except Timeout as exc:

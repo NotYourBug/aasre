@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future
 from pathlib import Path
-from threading import Event
+from threading import Event, Thread
 
 import pytest
 
@@ -328,6 +328,20 @@ def test_rotated_reservation_is_not_retryable_after_setup_failure(tmp_path: Path
         assert not client.added
     finally:
         manager.shutdown(timeout_seconds=5)
+
+
+def test_owner_lock_releases_after_other_thread_finishes_turn(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    assert manager.reserve("inflight") is AckAdmission.ADMITTED
+    manager.shutdown(timeout_seconds=5)
+    settled = Thread(target=lambda: manager.finish("inflight", AckOutcome.FAILURE))
+    settled.start()
+    settled.join(timeout=5)
+    assert not settled.is_alive()
+    restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    restarted.shutdown(timeout_seconds=5)
 
 
 def test_restart_releases_reservation_beyond_recovery_budget(tmp_path: Path) -> None:
