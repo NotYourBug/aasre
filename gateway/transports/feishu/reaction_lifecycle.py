@@ -74,6 +74,7 @@ class ReactionLifecycleManager:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="feishu-ack")
         self._futures: set[Future[None]] = set()
         self._owned: set[str] = set()
+        self._turns_inflight: set[str] = set()
         self._pending_cleanup: set[tuple[str, str]] = set()
         self._removing: set[tuple[str, str]] = set()
         self._closed = False
@@ -163,6 +164,18 @@ class ReactionLifecycleManager:
                     else previous
                 ),
             )
+
+    def track_turn(self, message_id: str) -> None:
+        """Keep the ledger owner alive until the admitted turn returns."""
+        with self._lock:
+            if message_id in self._owned:
+                self._turns_inflight.add(message_id)
+
+    def release_turn(self, message_id: str) -> None:
+        """Release an admitted turn after its handler and setup have exited."""
+        with self._lock:
+            self._turns_inflight.discard(message_id)
+            self._release_owner_if_safe()
 
     def start_marker(self, message_id: str) -> AckAdmission:
         """Start the processing marker only after a real turn is confirmed."""
@@ -397,6 +410,8 @@ class ReactionLifecycleManager:
 
     def _release_owner_if_safe(self) -> None:
         if not self._closed or self._owner_released:
+            return
+        if self._turns_inflight:
             return
         if any(not future.done() for future in self._futures):
             return

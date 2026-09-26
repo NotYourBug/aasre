@@ -190,6 +190,8 @@ def test_processing_admission_and_feedback_require_success(monkeypatch: pytest.M
     _run(monkeypatch, **arguments)
     assert handler.call_count == 1
     assert feedback.issue.call_count == 1
+    reactions.track_turn.assert_called_once_with("m1")
+    reactions.release_turn.assert_called_once_with("m1")
 
 
 def test_error_cleans_ack_without_feedback(monkeypatch: pytest.MonkeyPatch) -> None:

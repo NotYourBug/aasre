@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 
 from config.constants.gateway import (
     CREDITS_DENIED_MESSAGE,
@@ -108,7 +108,7 @@ def _run_turn(
     rather than lost.
     """
     key = conversation_key(inbound)
-    with conversation_locks.hold(key):
+    with conversation_locks.hold(key), ExitStack() as turn_scope:
         decision = enforce_inbound_feishu_message_security(
             user_id=inbound.open_id,
             chat_id=inbound.chat_id,
@@ -158,11 +158,13 @@ def _run_turn(
             )
             return
 
-        if (
-            reactions is not None
-            and reactions.reserve(inbound.message_id) is AckAdmission.DUPLICATE
-        ):
-            return
+        if reactions is not None:
+            admission = reactions.reserve(inbound.message_id)
+            if admission is AckAdmission.DUPLICATE:
+                return
+            if admission is AckAdmission.ADMITTED:
+                reactions.track_turn(inbound.message_id)
+                turn_scope.callback(reactions.release_turn, inbound.message_id)
 
         def _settle_pre_turn_failure() -> None:
             if reactions is None:

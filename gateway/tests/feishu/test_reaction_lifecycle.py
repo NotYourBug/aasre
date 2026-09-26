@@ -344,6 +344,30 @@ def test_owner_lock_releases_after_other_thread_finishes_turn(tmp_path: Path) ->
     restarted.shutdown(timeout_seconds=5)
 
 
+def test_shutdown_cleanup_keeps_owner_until_turn_scope_exits(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    client.release.set()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert manager.reserve("running") is AckAdmission.ADMITTED
+        manager.track_turn("running")
+        assert manager.start_marker("running") is AckAdmission.ADMITTED
+        deadline = time.monotonic() + 5
+        while (record := ReactionLedger(path).find("running")) is None or record.state != "active":
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        manager.shutdown(timeout_seconds=5)
+        assert ReactionLedger(path).find("running").state == "removed"
+        with pytest.raises(RuntimeError, match="already active"):
+            ReactionLifecycleManager(path=path, client=client, app_id="app")
+        manager.release_turn("running")
+        restarted = ReactionLifecycleManager(path=path, client=client, app_id="app")
+        restarted.shutdown(timeout_seconds=5)
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
 def test_restart_releases_reservation_beyond_recovery_budget(tmp_path: Path) -> None:
     from gateway.transports.feishu.reaction_ledger import AckRecord
 
