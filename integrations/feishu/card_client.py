@@ -60,18 +60,21 @@ class FeishuCardClient:
         *,
         reply_to_message_id: str = "",
         reply_in_thread: bool = False,
+        timeout_seconds: float | None = None,
     ) -> None:
         self._app_id = app_id
         self._app_secret = app_secret
         self._reply_to_message_id = reply_to_message_id
         self._reply_in_thread = reply_in_thread
+        self._timeout_seconds = timeout_seconds
         self._client: Any = None
 
     def _ensure_client(self) -> Any:
         if self._client is None:
-            self._client = (
-                lark.Client.builder().app_id(self._app_id).app_secret(self._app_secret).build()
-            )
+            builder = lark.Client.builder().app_id(self._app_id).app_secret(self._app_secret)
+            if self._timeout_seconds is not None:
+                builder = builder.timeout(self._timeout_seconds)
+            self._client = builder.build()
         return self._client
 
     def _check(self, response: Any, *, stage: FeishuCardCallStage) -> None:

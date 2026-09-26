@@ -146,6 +146,7 @@ def test_failed_cleanup_survives_restart(tmp_path: Path) -> None:
     client = ReactionClient()
     client.release.set()
     client.fail_delete = True
+    client.reactions = (FeishuReaction("reaction", "app", "app"),)
     manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
     manager.begin("m")
     manager.finish("m", AckOutcome.SUCCESS)
@@ -179,3 +180,75 @@ def test_compaction_only_expires_completed_cleanup(tmp_path: Path) -> None:
     ledger.compact()
     assert ledger.find("cleaned") is None
     assert ledger.find("pending") is not None
+
+
+def test_restart_confirms_already_deleted_reaction_without_recreating(tmp_path: Path) -> None:
+    from gateway.transports.feishu.reaction_ledger import AckRecord
+
+    path = tmp_path / "ack.jsonl"
+    ledger = ReactionLedger(path)
+    ledger.change(
+        "m",
+        lambda _previous: AckRecord(
+            message_id="m",
+            reaction_id="gone",
+            operator_id="app",
+            operator_type="app",
+            state="removing",
+            outcome="success",
+            created_at=1,
+            updated_at=1,
+        ),
+    )
+    client = ReactionClient()
+    client.fail_delete = True
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    manager.reconcile(budget_seconds=5, record_limit=10)
+    manager.shutdown(timeout_seconds=5)
+    record = ledger.find("m")
+    assert record is not None and record.state == "removed"
+    assert not client.added
+
+
+def test_recovery_limit_counts_pending_records_not_completed_history(tmp_path: Path) -> None:
+    import time
+
+    from gateway.transports.feishu.reaction_ledger import AckRecord
+
+    path = tmp_path / "ack.jsonl"
+    ledger = ReactionLedger(path)
+    ledger.change(
+        "done",
+        lambda _previous: AckRecord(
+            message_id="done",
+            state="removed",
+            outcome="success",
+            updated_at=time.time(),
+        ),
+    )
+    ledger.change(
+        "pending",
+        lambda _previous: AckRecord(
+            message_id="pending",
+            reaction_id="r",
+            state="active",
+            updated_at=time.time(),
+        ),
+    )
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    manager.reconcile(budget_seconds=5, record_limit=1)
+    manager.shutdown(timeout_seconds=5)
+    assert client.removed == [("pending", "r")]
+
+
+def test_empty_inbound_id_cannot_poison_admission_ledger(tmp_path: Path) -> None:
+    path = tmp_path / "ack.jsonl"
+    client = ReactionClient()
+    client.release.set()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        assert manager.begin("") == AckAdmission.UNTRACKED
+        assert not path.exists()
+    finally:
+        manager.shutdown(timeout_seconds=5)

@@ -31,10 +31,12 @@ from gateway.core.middleware.approvals import ApprovalBroker
 from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.core.storage import SessionResolver
 from gateway.core.storage.session.binding_store import BindingStore
-from gateway.transports.feishu.approvals import handle_card_action
+from gateway.transports.feishu.card_actions import handle_card_action
 from gateway.transports.feishu.events import FeishuInboundMessage
+from gateway.transports.feishu.feedback import FeishuFeedbackService
 from gateway.transports.feishu.inbound_handler import _run_turn as handle_inbound_turn
 from gateway.transports.feishu.pending_approvals import PendingApprovals
+from gateway.transports.feishu.reaction_lifecycle import ReactionLifecycleManager
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import FeishuTurnOutputRegistry, _send_text
@@ -143,6 +145,8 @@ def _dispatch_turn(
     loop: asyncio.AbstractEventLoop,
     turn_slots: threading.BoundedSemaphore,
     output_registry: FeishuTurnOutputRegistry | None = None,
+    reactions: ReactionLifecycleManager | None = None,
+    feedback: FeishuFeedbackService | None = None,
 ) -> None:
     """Register the cancel Event and submit the turn to the executor.
 
@@ -177,6 +181,8 @@ def _dispatch_turn(
         logger=logger,
         turn_cancel=turn_cancel,
         output_registry=output_registry,
+        reactions=reactions,
+        feedback=feedback,
     )
 
     def _on_turn_done(future: asyncio.Future[None]) -> None:
@@ -313,6 +319,8 @@ def run_feishu_gateway_thread(
     stop_event: threading.Event,
     ready_event: threading.Event,
     output_registry: FeishuTurnOutputRegistry,
+    reactions: ReactionLifecycleManager | None = None,
+    feedback: FeishuFeedbackService | None = None,
 ) -> None:
     """Run the Feishu WebSocket loop until ``stop_event`` is set.
 
@@ -347,9 +355,10 @@ def run_feishu_gateway_thread(
                 pending_approvals=pending_approvals,
                 env_allowed_open_ids=settings.allowed_open_ids,
                 logger=logger,
+                feedback=feedback,
             )
         except Exception:
-            logger.error("[feishu-gateway] card callback handling failed", exc_info=True)
+            logger.error("[feishu-gateway] card callback handling failed")
             return P2CardActionTriggerResponse(
                 {
                     "toast": {
@@ -406,6 +415,8 @@ def run_feishu_gateway_thread(
             loop=asyncio.get_running_loop(),
             turn_slots=turn_slots,
             output_registry=output_registry,
+            reactions=reactions,
+            feedback=feedback,
         )
 
     dispatcher_handler = (
@@ -434,6 +445,10 @@ def run_feishu_gateway_thread(
         # released instead of holding its executor thread for the full timeout.
         pending_approvals.drain()
         approvals.close()
+        if reactions is not None:
+            reactions.shutdown(timeout_seconds=0)
+        if feedback is not None:
+            feedback.shutdown(timeout_seconds=0)
 
 
 __all__ = [

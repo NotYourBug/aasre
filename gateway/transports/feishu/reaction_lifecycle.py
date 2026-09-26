@@ -16,7 +16,7 @@ from typing import Protocol
 
 from config.constants.feishu import FEISHU_ACK_QUEUE_LIMIT
 from gateway.transports.feishu.reaction_ledger import AckRecord, ReactionLedger
-from integrations.feishu.reactions import FeishuReaction
+from integrations.feishu import FeishuReaction
 
 logger = logging.getLogger(__name__)
 
@@ -89,13 +89,15 @@ class ReactionLifecycleManager:
     def begin(self, message_id: str) -> AckAdmission:
         """Admit once; a saturated or unavailable marker never blocks a turn."""
         with self._lock:
-            if self._closed:
+            if self._closed or not message_id:
                 return AckAdmission.UNTRACKED
             try:
-                if self._ledger.find(message_id) is not None:
-                    return AckAdmission.DUPLICATE
                 if not self._permits.acquire(blocking=False):
-                    return AckAdmission.UNTRACKED
+                    return (
+                        AckAdmission.DUPLICATE
+                        if self._ledger.find(message_id) is not None
+                        else AckAdmission.UNTRACKED
+                    )
                 try:
                     admitted = self._ledger.admit(message_id)
                 except Exception:
@@ -186,6 +188,10 @@ class ReactionLifecycleManager:
             self._client.delete(message_id, reaction_id)
         except Exception:
             state = "remove_failed"
+            with suppress(Exception):
+                remaining = self._client.list_eye(message_id)
+                if not any(reaction.reaction_id == reaction_id for reaction in remaining):
+                    state = "removed"
             logger.warning("Feishu ack cleanup unavailable")
         try:
             self._transition(message_id, state=state, reaction_id=reaction_id)
@@ -217,6 +223,8 @@ class ReactionLifecycleManager:
 
             try:
                 record = self._ledger.change(message_id, update)
+                if changed:
+                    self._owned.discard(message_id)
                 if changed and record and record.reaction_id:
                     self._submit(lambda: self._remove(message_id, record.reaction_id))
             except Exception:
@@ -232,12 +240,15 @@ class ReactionLifecycleManager:
             logger.warning("Feishu ack recovery unavailable")
             return
         with self._lock:
-            for record in records[:record_limit]:
-                if time.monotonic() >= deadline or self._closed:
+            submitted = 0
+            for record in records:
+                if time.monotonic() >= deadline or self._closed or submitted >= record_limit:
                     break
                 if record.state == "removed" or record.message_id in self._owned:
                     continue
-                self._submit(partial(self._recover, record, deadline))
+                if not self._submit(partial(self._recover, record, deadline)):
+                    break
+                submitted += 1
 
     def _recover(self, record: AckRecord, deadline: float) -> None:
         if time.monotonic() >= deadline:

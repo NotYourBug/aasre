@@ -329,3 +329,8 @@ def test_append_rejection_is_not_retried_or_exposed(monkeypatch: pytest.MonkeyPa
     assert len(calls) == 1
     assert caught.value.stage is FeishuCardCallStage.APPEND_ELEMENTS
     assert "vendor detail" not in str(caught.value)
+
+
+def test_explicit_network_timeout_is_applied_without_a_request() -> None:
+    client = FeishuCardClient("app", "secret", timeout_seconds=2.0)
+    assert client._ensure_client().config.timeout == 2.0

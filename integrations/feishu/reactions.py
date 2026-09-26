@@ -1,18 +1,14 @@
 """Exact-identity operations for the bot's processing reaction."""
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
-import lark_oapi as lark
-from lark_oapi.api.im.v1 import (
-    CreateMessageReactionRequest,
-    CreateMessageReactionRequestBody,
-    DeleteMessageReactionRequest,
-    Emoji,
-    ListMessageReactionRequest,
+from config.constants.feishu import (
+    FEISHU_ACK_RECOVERY_SECONDS,
+    FEISHU_INTERACTION_HTTP_TIMEOUT_SECONDS,
+    FEISHU_PROCESSING_EMOJI,
 )
-
-from config.constants.feishu import FEISHU_PROCESSING_EMOJI
 
 
 class ReactionCallError(RuntimeError):
@@ -51,9 +47,17 @@ class FeishuReactionClient:
     """Perform bounded individual requests without implicit reaction retries."""
 
     def __init__(self, app_id: str, app_secret: str, *, sdk_client: Any = None) -> None:
-        self._client = sdk_client or (
-            lark.Client.builder().app_id(app_id).app_secret(app_secret).timeout(2).build()
-        )
+        if sdk_client is None:
+            import lark_oapi as lark
+
+            sdk_client = (
+                lark.Client.builder()
+                .app_id(app_id)
+                .app_secret(app_secret)
+                .timeout(FEISHU_INTERACTION_HTTP_TIMEOUT_SECONDS)
+                .build()
+            )
+        self._client = sdk_client
 
     @staticmethod
     def _check(response: Any, operation: str) -> None:
@@ -62,6 +66,12 @@ class FeishuReactionClient:
 
     def add_eye(self, message_id: str) -> FeishuReaction:
         """Add EYE and retain the exact identity returned by Feishu."""
+        from lark_oapi.api.im.v1 import (
+            CreateMessageReactionRequest,
+            CreateMessageReactionRequestBody,
+            Emoji,
+        )
+
         request = (
             CreateMessageReactionRequest.builder()
             .message_id(message_id)
@@ -78,6 +88,8 @@ class FeishuReactionClient:
 
     def delete(self, message_id: str, reaction_id: str) -> None:
         """Delete only the specified reaction on the specified message."""
+        from lark_oapi.api.im.v1 import DeleteMessageReactionRequest
+
         request = (
             DeleteMessageReactionRequest.builder()
             .message_id(message_id)
@@ -89,10 +101,15 @@ class FeishuReactionClient:
 
     def list_eye(self, message_id: str) -> tuple[FeishuReaction, ...]:
         """List EYE identities without discarding ownership information."""
+        from lark_oapi.api.im.v1 import ListMessageReactionRequest
+
+        deadline = time.monotonic() + FEISHU_ACK_RECOVERY_SECONDS
         reactions: list[FeishuReaction] = []
         page_token = ""
         seen: set[str] = set()
         while True:
+            if time.monotonic() >= deadline:
+                raise ReactionCallError("pagination_budget")
             request = (
                 ListMessageReactionRequest.builder()
                 .message_id(message_id)

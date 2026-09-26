@@ -28,9 +28,15 @@ from gateway.transports.feishu.attachments import (
     feishu_resource_downloader,
 )
 from gateway.transports.feishu.events import FeishuInboundMessage
+from gateway.transports.feishu.feedback import FeishuFeedbackService
 from gateway.transports.feishu.inbound_security import enforce_inbound_feishu_message_security
 from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.principal import PrincipalResolutionError, resolve_feishu_scope
+from gateway.transports.feishu.reaction_lifecycle import (
+    AckAdmission,
+    AckOutcome,
+    ReactionLifecycleManager,
+)
 from gateway.transports.feishu.session_rotation import conversation_key, resolve_or_rotate_session
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import FeishuTurnOutput, FeishuTurnOutputRegistry
@@ -85,6 +91,8 @@ def _run_turn(
     turn_cancel: threading.Event | None = None,
     downloader: Downloader | None = None,
     output_registry: FeishuTurnOutputRegistry | None = None,
+    reactions: ReactionLifecycleManager | None = None,
+    feedback: FeishuFeedbackService | None = None,
 ) -> None:
     """Run one inbound Feishu message through the gateway agent callback.
 
@@ -174,6 +182,9 @@ def _run_turn(
         )
 
         def _on_turn_timeout() -> None:
+            output.disqualify_feedback()
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.TIMEOUT)
             logger.warning(
                 "[feishu-gateway] turn TIMED OUT after %.0fs chat=%s session=%s",
                 settings.turn_timeout_seconds,
@@ -188,6 +199,9 @@ def _run_turn(
         def _on_user_stop() -> None:
             if not terminal.claim():
                 return
+            output.disqualify_feedback()
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.CANCELLED)
             try:
                 output.finalize(USER_STOP_MESSAGE)
             except Exception:
@@ -199,6 +213,9 @@ def _run_turn(
                 inbound.chat_id,
             )
             if terminal.claim():
+                output.disqualify_feedback()
+                if reactions is not None:
+                    reactions.finish(inbound.message_id, AckOutcome.FAILURE)
                 try:
                     output.finalize(CREDITS_DENIED_MESSAGE)
                 except Exception:
@@ -223,6 +240,14 @@ def _run_turn(
                 except Exception:
                     logger.debug("[feishu-gateway] user-stop finalize failed", exc_info=True)
             return
+
+        if reactions is not None:
+            admission = reactions.begin(inbound.message_id)
+            if admission is AckAdmission.DUPLICATE:
+                return
+            if terminal.cancel_event.is_set():
+                reactions.finish(inbound.message_id, AckOutcome.CANCELLED)
+                return
 
         with terminal.timeout_after(settings.turn_timeout_seconds, _on_turn_timeout):
             try:
@@ -251,6 +276,9 @@ def _run_turn(
                     session.session_id[:8],
                 )
                 if terminal.claim():
+                    output.disqualify_feedback()
+                    if reactions is not None:
+                        reactions.finish(inbound.message_id, AckOutcome.FAILURE)
                     try:
                         output.render_error(TURN_ERROR_MESSAGE)
                     except Exception:
@@ -258,6 +286,11 @@ def _run_turn(
                 raise
 
         if terminal.claim():
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.SUCCESS)
+            target = output.take_feedback_target()
+            if feedback is not None and target is not None:
+                feedback.issue(target, requester_open_id=inbound.open_id, chat_id=inbound.chat_id)
             logger.info(
                 "[feishu-gateway] turn done chat=%s session=%s",
                 inbound.chat_id,
