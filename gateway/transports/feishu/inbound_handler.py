@@ -9,6 +9,8 @@ from contextlib import AbstractContextManager, nullcontext
 
 from config.constants.gateway import (
     CREDITS_DENIED_MESSAGE,
+    NEW_SESSION_MESSAGE,
+    ROTATE_SESSION,
     TURN_ERROR_MESSAGE,
     TURN_TIMEOUT_MESSAGE,
     USER_STOP_MESSAGE,
@@ -117,6 +119,17 @@ def _run_turn(
         def _send(text: str) -> None:
             send_text(inbound.chat_id, text)
 
+        def _send_session_notice(text: str) -> None:
+            try:
+                _send(text)
+            except Exception:
+                if decision.reply_text != ROTATE_SESSION or text != NEW_SESSION_MESSAGE:
+                    raise
+                # Rotation has already committed. Retrying the inbound delivery
+                # would rotate again, so keep this event settled even if the
+                # notice could not be delivered.
+                logger.warning("Feishu new session notice unavailable")
+
         # Pairing, help and authorization denials do not own or access a turn
         # session. Apply them before resolving the deployment principal so a
         # fresh installation can bootstrap its first allowed identity even
@@ -151,7 +164,7 @@ def _run_turn(
                     decision,
                     session_resolver=session_resolver,
                     scope=scope,
-                    send=_send,
+                    send=_send_session_notice,
                 )
         except Exception:
             if reactions is not None:
@@ -196,7 +209,7 @@ def _run_turn(
             )
         except Exception:
             if reactions is not None:
-                reactions.finish(inbound.message_id, AckOutcome.FAILURE)
+                reactions.abort(inbound.message_id)
             raise
 
         def _on_turn_timeout() -> None:
@@ -239,15 +252,22 @@ def _run_turn(
                 except Exception:
                     logger.debug("[feishu-gateway] credits-denied finalize failed", exc_info=True)
 
-        if turn_cancel is None:
-            registration: AbstractContextManager[None] = active_cancels.track(
-                key,
-                terminal.cancel_event,
-                on_user_stop=_on_user_stop,
-            )
-        else:
-            active_cancels.bind_user_stop(key, turn_cancel, _on_user_stop)
-            registration = nullcontext()
+        try:
+            if turn_cancel is None:
+                registration: AbstractContextManager[None] = active_cancels.track(
+                    key,
+                    terminal.cancel_event,
+                    on_user_stop=_on_user_stop,
+                )
+            else:
+                active_cancels.bind_user_stop(key, turn_cancel, _on_user_stop)
+                registration = nullcontext()
+        except Exception:
+            if reactions is not None:
+                reactions.abort(inbound.message_id)
+            if output_registry is not None:
+                output_registry.discard(output)
+            raise
 
         # A /stop that landed between dispatch registration and here only set
         # the Event; nothing has run yet, so answer it instead of the agent.

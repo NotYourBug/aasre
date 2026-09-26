@@ -646,8 +646,8 @@ git commit -m "feat: handle Feishu feedback callbacks"
 **Lifecycle order:**
 
 1. Worker constructs one reaction lifecycle and one feedback service using host-level gateway paths.
-2. Startup performs bounded ack reconciliation before readiness.
-3. Security and principal resolution precede durable reservation; session setup failure aborts it for retry.
+2. Startup atomically releases unstarted reservations, then performs bounded remote ack reconciliation before readiness.
+3. Security and principal resolution precede durable reservation; pre-turn setup failure aborts it for retry.
 4. `DUPLICATE` returns before session side effects. Only a real, non-cancelled turn starts EYE after session resolution; no-turn commands settle without a marker. `UNTRACKED` runs without ack.
 5. Success/failure/cancel/timeout/shutdown call one idempotent ack finish with the matching outcome.
 6. Only a normal-success terminal winner may issue feedback against the final-card receipt.

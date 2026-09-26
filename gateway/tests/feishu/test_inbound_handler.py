@@ -122,6 +122,7 @@ def _run(
     downloader: Any = None,
     reactions: Any = None,
     feedback: Any = None,
+    fail_send_text: bool = False,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Run one turn synchronously; returns (outbound sends, chat replies)."""
     outbound: list[tuple[str, str]] = []
@@ -133,6 +134,8 @@ def _run(
         outbound.append((chat_id, text))
 
     def send_text(chat_id: str, text: str) -> str:
+        if fail_send_text:
+            raise RuntimeError("notice send failed")
         replies.append((chat_id, text))
         return "message-id"
 
@@ -209,8 +212,8 @@ def test_error_cleans_ack_without_feedback(monkeypatch: pytest.MonkeyPatch) -> N
     feedback.issue.assert_not_called()
 
 
-def test_output_setup_failure_cleans_admitted_ack(monkeypatch: pytest.MonkeyPatch) -> None:
-    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+def test_output_setup_failure_releases_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission
 
     reactions = MagicMock()
     reactions.reserve.return_value = AckAdmission.ADMITTED
@@ -229,7 +232,29 @@ def test_output_setup_failure_cleans_admitted_ack(monkeypatch: pytest.MonkeyPatc
             active_cancels=ActiveTurnRegistry(),
             reactions=reactions,
         )
-    reactions.finish.assert_called_once_with("m1", AckOutcome.FAILURE)
+    reactions.abort.assert_called_once_with("m1")
+    reactions.start_marker.assert_not_called()
+
+
+def test_cancel_registration_failure_releases_admission(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission
+
+    reactions = MagicMock()
+    reactions.reserve.return_value = AckAdmission.ADMITTED
+    cancels = MagicMock(spec=ActiveTurnRegistry)
+    cancels.track.side_effect = RuntimeError("temporary registration failure")
+    with pytest.raises(RuntimeError, match="temporary registration failure"):
+        _run(
+            monkeypatch,
+            inbound=_inbound(),
+            handler=MagicMock(),
+            resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+            settings=_settings(),
+            active_cancels=cancels,
+            reactions=reactions,
+        )
+    reactions.abort.assert_called_once_with("m1")
+    reactions.start_marker.assert_not_called()
 
 
 def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -328,6 +353,35 @@ def test_new_message_is_deduped_without_processing_marker(monkeypatch: pytest.Mo
     )
     reactions.reserve.assert_called_once_with("m1")
     reactions.start_marker.assert_not_called()
+    reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
+
+
+def test_failed_new_session_notice_does_not_repeat_rotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    monkeypatch.setattr(
+        inbound_handler,
+        "enforce_inbound_feishu_message_security",
+        lambda **_kwargs: FeishuInboundDecision(allowed=True, reply_text=ROTATE_SESSION),
+    )
+    reactions = MagicMock()
+    reactions.reserve.side_effect = [AckAdmission.ADMITTED, AckAdmission.DUPLICATE]
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+    arguments = {
+        "inbound": _inbound("/new"),
+        "handler": MagicMock(),
+        "resolver": resolver,
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "reactions": reactions,
+        "fail_send_text": True,
+    }
+    _run(monkeypatch, **arguments)
+    _run(monkeypatch, **arguments)
+    assert resolver.rotation_count == 1
+    reactions.abort.assert_not_called()
     reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
 
 

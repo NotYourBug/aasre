@@ -9,7 +9,7 @@ import os
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from filelock import FileLock
@@ -140,19 +140,24 @@ class ReactionLedger:
         with FileLock(str(self.path) + ".lock", timeout=FEISHU_LEDGER_LOCK_TIMEOUT_SECONDS):
             return self._load().get(message_id)
 
-    def compact(self) -> None:
-        """Expire cleaned terminal admissions while preserving unfinished cleanup."""
+    def compact(self, *, abandon_reserved: bool = False) -> None:
+        """Expire settled records; startup may release crashed pre-turn reservations."""
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with FileLock(str(self.path) + ".lock", timeout=FEISHU_LEDGER_LOCK_TIMEOUT_SECONDS):
-            self._compact_locked(self._load())
+            self._compact_locked(self._load(), abandon_reserved=abandon_reserved)
 
-    def _compact_locked(self, records: dict[str, AckRecord]) -> None:
-        cutoff = time.time() - FEISHU_ACK_RETENTION_SECONDS
-        retained = {
-            message_id: record
-            for message_id, record in records.items()
-            if record.state not in {"removed", "aborted"} or record.updated_at >= cutoff
-        }
+    def _compact_locked(
+        self, records: dict[str, AckRecord], *, abandon_reserved: bool = False
+    ) -> None:
+        now = time.time()
+        cutoff = now - FEISHU_ACK_RETENTION_SECONDS
+        retained: dict[str, AckRecord] = {}
+        for message_id, record in records.items():
+            if abandon_reserved and record.state == "reserved":
+                record = replace(record, state="aborted", updated_at=now)
+            if record.state in {"removed", "aborted"} and record.updated_at < cutoff:
+                continue
+            retained[message_id] = record
         descriptor, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=".ack-")
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as target:

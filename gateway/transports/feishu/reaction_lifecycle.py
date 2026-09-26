@@ -295,7 +295,7 @@ class ReactionLifecycleManager:
         """Schedule bounded recovery before admitting new turns."""
         deadline = time.monotonic() + budget_seconds
         try:
-            self._ledger.compact()
+            self._ledger.compact(abandon_reserved=True)
             records = self._ledger.records()
         except Exception:
             logger.warning("Feishu ack recovery unavailable")
@@ -310,7 +310,6 @@ class ReactionLifecycleManager:
                 if record.state == "aborted":
                     continue
                 if record.state == "reserved":
-                    self._transition(record.message_id, state="aborted")
                     continue
                 if not self._submit(partial(self._recover, record, deadline)):
                     break

@@ -293,6 +293,25 @@ def test_restart_releases_unstarted_reservation(tmp_path: Path) -> None:
         restarted.shutdown(timeout_seconds=5)
 
 
+def test_restart_releases_reservation_beyond_recovery_budget(tmp_path: Path) -> None:
+    from gateway.transports.feishu.reaction_ledger import AckRecord
+
+    path = tmp_path / "ack.jsonl"
+    ledger = ReactionLedger(path)
+    ledger.change(
+        "older",
+        lambda _previous: AckRecord(message_id="older", state="active", reaction_id="r"),
+    )
+    assert ledger.admit("skipped")
+    client = ReactionClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app")
+    try:
+        manager.reconcile(budget_seconds=0, record_limit=0)
+        assert manager.reserve("skipped") is AckAdmission.ADMITTED
+    finally:
+        manager.shutdown(timeout_seconds=5)
+
+
 def test_terminal_cleanup_waits_for_queue_capacity(tmp_path: Path) -> None:
     class BlockingSecondClient(ReactionClient):
         def __init__(self) -> None:

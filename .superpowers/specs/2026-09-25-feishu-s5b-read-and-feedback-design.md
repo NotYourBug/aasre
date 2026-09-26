@@ -284,7 +284,7 @@ platform delivery.
 ### 8.3 Ordering and non-blocking behavior
 
 One dedicated bounded executor is owned by `ReactionLifecycleManager`. `reserve` performs bounded durable deduplication before
-session side effects; `start_marker` enqueues remote work only after a real turn is confirmed. A failed session setup aborts the
+session side effects; `start_marker` enqueues remote work only after a real turn is confirmed. A failed pre-turn setup aborts the
 reservation for retry. Turn threads never wait for IM API completion. Per-message state and generation checks ensure a delete
 cannot be lost when the terminal event races the add response. If local persistence, the queue or the manager is unavailable, ack
 falls back to `UNTRACKED` and the turn proceeds: ack/dedupe support must never become a new availability dependency for the agent.
@@ -304,6 +304,8 @@ budget. Work that exceeds the budget remains durable for next-start reconciliati
 5. active-cancel registration and the pre-cancel check.
 
 Therefore `/stop`, pairing/help/denial paths, unsupported events and turns cancelled before execution never flash an EYE.
+Once a session rotation commits, a failed notice does not release the reservation or rotate again on replay.
+Startup atomically abandons every unstarted reservation before applying the bounded remote-reaction recovery budget.
 
 ### 8.5 Terminal classification
 
