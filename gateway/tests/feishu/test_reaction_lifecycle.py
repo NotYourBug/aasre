@@ -1,11 +1,13 @@
 """Durable admission and terminal-before-create cleanup races."""
 
 import json
+import time
 from pathlib import Path
 from threading import Event
 
 import pytest
 
+from gateway.transports.feishu import reaction_ledger
 from gateway.transports.feishu.reaction_ledger import ReactionLedger
 from gateway.transports.feishu.reaction_lifecycle import (
     AckAdmission,
@@ -252,3 +254,59 @@ def test_empty_inbound_id_cannot_poison_admission_ledger(tmp_path: Path) -> None
         assert not path.exists()
     finally:
         manager.shutdown(timeout_seconds=5)
+
+
+def test_terminal_cleanup_waits_for_queue_capacity(tmp_path: Path) -> None:
+    class BlockingSecondClient(ReactionClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.release.set()
+            self.second_entered = Event()
+            self.second_release = Event()
+
+        def add_eye(self, message_id: str) -> FeishuReaction:
+            if message_id == "second":
+                self.second_entered.set()
+                assert self.second_release.wait(5)
+            return super().add_eye(message_id)
+
+    path = tmp_path / "ack.jsonl"
+    client = BlockingSecondClient()
+    manager = ReactionLifecycleManager(path=path, client=client, app_id="app", queue_limit=1)
+    try:
+        assert manager.begin("first") is AckAdmission.ADMITTED
+        deadline = time.monotonic() + 5
+        while (record := ReactionLedger(path).find("first")) is None or record.state != "active":
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        assert manager.begin("second") is AckAdmission.ADMITTED
+        assert client.second_entered.wait(5)
+        manager.finish("first", AckOutcome.SUCCESS)
+        client.second_release.set()
+        deadline = time.monotonic() + 5
+        while ("first", "reaction") not in client.removed:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+    finally:
+        client.second_release.set()
+        manager.shutdown(timeout_seconds=5)
+
+
+def test_ledger_compacts_live_append_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from dataclasses import replace
+
+    from gateway.transports.feishu.reaction_ledger import AckRecord
+
+    monkeypatch.setattr(reaction_ledger, "FEISHU_ACK_LEDGER_COMPACT_EVERY", 2, raising=False)
+    path = tmp_path / "ack.jsonl"
+    first = ReactionLedger(path)
+    second = ReactionLedger(path)
+    first.change("m", lambda _previous: AckRecord(message_id="m", state="adding"))
+    assert second.find("m") is not None
+    first.change("m", lambda previous: replace(previous, state="active"))
+    assert second.find("m").state == "active"
+    first.change("m", lambda previous: replace(previous, state="removed"))
+    assert second.find("m").state == "removed"
+    assert len(path.read_text().splitlines()) <= 2

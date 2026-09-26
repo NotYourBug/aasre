@@ -138,15 +138,25 @@ def _run_turn(
             )
             return
 
-        with bound_storage_scope(scope):
-            session = resolve_or_rotate_session(
-                inbound,
-                decision,
-                session_resolver=session_resolver,
-                scope=scope,
-                send=_send,
-            )
+        if reactions is not None and reactions.begin(inbound.message_id) is AckAdmission.DUPLICATE:
+            return
+
+        try:
+            with bound_storage_scope(scope):
+                session = resolve_or_rotate_session(
+                    inbound,
+                    decision,
+                    session_resolver=session_resolver,
+                    scope=scope,
+                    send=_send,
+                )
+        except Exception:
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.FAILURE)
+            raise
         if session is None:
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.SUCCESS)
             return
 
         preview = inbound.text.replace("\n", " ").strip()
@@ -161,25 +171,30 @@ def _run_turn(
         )
 
         terminal = TerminalOutcomeArbiter(turn_cancel)
-        output = FeishuTurnOutput(
-            app_id=settings.app_id,
-            app_secret=settings.app_secret,
-            chat_id=inbound.chat_id,
-            reply_to_message_id=inbound.root_id or inbound.message_id,
-            reply_in_thread=bool(inbound.root_id),
-            edit_interval_seconds=settings.status_update_interval_seconds,
-            tool_hooks=approval_tool_hooks(
-                FeishuApprovalPrompter(
-                    broker=approvals,
-                    card_client=FeishuCardClient(settings.app_id, settings.app_secret),
-                    chat_id=inbound.chat_id,
-                    requester_open_id=inbound.open_id,
-                    pending_approvals=pending_approvals,
-                )
-            ),
-            turn_cancel=terminal.cancel_event,
-            output_registry=output_registry,
-        )
+        try:
+            output = FeishuTurnOutput(
+                app_id=settings.app_id,
+                app_secret=settings.app_secret,
+                chat_id=inbound.chat_id,
+                reply_to_message_id=inbound.root_id or inbound.message_id,
+                reply_in_thread=bool(inbound.root_id),
+                edit_interval_seconds=settings.status_update_interval_seconds,
+                tool_hooks=approval_tool_hooks(
+                    FeishuApprovalPrompter(
+                        broker=approvals,
+                        card_client=FeishuCardClient(settings.app_id, settings.app_secret),
+                        chat_id=inbound.chat_id,
+                        requester_open_id=inbound.open_id,
+                        pending_approvals=pending_approvals,
+                    )
+                ),
+                turn_cancel=terminal.cancel_event,
+                output_registry=output_registry,
+            )
+        except Exception:
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.FAILURE)
+            raise
 
         def _on_turn_timeout() -> None:
             output.disqualify_feedback()
@@ -234,20 +249,14 @@ def _run_turn(
         # A /stop that landed between dispatch registration and here only set
         # the Event; nothing has run yet, so answer it instead of the agent.
         if terminal.cancel_event.is_set():
+            if reactions is not None:
+                reactions.finish(inbound.message_id, AckOutcome.CANCELLED)
             if terminal.claim():
                 try:
                     output.finalize(USER_STOP_MESSAGE)
                 except Exception:
                     logger.debug("[feishu-gateway] user-stop finalize failed", exc_info=True)
             return
-
-        if reactions is not None:
-            admission = reactions.begin(inbound.message_id)
-            if admission is AckAdmission.DUPLICATE:
-                return
-            if terminal.cancel_event.is_set():
-                reactions.finish(inbound.message_id, AckOutcome.CANCELLED)
-                return
 
         with terminal.timeout_after(settings.turn_timeout_seconds, _on_turn_timeout):
             try:

@@ -27,10 +27,10 @@ def test_feedback_authorization_does_not_log_actor_metadata() -> None:
         audit.assert_not_called()
 
 
-def test_feedback_actor_must_remain_in_configured_allowlist() -> None:
+def test_feedback_actor_follows_current_stored_policy_like_inbound() -> None:
     policy = MessagingIdentityPolicy(inbound_enabled=True, allowed_user_ids=["actor"])
     with patch(f"{_SECURITY}.load_identity_policy", return_value=(None, policy)):
-        assert not is_feedback_actor_authorized(
+        assert is_feedback_actor_authorized(
             open_id="actor", chat_id="chat", env_allowed_open_ids=["someone_else"]
         )
 

@@ -441,13 +441,13 @@ The feedback handler performs:
 2. require `action.tag == "button"`;
 3. require exact `{"feedback_id"}` mapping and non-empty string token;
 4. require non-empty `operator.open_id` and `context.open_chat_id`;
-5. apply current `FEISHU_ALLOWED_OPEN_IDS` policy;
-6. hash token and load an unexpired `OPEN` or consumed authority;
-7. constant-time compare the digest;
-8. match requester `open_id` and original `chat_id`;
-9. construct the fixed feedback row from server-side authority only;
-10. call idempotent feedback persistence;
-11. on `WRITTEN` or `DUPLICATE`, append `CONSUMED` if needed and return a private toast.
+5. admit bounded background work and return a private receipt without waiting for disk or network;
+6. in the worker, apply the current effective inbound identity policy (the configured Open IDs are the fallback when no stored allowlist exists);
+7. hash token and load an unexpired registered authority;
+8. constant-time compare the digest;
+9. match requester `open_id` and original `chat_id`;
+10. construct the fixed feedback row from server-side authority only;
+11. call idempotent feedback persistence and, on `WRITTEN` or `DUPLICATE`, append `CONSUMED` if needed.
 
 Unknown, expired, unauthorized and wrong-chat tokens share one unavailable toast. They do not reveal whether a token exists or
 which predicate failed. Malformed OpenSRE actions get one generic interaction-error toast. Neither case changes shared card state.

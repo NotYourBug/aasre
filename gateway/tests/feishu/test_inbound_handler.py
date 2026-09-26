@@ -76,6 +76,7 @@ class _FakeSessionResolver:
     def __init__(self, session: SessionCore) -> None:
         self._session = session
         self.rotated = False
+        self.rotation_count = 0
         self.resolved = False
 
     def resolve(self, **_kwargs: object) -> SessionCore:
@@ -84,6 +85,7 @@ class _FakeSessionResolver:
 
     def rotate(self, **_kwargs: object) -> SessionCore:
         self.rotated = True
+        self.rotation_count += 1
         return self._session
 
 
@@ -206,6 +208,29 @@ def test_error_cleans_ack_without_feedback(monkeypatch: pytest.MonkeyPatch) -> N
     feedback.issue.assert_not_called()
 
 
+def test_output_setup_failure_cleans_admitted_ack(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    reactions = MagicMock()
+    reactions.begin.return_value = AckAdmission.ADMITTED
+
+    def fail_output(**_kwargs: object) -> None:
+        raise RuntimeError("output setup failed")
+
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", fail_output)
+    with pytest.raises(RuntimeError, match="output setup failed"):
+        _run(
+            monkeypatch,
+            inbound=_inbound(),
+            handler=MagicMock(),
+            resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+            settings=_settings(),
+            active_cancels=ActiveTurnRegistry(),
+            reactions=reactions,
+        )
+    reactions.finish.assert_called_once_with("m1", AckOutcome.FAILURE)
+
+
 def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         inbound_handler,
@@ -227,6 +252,31 @@ def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) 
     assert resolver.rotated is True
     assert resolver.resolved is False
     callback.assert_not_called()
+
+
+def test_replayed_new_message_cannot_rotate_session_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.reaction_lifecycle import AckAdmission, AckOutcome
+
+    monkeypatch.setattr(
+        inbound_handler,
+        "enforce_inbound_feishu_message_security",
+        lambda **_kwargs: FeishuInboundDecision(allowed=True, reply_text=ROTATE_SESSION),
+    )
+    resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
+    reactions = MagicMock()
+    reactions.begin.side_effect = [AckAdmission.ADMITTED, AckAdmission.DUPLICATE]
+    arguments = {
+        "inbound": _inbound("/new"),
+        "handler": MagicMock(),
+        "resolver": resolver,
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "reactions": reactions,
+    }
+    _run(monkeypatch, **arguments)
+    _run(monkeypatch, **arguments)
+    assert resolver.rotation_count == 1
+    reactions.finish.assert_called_once_with("m1", AckOutcome.SUCCESS)
 
 
 def test_pairing_reply_does_not_require_an_organization(

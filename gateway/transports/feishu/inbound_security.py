@@ -140,8 +140,6 @@ def is_feedback_actor_authorized(
     *, open_id: str, chat_id: str, env_allowed_open_ids: list[str]
 ) -> bool:
     """Check current feedback authority without logging actor or chat identifiers."""
-    if env_allowed_open_ids and open_id not in env_allowed_open_ids:
-        return False
     return bool(
         _authorize_actor(
             open_id=open_id,

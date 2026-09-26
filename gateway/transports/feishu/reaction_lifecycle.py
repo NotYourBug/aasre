@@ -65,6 +65,7 @@ class ReactionLifecycleManager:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="feishu-ack")
         self._futures: set[Future[None]] = set()
         self._owned: set[str] = set()
+        self._pending_cleanup: set[tuple[str, str]] = set()
         self._removing: set[tuple[str, str]] = set()
         self._closed = False
 
@@ -82,9 +83,18 @@ class ReactionLifecycleManager:
             with self._lock:
                 self._futures.discard(completed)
                 self._permits.release()
+                self._drain_cleanup()
 
         future.add_done_callback(done)
         return True
+
+    def _drain_cleanup(self) -> None:
+        if self._closed:
+            return
+        for message_id, reaction_id in tuple(self._pending_cleanup):
+            if not self._submit(partial(self._remove, message_id, reaction_id)):
+                return
+            self._pending_cleanup.discard((message_id, reaction_id))
 
     def begin(self, message_id: str) -> AckAdmission:
         """Admit once; a saturated or unavailable marker never blocks a turn."""
@@ -223,10 +233,10 @@ class ReactionLifecycleManager:
 
             try:
                 record = self._ledger.change(message_id, update)
-                if changed:
-                    self._owned.discard(message_id)
                 if changed and record and record.reaction_id:
-                    self._submit(lambda: self._remove(message_id, record.reaction_id))
+                    identity = (message_id, record.reaction_id)
+                    if not self._submit(partial(self._remove, *identity)):
+                        self._pending_cleanup.add(identity)
             except Exception:
                 logger.warning("Feishu ack terminal persistence unavailable")
 
