@@ -18,7 +18,7 @@ from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTriggerResponse,
 )
 
-from config.constants.feishu import FEISHU_ACK_QUEUE_LIMIT, FEISHU_LEDGER_LOCK_TIMEOUT_SECONDS
+from config.constants.feishu import FEISHU_FEEDBACK_QUEUE_LIMIT, FEISHU_LEDGER_LOCK_TIMEOUT_SECONDS
 from gateway.core.storage.feedback import FeedbackWriteResult, append_feedback_entry_once
 from gateway.transports.feishu.card_stream import FinalCardTarget
 from gateway.transports.feishu.feedback_authority import FeedbackAuthorityStore
@@ -49,7 +49,7 @@ class FeishuFeedbackService:
         feedback_path: Path,
         card_client: FeedbackCardClient,
         authorized: Callable[[str, str], bool],
-        queue_limit: int = FEISHU_ACK_QUEUE_LIMIT,
+        queue_limit: int = FEISHU_FEEDBACK_QUEUE_LIMIT,
     ) -> None:
         self._authority = authority
         self._feedback_path = feedback_path

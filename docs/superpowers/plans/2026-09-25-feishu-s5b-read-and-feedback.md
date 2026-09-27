@@ -1,5 +1,18 @@
 # Feishu S5b Read Ack and Formal Feedback Implementation Plan
 
+## Scope amendment (2026-09-27)
+
+The user approved removing the unsupported `EYE` processing marker. The scope amendment in the
+[design](../../../.superpowers/specs/2026-09-25-feishu-s5b-read-and-feedback-design.md)
+supersedes all ack implementation and acceptance tasks below. Remove reaction-only code and tests;
+retain feedback success, failure, cancellation, timeout, authorization and durable-idempotency coverage.
+Do not substitute another reaction or implement S5c. Final validation covers feedback-only wiring,
+scoped regressions, CI, Greptile, merge and post-merge workflows.
+
+Live feedback acceptance passed with one completed DeepSeek turn and two user clicks: one `good`
+record after both clicks. The user reported a private `已收到` receipt. Observer testing was waived
+for this round because no second user was available. The withdrawn marker is not an outstanding gate.
+
 > **Execution mode:** Single agent only. Follow the tasks in order and stop at every explicit approval boundary.
 
 **Status:** Approved by user; bounded-feedback-worker amendment approved 2026-09-25

@@ -15,7 +15,10 @@ from pathlib import Path
 
 from filelock import FileLock
 
-from config.constants.feishu import FEISHU_ACK_RETENTION_SECONDS, FEISHU_LEDGER_LOCK_TIMEOUT_SECONDS
+from config.constants.feishu import (
+    FEISHU_FEEDBACK_RETENTION_SECONDS,
+    FEISHU_LEDGER_LOCK_TIMEOUT_SECONDS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +104,7 @@ class FeedbackAuthorityStore:
             chat_id,
             message_id,
             now,
-            now + FEISHU_ACK_RETENTION_SECONDS,
+            now + FEISHU_FEEDBACK_RETENTION_SECONDS,
         )
         with self._lock():
             if digest in self._load():

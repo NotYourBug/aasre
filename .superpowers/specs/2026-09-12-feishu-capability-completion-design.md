@@ -190,6 +190,13 @@ Slack Block Kit 的 markdown 原生渲染，在飞书的对应物是 **CardKit 2
   「重试」与 reaction 快捷入口属于单独状态机，必须定义身份、生命周期、并发、计费、事件重放与
   会话轮换语义后才能落地。`deleted_v1` 不撤销已经执行的业务动作。
 
+### S5b 范围修订（用户，2026-09-27）
+
+用户批准无法解决时撤销 👀。官方表情清单无 `EYE`，现场添加返回 `231001`；因此撤销本期
+处理标记及其生命周期、恢复和额外 reaction 权限要求，不替换其他表情。S5b 仅交付正式采纳反馈。
+本修订优先于下文历史 ack 描述；R33 顺序及 R35 反馈不启动 turn 的边界不变。
+S5c/S8b 需要独立核实 reaction 标识与客户端能力，不能假定 S5b 已提供。
+
 ## 4. 子项目分解
 
 | # | 子项目 | 范围 | 前置 | 退出标准 | 状态 |
@@ -200,7 +207,7 @@ Slack Block Kit 的 markdown 原生渲染，在飞书的对应物是 **CardKit 2
 | **S4** | 对话输出接线 | 把 turn 输出接到 S3：流式卡片 + 长消息分片 + outbound 回复线程 | S3 | 长调查可见进度；超长回答不截断；回复线程正确 | 已完成 |
 | **S5a** | 卡片审批 | Approve/Deny 卡片按钮**取代**文本审批；迁移既有授权与生命周期语义 | S3、S4；控制台订阅 `card.action.trigger` 并重新发布应用 | 只有原请求者可决定；重复、过期、旁观者、关闭排空均安全；真实回调验收通过后删除文本审批，合并态不存在双轨 | 已完成 |
 | **S6** | 告警与投递卡片化 | watchdog 告警、调查报告、定时投递改走 S3 渲染层 | S3 | 三条路径均以卡片保留 markdown/表格；超预算分页、卡片失败时兜底也不截断内容 | 已完成 |
-| **S5b** | 已读与正式反馈 | 用户原消息上的 👀 生命周期；流式结束后追加 ✅采纳按钮；复用 transport-neutral feedback JSONL 存储 | S4、S5a | ack 失败不阻塞 turn；成功、失败、取消、超时均有确定终态；仅原请求者可采纳；按最终 `message_id` + 操作者幂等记录 `good`，不保存回答正文、不启动新 turn | 下一项 |
+| **S5b** | 正式反馈（👀 已撤销） | 流式结束后追加 ✅采纳按钮；复用 transport-neutral feedback JSONL 存储 | S4、S5a | 仅原请求者可采纳；按最终 `message_id` + 操作者幂等记录 `good`，不保存回答正文、不启动新 turn | 现场反馈验收通过，待交付闭环 |
 | **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CROSS` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 待实施 |
 | **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 待实施 |
 | **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 重写 persona / action / gather / assistant 片段；只暴露当前渠道能力 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | 待实施 |

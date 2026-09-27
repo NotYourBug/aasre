@@ -5,6 +5,27 @@
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
 - Scope: S5b only
 
+## Approved scope reduction (2026-09-27)
+
+The user authorized dropping the processing-eye feature if it could not be resolved.
+The official [emoji list](https://open.feishu.cn/document/server-docs/im-v1/message-reaction/emojis-introduce)
+does not list `EYE`; two round-2 create attempts failed, with the diagnostic attempt returning code `231001`.
+A read of reactions on that same test message succeeded and returned none. The earlier assumption that
+`EYE` represented a supported Feishu reaction was incorrect. No alternative emoji is substituted.
+
+S5b now ships formal positive feedback only. Remove the reaction client, ack ledger, recovery worker,
+reaction-specific admission and shutdown wiring, constants, permissions instructions and tests.
+Inbound handling retains the main-branch contract; this release does not promise durable inbound deduplication
+or a per-home reaction owner lock. Feedback authorization, 14-day expiry, bounded worker and durable
+final-message-plus-actor idempotency remain unchanged. Ack requirements, matrices and implementation
+details below are historical and superseded by this amendment; they are not remaining acceptance gates.
+S5c remains out of scope and must independently verify its reaction vocabulary and client needs.
+
+Round-2 live evidence: one DeepSeek turn completed; the user observed the final adoption button and
+clicked it twice, reporting the private `已收到` receipt. After the second click, feedback JSONL still
+contained exactly one `good` record. No second-user live test was performed, as explicitly agreed.
+The gateway was stopped normally after that test. CI, review and merge closure remain pending.
+
 ## Approved amendment: bounded feedback worker (2026-09-25)
 
 The user explicitly approved bounded background processing after implementation review showed that a file-lock timeout cannot

@@ -36,13 +36,9 @@ from integrations.feishu.inbound_content import (
     resource_refs,
     resource_url,
 )
-from integrations.feishu.reactions import FeishuReaction, FeishuReactionClient, ReactionCallError
 
 __all__ = [
     "FeishuCardCallError",
-    "FeishuReaction",
-    "FeishuReactionClient",
-    "ReactionCallError",
     "CardPage",
     "FeishuAlarmCredentials",
     "FeishuChatCredentials",
