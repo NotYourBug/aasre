@@ -16,6 +16,8 @@ import lark_oapi as lark
 from lark_oapi.api.cardkit.v1 import (
     ContentCardElementRequest,
     ContentCardElementRequestBody,
+    CreateCardElementRequest,
+    CreateCardElementRequestBody,
     CreateCardRequest,
     CreateCardRequestBody,
     SettingsCardRequest,
@@ -58,18 +60,21 @@ class FeishuCardClient:
         *,
         reply_to_message_id: str = "",
         reply_in_thread: bool = False,
+        timeout_seconds: float | None = None,
     ) -> None:
         self._app_id = app_id
         self._app_secret = app_secret
         self._reply_to_message_id = reply_to_message_id
         self._reply_in_thread = reply_in_thread
+        self._timeout_seconds = timeout_seconds
         self._client: Any = None
 
     def _ensure_client(self) -> Any:
         if self._client is None:
-            self._client = (
-                lark.Client.builder().app_id(self._app_id).app_secret(self._app_secret).build()
-            )
+            builder = lark.Client.builder().app_id(self._app_id).app_secret(self._app_secret)
+            if self._timeout_seconds is not None:
+                builder = builder.timeout(self._timeout_seconds)
+            self._client = builder.build()
         return self._client
 
     def _check(self, response: Any, *, stage: FeishuCardCallStage) -> None:
@@ -160,6 +165,35 @@ class FeishuCardClient:
         self._check(
             self._ensure_client().cardkit.v1.card.settings(request),
             stage=FeishuCardCallStage.CLOSE_STREAM,
+        )
+
+    def append_elements(
+        self,
+        card_id: str,
+        elements: list[dict[str, object]],
+        sequence: int,
+        *,
+        uuid: str,
+    ) -> None:
+        """Append components once, using the caller's sequence and idempotency UUID."""
+        if not card_id or not uuid or sequence < 1:
+            raise ValueError("Card append requires an identity and positive sequence")
+        request = (
+            CreateCardElementRequest.builder()
+            .card_id(card_id)
+            .request_body(
+                CreateCardElementRequestBody.builder()
+                .type("append")
+                .elements(json.dumps(elements, ensure_ascii=False))
+                .sequence(sequence)
+                .uuid(uuid)
+                .build()
+            )
+            .build()
+        )
+        self._check(
+            self._ensure_client().cardkit.v1.card_element.create(request),
+            stage=FeishuCardCallStage.APPEND_ELEMENTS,
         )
 
     def send_card(self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id") -> str:

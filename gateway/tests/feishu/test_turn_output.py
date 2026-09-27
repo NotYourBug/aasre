@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from gateway.transports.feishu import turn_output
-from gateway.transports.feishu.card_stream import CardStreamSession
+from gateway.transports.feishu.card_stream import CardStreamSession, FinalCardTarget
 from gateway.transports.feishu.turn_output import (
     FeishuTurnOutput,
     FeishuTurnOutputRegistry,
@@ -70,6 +70,26 @@ def test_finalize_blank_answer_does_not_create_a_card(fake_stream) -> None:
     out.finalize("")
     out.finalize("   ")
     assert fake_stream.instances == []
+
+
+def test_feedback_target_is_consumed_once_and_errors_disqualify(
+    fake_stream: type[_FakeStreamSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = FinalCardTarget("card", "message", 3)
+
+    def finish(_self: _FakeStreamSession) -> FinalCardTarget:
+        return target
+
+    monkeypatch.setattr(fake_stream, "finish", finish)
+    output = FeishuTurnOutput(app_id="a", app_secret="s", chat_id="chat")
+    assert output.take_feedback_target() is None
+    output.finalize("answer")
+    assert output.take_feedback_target() == target
+    assert output.take_feedback_target() is None
+    failed = FeishuTurnOutput(app_id="a", app_secret="s", chat_id="chat")
+    failed.finalize("answer")
+    failed.render_error("error")
+    assert failed.take_feedback_target() is None
 
 
 @pytest.mark.parametrize(

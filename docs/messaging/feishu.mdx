@@ -101,6 +101,24 @@ Typing `approve` or `deny` is an ordinary chat message and does not authorize a
 tool. An expired or already unavailable card fails closed; it never falls back to
 text approval.
 
+## Answer feedback
+
+A successfully completed card answer offers **✅ 采纳**. Only the original
+requester, still on the allowlist and clicking in the original chat, can record
+positive feedback. Buttons remain valid for 14 days across gateway restarts.
+Plain-text fallbacks, incomplete answers and cancelled turns have no feedback entry.
+
+The private **已收到** message acknowledges queue admission, not durable recording.
+If the gateway stops or storage fails before recording, clicking again is safe:
+repeat clicks cannot create a second feedback entry. A busy message means retry later.
+Feedback never starts a new turn or changes the shared card.
+
+Feedback stores only time, platform, actor, chat, final message ID and the positive
+verdict in `gateway/feishu_feedback.jsonl` under `OPENSRE_HOME` (default `~/.opensre`);
+it stores no question or answer text. Preserve this file and the adjacent feedback-authority file when
+migrating the gateway if existing buttons must keep working. Do not subscribe to
+reaction-created or reaction-deleted events for this feature.
+
 ## Troubleshooting
 
 | Symptom | Check |

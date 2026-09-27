@@ -76,6 +76,7 @@ class _FakeSessionResolver:
     def __init__(self, session: SessionCore) -> None:
         self._session = session
         self.rotated = False
+        self.rotation_count = 0
         self.resolved = False
 
     def resolve(self, **_kwargs: object) -> SessionCore:
@@ -84,6 +85,7 @@ class _FakeSessionResolver:
 
     def rotate(self, **_kwargs: object) -> SessionCore:
         self.rotated = True
+        self.rotation_count += 1
         return self._session
 
 
@@ -118,6 +120,8 @@ def _run(
     active_cancels: ActiveTurnRegistry,
     turn_cancel: threading.Event | None = None,
     downloader: Any = None,
+    feedback: Any = None,
+    fail_send_text: bool = False,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Run one turn synchronously; returns (outbound sends, chat replies)."""
     outbound: list[tuple[str, str]] = []
@@ -129,6 +133,8 @@ def _run(
         outbound.append((chat_id, text))
 
     def send_text(chat_id: str, text: str) -> str:
+        if fail_send_text:
+            raise RuntimeError("notice send failed")
         replies.append((chat_id, text))
         return "message-id"
 
@@ -147,8 +153,49 @@ def _run(
         logger=LOGGER,
         turn_cancel=turn_cancel,
         downloader=downloader,
+        feedback=feedback,
     )
     return outbound, replies
+
+
+def test_feedback_requires_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway.transports.feishu.card_stream import FinalCardTarget
+
+    feedback, output = MagicMock(), MagicMock()
+    target = FinalCardTarget("card", "final", 4)
+    output.take_feedback_target.return_value = target
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", lambda **_kwargs: output)
+    handler = MagicMock()
+    arguments = {
+        "inbound": _inbound(root_id="root"),
+        "handler": handler,
+        "resolver": _FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+        "settings": _settings(),
+        "active_cancels": ActiveTurnRegistry(),
+        "feedback": feedback,
+    }
+    _run(monkeypatch, **arguments)
+    feedback.issue.assert_called_once_with(
+        target, requester_open_id="ou_user-1", chat_id="oc_chat-1"
+    )
+    assert handler.call_count == 1
+    assert feedback.issue.call_count == 1
+
+
+def test_error_has_no_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    feedback = MagicMock()
+    with pytest.raises(RuntimeError):
+        _run(
+            monkeypatch,
+            inbound=_inbound(),
+            handler=MagicMock(side_effect=RuntimeError("failure")),
+            resolver=_FakeSessionResolver(SessionCore(store=InMemorySessionStore())),
+            settings=_settings(),
+            active_cancels=ActiveTurnRegistry(),
+            feedback=feedback,
+        )
+    feedback.issue.assert_not_called()
 
 
 def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -248,6 +295,7 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     release = threading.Event()
+    feedback = MagicMock()
     seen_cancel: list[threading.Event] = []
 
     def hanging_handler(
@@ -287,6 +335,7 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
                 send_text=lambda _c, _t: "",
                 handler=hanging_handler,
                 logger=LOGGER,
+                feedback=feedback,
             )
         except Exception as exc:  # pragma: no cover - failure path
             error.append(exc)
@@ -306,6 +355,8 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
     assert not error, error
     assert any(TURN_TIMEOUT_MESSAGE in text for _, text in outbound), outbound
     assert seen_cancel and seen_cancel[0].is_set()
+
+    feedback.issue.assert_not_called()
 
 
 def test_pre_registered_cancel_short_circuits_before_agent(
@@ -342,6 +393,7 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
 ) -> None:
     """A /stop during the agent cancels it through the dispatch-time Event (R19)."""
     turn_cancel = threading.Event()
+    feedback = MagicMock()
     registry = ActiveTurnRegistry()
     inbound = _inbound("hello")
     key = conversation_key(inbound)
@@ -392,6 +444,7 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
                 handler=cooperative_agent,
                 logger=LOGGER,
                 turn_cancel=turn_cancel,
+                feedback=feedback,
             )
         except Exception as exc:  # pragma: no cover - failure path
             error.append(exc)
@@ -409,6 +462,8 @@ def test_in_flight_stop_cancels_the_turn_via_pre_registered_event(
     assert turn_cancel.is_set()
     callback.assert_not_called()
     assert any(USER_STOP_MESSAGE in text for _, text in outbound), outbound
+
+    feedback.issue.assert_not_called()
 
 
 def test_run_turn_wires_approval_tool_hooks_into_output(

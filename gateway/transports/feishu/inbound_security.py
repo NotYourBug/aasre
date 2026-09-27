@@ -126,6 +126,29 @@ def enforce_inbound_feishu_message_security(
     return FeishuInboundDecision(allowed=False, reply_text=result.reason)
 
 
+def _authorize_actor(
+    *, open_id: str, chat_id: str, env_allowed_open_ids: list[str]
+) -> AuthorizationResult:
+    _, policy = load_identity_policy(MessagingPlatform.FEISHU.value)
+    if env_allowed_open_ids and not policy.allowed_user_ids:
+        policy.allowed_user_ids = list(env_allowed_open_ids)
+        policy.inbound_enabled = True
+    return authorize_inbound_message(policy=policy, user_id=open_id, chat_id=chat_id)
+
+
+def is_feedback_actor_authorized(
+    *, open_id: str, chat_id: str, env_allowed_open_ids: list[str]
+) -> bool:
+    """Check current feedback authority without logging actor or chat identifiers."""
+    return bool(
+        _authorize_actor(
+            open_id=open_id,
+            chat_id=chat_id,
+            env_allowed_open_ids=env_allowed_open_ids,
+        )
+    )
+
+
 def is_open_id_authorized(*, open_id: str, chat_id: str, env_allowed_open_ids: list[str]) -> bool:
     """Whether *open_id* is an authorized Feishu identity right now.
 
@@ -134,11 +157,11 @@ def is_open_id_authorized(*, open_id: str, chat_id: str, env_allowed_open_ids: l
     able to approve or deny a pending write-tool action just by replying to
     its prompt message.
     """
-    _, policy = load_identity_policy(MessagingPlatform.FEISHU.value)
-    if env_allowed_open_ids and not policy.allowed_user_ids:
-        policy.allowed_user_ids = list(env_allowed_open_ids)
-        policy.inbound_enabled = True
-    result = authorize_inbound_message(policy=policy, user_id=open_id, chat_id=chat_id)
+    result = _authorize_actor(
+        open_id=open_id,
+        chat_id=chat_id,
+        env_allowed_open_ids=env_allowed_open_ids,
+    )
     audit_log_inbound_message(
         platform=MessagingPlatform.FEISHU.value,
         user_id=open_id,
@@ -153,4 +176,5 @@ __all__ = [
     "FeishuInboundDecision",
     "enforce_inbound_feishu_message_security",
     "is_open_id_authorized",
+    "is_feedback_actor_authorized",
 ]

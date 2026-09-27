@@ -28,6 +28,7 @@ from gateway.transports.feishu.attachments import (
     feishu_resource_downloader,
 )
 from gateway.transports.feishu.events import FeishuInboundMessage
+from gateway.transports.feishu.feedback import FeishuFeedbackService
 from gateway.transports.feishu.inbound_security import enforce_inbound_feishu_message_security
 from gateway.transports.feishu.pending_approvals import PendingApprovals
 from gateway.transports.feishu.principal import PrincipalResolutionError, resolve_feishu_scope
@@ -85,6 +86,7 @@ def _run_turn(
     turn_cancel: threading.Event | None = None,
     downloader: Downloader | None = None,
     output_registry: FeishuTurnOutputRegistry | None = None,
+    feedback: FeishuFeedbackService | None = None,
 ) -> None:
     """Run one inbound Feishu message through the gateway agent callback.
 
@@ -174,6 +176,7 @@ def _run_turn(
         )
 
         def _on_turn_timeout() -> None:
+            output.disqualify_feedback()
             logger.warning(
                 "[feishu-gateway] turn TIMED OUT after %.0fs chat=%s session=%s",
                 settings.turn_timeout_seconds,
@@ -188,6 +191,7 @@ def _run_turn(
         def _on_user_stop() -> None:
             if not terminal.claim():
                 return
+            output.disqualify_feedback()
             try:
                 output.finalize(USER_STOP_MESSAGE)
             except Exception:
@@ -200,6 +204,7 @@ def _run_turn(
             )
             if terminal.claim():
                 try:
+                    output.disqualify_feedback()
                     output.finalize(CREDITS_DENIED_MESSAGE)
                 except Exception:
                     logger.debug("[feishu-gateway] credits-denied finalize failed", exc_info=True)
@@ -252,12 +257,16 @@ def _run_turn(
                 )
                 if terminal.claim():
                     try:
+                        output.disqualify_feedback()
                         output.render_error(TURN_ERROR_MESSAGE)
                     except Exception:
                         logger.debug("[feishu-gateway] error finalize failed", exc_info=True)
                 raise
 
         if terminal.claim():
+            target = output.take_feedback_target()
+            if feedback is not None and target is not None:
+                feedback.issue(target, requester_open_id=inbound.open_id, chat_id=inbound.chat_id)
             logger.info(
                 "[feishu-gateway] turn done chat=%s session=%s",
                 inbound.chat_id,

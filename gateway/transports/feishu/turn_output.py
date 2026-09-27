@@ -16,7 +16,7 @@ from lark_oapi.api.im.v1 import (
 )
 from lark_oapi.channel.outbound.streaming.markdown_stream import merge_streaming_text
 
-from gateway.transports.feishu.card_stream import CardStreamSession
+from gateway.transports.feishu.card_stream import CardStreamSession, FinalCardTarget
 from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
 from infrastructure.delivery.notifications.redaction import redact_token
 from infrastructure.turn_host.status_messages import (
@@ -151,6 +151,8 @@ class FeishuTurnOutput:
         self._answer = ""
         self._terminal = False
         self._plain_fallback = False
+        self._feedback_target: FinalCardTarget | None = None
+        self._feedback_disqualified = False
         if output_registry is not None:
             output_registry.register(self)
 
@@ -162,6 +164,7 @@ class FeishuTurnOutput:
         self._show_status(status_from_response_label(label))
 
     def render_error(self, message: str) -> None:
+        self.disqualify_feedback()
         logger.warning("gateway turn error chat=%s: %s", self._chat_id, message)
         self._complete(user_facing_error_message(message))
 
@@ -195,9 +198,27 @@ class FeishuTurnOutput:
     def finalize(self, answer: str) -> None:
         self._complete(answer)
 
+    def disqualify_feedback(self) -> None:
+        """Prevent a non-success terminal path from exposing feedback."""
+        with self._lock:
+            self._feedback_disqualified = True
+            self._feedback_target = None
+
+    def take_feedback_target(self) -> FinalCardTarget | None:
+        """Consume a complete target once after the handler's success claim."""
+        with self._lock:
+            if self._feedback_disqualified or (
+                self.turn_cancel is not None and self.turn_cancel.is_set()
+            ):
+                return None
+            target, self._feedback_target = self._feedback_target, None
+            return target
+
     def shutdown(self) -> None:
         """Cancel the turn and close an already-created card without new output."""
         with self._lock:
+            self._feedback_disqualified = True
+            self._feedback_target = None
             if self._terminal:
                 return
             self._terminal = True
@@ -251,7 +272,7 @@ class FeishuTurnOutput:
                 if self._answer.strip():
                     self._update_card(self._answer)
                 if self._session is not None:
-                    self._session.finish()
+                    self._feedback_target = self._session.finish()
                 elif self._plain_fallback and self._answer:
                     self._send_plain_chunks(self._answer)
             finally:

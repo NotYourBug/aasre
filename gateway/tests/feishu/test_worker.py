@@ -297,9 +297,8 @@ def test_gateway_card_callback_returns_generic_error_on_unexpected_failure(
     assert response.toast.content == "This interaction could not be completed"
     assert response.card is None
     assert secret not in json.dumps(vars(response.toast))
-    test_logger.error.assert_called_once_with(
-        "[feishu-gateway] card callback handling failed", exc_info=True
-    )
+    test_logger.error.assert_called_once_with("[feishu-gateway] card callback handling failed")
+    assert secret not in repr(test_logger.mock_calls)
 
 
 def test_text_approval_reply_dispatches_as_an_ordinary_turn(
