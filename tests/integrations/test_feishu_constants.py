@@ -9,6 +9,11 @@ from config.constants import (
     FEISHU_CHAT_RECEIVE_ID_ENV,
     FEISHU_CHAT_RECEIVE_ID_TYPE_ENV,
     FEISHU_RATE_LIMIT_ERROR_CODES,
+    FEISHU_REACTION_GOOD_EMOJI,
+    FEISHU_REACTION_RETRY_EMOJI,
+    FEISHU_REPLY_ACTION_MAX_ENTRIES,
+    FEISHU_RETRY_EXPIRY_SECONDS,
+    FEISHU_RETRY_QUEUE_LIMIT,
     FEISHU_VALIDATION_ERROR_CODES,
 )
 
@@ -31,3 +36,11 @@ def test_feishu_delivery_error_code_allowlists_are_fixed() -> None:
         frozenset({230002, 230006, 230013, 230017, 230018, 230027})
         == FEISHU_AUTHORIZATION_ERROR_CODES
     )
+
+
+def test_feishu_reply_action_constants_match_the_approved_contract() -> None:
+    assert FEISHU_REACTION_GOOD_EMOJI == "THUMBSUP"
+    assert FEISHU_REACTION_RETRY_EMOJI == "CrossMark"
+    assert FEISHU_RETRY_EXPIRY_SECONDS == 60 * 60
+    assert FEISHU_RETRY_QUEUE_LIMIT == 64
+    assert FEISHU_REPLY_ACTION_MAX_ENTRIES == 1024

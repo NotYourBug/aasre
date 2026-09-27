@@ -173,12 +173,11 @@ class FeishuApprovalPrompter:
             message_id = self._card_client.send_card(self._chat_id, card_id)
             if not message_id:
                 raise RuntimeError("Feishu approval card send returned no message ID")
-        except Exception:
+        except Exception as exc:
             logger.warning(
-                "[feishu-gateway] approval card exposure failed tool=%s chat=%s",
+                "[feishu-gateway] approval card exposure failed tool=%s type=%s",
                 tool_name,
-                self._chat_id,
-                exc_info=True,
+                type(exc).__name__,
             )
             if registered:
                 self._pending_approvals.discard_request(approval_id)

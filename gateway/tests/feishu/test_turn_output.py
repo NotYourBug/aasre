@@ -92,6 +92,82 @@ def test_feedback_target_is_consumed_once_and_errors_disqualify(
     assert failed.take_feedback_target() is None
 
 
+def test_reply_action_lifecycle_receives_one_certain_terminal(
+    fake_stream: type[_FakeStreamSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = FinalCardTarget("card", "message", 3)
+    monkeypatch.setattr(fake_stream, "finish", lambda _self: target)
+    completed: list[FinalCardTarget] = []
+    invalidated: list[bool] = []
+    output = FeishuTurnOutput(
+        app_id="a",
+        app_secret="s",
+        chat_id="chat",
+        on_action_target=completed.append,
+        on_action_invalidated=lambda: invalidated.append(True),
+    )
+
+    output.finalize("answer")
+    output.finalize("answer")
+    output.shutdown()
+
+    assert completed == [target]
+    assert invalidated == []
+
+
+def test_action_invalidation_can_win_after_delivery_without_success_callback(
+    fake_stream: type[_FakeStreamSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = FinalCardTarget("card", "message", 3)
+    monkeypatch.setattr(fake_stream, "finish", lambda _self: target)
+    invalidated: list[bool] = []
+    output = FeishuTurnOutput(
+        app_id="a",
+        app_secret="s",
+        chat_id="chat",
+        on_action_invalidated=lambda: invalidated.append(True),
+    )
+
+    output.finalize("answer")
+    output.disqualify_feedback()
+
+    assert invalidated == [True]
+    assert output.take_feedback_target() is None
+
+
+def test_reply_action_lifecycle_invalidates_error_plain_fallback_and_shutdown(
+    monkeypatch: pytest.MonkeyPatch, fake_stream: type[_FakeStreamSession]
+) -> None:
+    invalidated: list[str] = []
+    errored = FeishuTurnOutput(
+        app_id="a",
+        app_secret="s",
+        chat_id="chat",
+        on_action_invalidated=lambda: invalidated.append("error"),
+    )
+    errored.render_error("safe error")
+
+    fake_stream.fail_start = True
+    monkeypatch.setattr(turn_output, "_send_text", lambda *_args, **_kwargs: "message")
+    fallback = FeishuTurnOutput(
+        app_id="a",
+        app_secret="s",
+        chat_id="chat",
+        on_action_invalidated=lambda: invalidated.append("fallback"),
+    )
+    fallback.finalize("answer")
+
+    shutdown = FeishuTurnOutput(
+        app_id="a",
+        app_secret="s",
+        chat_id="chat",
+        on_action_invalidated=lambda: invalidated.append("shutdown"),
+    )
+    shutdown.shutdown()
+
+    assert invalidated == ["error", "fallback", "shutdown"]
+
+
 @pytest.mark.parametrize(
     ("chunks", "expected"),
     [

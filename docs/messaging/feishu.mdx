@@ -12,6 +12,8 @@ Grant it permission to:
 - receive group messages that mention the bot;
 - send messages as the app;
 - create and update cards.
+- read either messages or message reactions for reaction events;
+- access the user ID field carried by reaction events.
 
 Add the bot to each chat where OpenSRE should run. After changing permissions,
 subscriptions, or bot settings, create and publish a new app version.
@@ -19,8 +21,9 @@ subscriptions, or bot settings, create and publish a new app version.
 ## Receive messages and card actions
 
 Choose **long connection** delivery; a public callback URL is not required. Under
-**Subscribed events**, add the message-receive event. Under **Subscribed callbacks**
-(not **Subscribed events**), add `card.action.trigger`.
+**Subscribed events**, add the message-receive event plus
+`im.message.reaction.created_v1` and `im.message.reaction.deleted_v1`. Under
+**Subscribed callbacks** (not **Subscribed events**), add `card.action.trigger`.
 
 <Warning>
 Adding the callback without publishing a new app version leaves approval buttons
@@ -101,23 +104,37 @@ Typing `approve` or `deny` is an ordinary chat message and does not authorize a
 tool. An expired or already unavailable card fails closed; it never falls back to
 text approval.
 
-## Answer feedback
+## Answer feedback and retry
 
-A successfully completed card answer offers **✅ 采纳**. Only the original
-requester, still on the allowlist and clicking in the original chat, can record
-positive feedback. Buttons remain valid for 14 days across gateway restarts.
-Plain-text fallbacks, incomplete answers and cancelled turns have no feedback entry.
+A successfully completed card answer offers **✅ 采纳** and **🔄 重试**. Only the
+original requester, still on the allowlist and acting in the original chat, can
+use them. **✅ 采纳** records positive feedback without starting a turn;
+**🔄 重试** may start one additional metered turn using the already-normalized
+original prompt, including attachment context, without downloading attachments again.
+
+The built-in `THUMBSUP` reaction is a shortcut for **✅ 采纳**. `CrossMark` is a
+shortcut for **🔄 重试**. Reaction names are exact Feishu identifiers; no reaction
+write permission is required because OpenSRE only listens for user reactions.
+Deleting a reaction before its pending action runs cancels it. Deleting it after
+execution does not undo feedback, execution, or billing.
+
+Adoption buttons remain valid for 14 days across gateway restarts. Retry is
+available only for the latest successful answer in the same session, expires
+after one hour, and does not survive a gateway restart. A newer accepted turn or
+`/new` invalidates the previous retry. Duplicate events, repeated clicks, and a
+button/reaction race can start at most one retry for an answer. Plain-text
+fallbacks, incomplete answers and cancelled turns expose neither action.
 
 The private **已收到** message acknowledges queue admission, not durable recording.
 If the gateway stops or storage fails before recording, clicking again is safe:
 repeat clicks cannot create a second feedback entry. A busy message means retry later.
-Feedback never starts a new turn or changes the shared card.
+Positive feedback never starts a new turn or changes the shared card. A retry
+receipt confirms admission only; the new answer is the visible completion signal.
 
 Feedback stores only time, platform, actor, chat, final message ID and the positive
 verdict in `gateway/feishu_feedback.jsonl` under `OPENSRE_HOME` (default `~/.opensre`);
 it stores no question or answer text. Preserve this file and the adjacent feedback-authority file when
-migrating the gateway if existing buttons must keep working. Do not subscribe to
-reaction-created or reaction-deleted events for this feature.
+migrating the gateway if existing adoption buttons must keep working.
 
 ## Troubleshooting
 
@@ -128,4 +145,6 @@ reaction-created or reaction-deleted events for this feature.
 | Direct messages do not start turns | Confirm the sender's `ou_…` Open ID is allowed and the latest app version is published. |
 | Group messages do not start turns | Add the bot to the group and mention it; broad group-message access is not required. |
 | Approval buttons do nothing | Confirm long connection is active, `card.action.trigger` is under **Subscribed callbacks**, and republish the app. |
+| Reaction shortcuts do nothing | Confirm both reaction events are subscribed, an eligible message/reaction read permission and the user ID field permission are granted, then republish the app. |
+| An old retry says it is unavailable | Retry only applies to the latest answer in the same session for one hour and is cleared by restart or `/new`. |
 | Cards or replies cannot be sent | Confirm the app can send messages and create/update cards in that chat. |

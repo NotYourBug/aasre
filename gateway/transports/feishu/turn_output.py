@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
@@ -78,15 +78,14 @@ def _send_text(
         send = client.im.v1.message.create
     try:
         response = send(request)
-    except Exception:
-        logger.exception("Feishu turn output send failed")
+    except Exception as exc:
+        logger.error("Feishu turn output send failed type=%s", type(exc).__name__)
         raise
     if not response.success():
         error = redact_token(str(getattr(response, "msg", "") or ""), app_secret)
         logger.warning(
-            "Feishu turn output send rejected code=%s: %s",
+            "Feishu turn output send rejected code=%s",
             getattr(response, "code", None),
-            error,
         )
         raise RuntimeError(f"Feishu message send failed: {error}")
     data = getattr(response, "data", None)
@@ -136,6 +135,9 @@ class FeishuTurnOutput:
         tool_hooks: object | None = None,
         turn_cancel: threading.Event | None = None,
         output_registry: FeishuTurnOutputRegistry | None = None,
+        message_observer: Callable[[str], None] | None = None,
+        on_action_target: Callable[[FinalCardTarget], None] | None = None,
+        on_action_invalidated: Callable[[], None] | None = None,
     ) -> None:
         self.tool_hooks = tool_hooks
         self.turn_cancel = turn_cancel
@@ -146,6 +148,9 @@ class FeishuTurnOutput:
         self._reply_in_thread = reply_in_thread
         self._edit_interval = edit_interval_seconds
         self._registry = output_registry
+        self._message_observer = message_observer
+        self._on_action_target = on_action_target
+        self._on_action_invalidated = on_action_invalidated
         self._lock = threading.RLock()
         self._session: CardStreamSession | None = None
         self._answer = ""
@@ -153,6 +158,7 @@ class FeishuTurnOutput:
         self._plain_fallback = False
         self._feedback_target: FinalCardTarget | None = None
         self._feedback_disqualified = False
+        self._action_lifecycle_terminal = False
         if output_registry is not None:
             output_registry.register(self)
 
@@ -165,7 +171,7 @@ class FeishuTurnOutput:
 
     def render_error(self, message: str) -> None:
         self.disqualify_feedback()
-        logger.warning("gateway turn error chat=%s: %s", self._chat_id, message)
+        logger.warning("Feishu gateway turn error")
         self._complete(user_facing_error_message(message))
 
     def set_tool_status(self, status: str) -> None:
@@ -203,6 +209,7 @@ class FeishuTurnOutput:
         with self._lock:
             self._feedback_disqualified = True
             self._feedback_target = None
+            self._invalidate_actions()
 
     def take_feedback_target(self) -> FinalCardTarget | None:
         """Consume a complete target once after the handler's success claim."""
@@ -219,6 +226,7 @@ class FeishuTurnOutput:
         with self._lock:
             self._feedback_disqualified = True
             self._feedback_target = None
+            self._invalidate_actions()
             if self._terminal:
                 return
             self._terminal = True
@@ -252,11 +260,15 @@ class FeishuTurnOutput:
                 client=client,
                 chat_id=self._chat_id,
                 min_interval=self._edit_interval,
+                message_observer=self._message_observer,
             )
             try:
                 session.start()
-            except Exception:
-                logger.exception("Feishu streaming card could not be started; using text fallback")
+            except Exception as exc:
+                logger.error(
+                    "Feishu streaming card could not be started; using text fallback type=%s",
+                    type(exc).__name__,
+                )
                 self._plain_fallback = True
                 return
             self._session = session
@@ -275,6 +287,14 @@ class FeishuTurnOutput:
                     self._feedback_target = self._session.finish()
                 elif self._plain_fallback and self._answer:
                     self._send_plain_chunks(self._answer)
+                if (
+                    self._feedback_target is not None
+                    and not self._feedback_disqualified
+                    and not (self.turn_cancel is not None and self.turn_cancel.is_set())
+                ):
+                    self._complete_actions(self._feedback_target)
+                else:
+                    self._invalidate_actions()
             finally:
                 self._discard_registry()
 
@@ -292,6 +312,34 @@ class FeishuTurnOutput:
     def _discard_registry(self) -> None:
         if self._registry is not None:
             self._registry.discard(self)
+
+    def _complete_actions(self, target: FinalCardTarget) -> None:
+        if self._action_lifecycle_terminal:
+            return
+        callback = self._on_action_target
+        if callback is None:
+            return
+        self._action_lifecycle_terminal = True
+        try:
+            callback(target)
+        except Exception as exc:
+            logger.error(
+                "Feishu reply-action completion callback failed type=%s", type(exc).__name__
+            )
+
+    def _invalidate_actions(self) -> None:
+        if self._action_lifecycle_terminal:
+            return
+        self._action_lifecycle_terminal = True
+        callback = self._on_action_invalidated
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception as exc:
+            logger.error(
+                "Feishu reply-action invalidation callback failed type=%s", type(exc).__name__
+            )
 
 
 __all__ = ["FeishuTurnOutput", "FeishuTurnOutputRegistry"]

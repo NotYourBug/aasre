@@ -125,6 +125,34 @@ def test_start_creates_a_streaming_card_and_sends_it() -> None:
     assert session.message_id == "om_1"
 
 
+def test_message_observer_sees_initial_and_overflow_cards_once() -> None:
+    client = _FakeClient()
+    observed: list[str] = []
+    session, _ = _session(client, budget=2_000, message_observer=observed.append)
+
+    session.start()
+    session.update("\n\n".join("x" * 400 for _ in range(40)))
+    session.finish()
+    session.finish()
+
+    assert observed == [f"om_{index}" for index in range(1, len(client.sent) + 1)]
+
+
+def test_message_observer_failure_disqualifies_actions_without_losing_delivery() -> None:
+    client = _FakeClient()
+
+    def _fail(_message_id: str) -> None:
+        raise RuntimeError("observer unavailable")
+
+    session, _ = _session(client, message_observer=_fail)
+    session.start()
+    session.update("answer")
+
+    assert session.finish() is None
+    assert client.sent == [("oc_chat", "c_1")]
+    assert client.updates[-1][2] == "answer"
+
+
 def test_updates_are_throttled_and_sequence_is_monotonic() -> None:
     client = _FakeClient()
     session, now = _session(client, min_interval=10.0, min_chars=1_000_000)

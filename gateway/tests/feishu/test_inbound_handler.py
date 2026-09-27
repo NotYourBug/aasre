@@ -33,9 +33,15 @@ from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.tests.billing.turn_metering_harness import metered_callback
 from gateway.transports.feishu import inbound_handler
 from gateway.transports.feishu.events import FeishuInboundMessage
-from gateway.transports.feishu.inbound_handler import _run_turn
+from gateway.transports.feishu.inbound_handler import (
+    PreparedFeishuTurn,
+    TurnExecutionResult,
+    _run_turn,
+    run_prepared_turn,
+)
 from gateway.transports.feishu.inbound_security import FeishuInboundDecision
 from gateway.transports.feishu.pending_approvals import PendingApprovals
+from gateway.transports.feishu.reply_actions import ReplyActionRegistry
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from integrations.feishu import ResourceRef
@@ -122,6 +128,7 @@ def _run(
     downloader: Any = None,
     feedback: Any = None,
     fail_send_text: bool = False,
+    reply_actions: ReplyActionRegistry | None = None,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Run one turn synchronously; returns (outbound sends, chat replies)."""
     outbound: list[tuple[str, str]] = []
@@ -154,8 +161,167 @@ def _run(
         turn_cancel=turn_cancel,
         downloader=downloader,
         feedback=feedback,
+        reply_actions=reply_actions,
     )
     return outbound, replies
+
+
+def _run_prepared(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    prepared: PreparedFeishuTurn,
+    handler: Any,
+    resolver: _FakeSessionResolver,
+    expected_session_id: str | None,
+    conversation_locks: ConversationLockRegistry | Any = None,
+) -> TurnExecutionResult:
+    """Run one already-normalized turn through the shared execution seam."""
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", lambda **_kwargs: MagicMock())
+    return run_prepared_turn(
+        prepared,
+        expected_session_id=expected_session_id,
+        settings=_settings(),
+        session_resolver=resolver,  # type: ignore[arg-type]
+        active_cancels=ActiveTurnRegistry(),
+        conversation_locks=conversation_locks or ConversationLockRegistry(),
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
+        handler=handler,
+        logger=LOGGER,
+    )
+
+
+def test_prepared_turn_uses_cached_prompt_without_downloading_attachments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = SessionCore(store=InMemorySessionStore())
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="om_1",
+        text="original caption",
+        attachments=(ResourceRef(kind="file", key="file_1", name="app.log"),),
+    )
+    prepared = PreparedFeishuTurn(
+        inbound=inbound,
+        prompt="cached normalized attachment context",
+        session_id=session.session_id,
+    )
+    download = MagicMock(side_effect=AssertionError("attachments must not be downloaded again"))
+    monkeypatch.setattr(inbound_handler, "_with_attachment_context", download)
+    seen: list[str] = []
+
+    result = _run_prepared(
+        monkeypatch,
+        prepared=prepared,
+        handler=lambda text, *_args: seen.append(text),
+        resolver=_FakeSessionResolver(session),
+        expected_session_id=session.session_id,
+    )
+
+    assert result is TurnExecutionResult.DISPATCHED
+    assert seen == ["cached normalized attachment context"]
+    download.assert_not_called()
+
+
+def test_prepared_turn_checks_session_under_lock_before_output_or_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import contextmanager
+
+    lock_held = False
+
+    class _TrackingLocks:
+        @contextmanager
+        def hold(self, _key: str) -> Any:
+            nonlocal lock_held
+            lock_held = True
+            try:
+                yield
+            finally:
+                lock_held = False
+
+    class _LockCheckingResolver(_FakeSessionResolver):
+        def resolve(self, **kwargs: object) -> SessionCore:
+            assert lock_held is True
+            return super().resolve(**kwargs)
+
+    current = SessionCore(store=InMemorySessionStore())
+    prepared = PreparedFeishuTurn(
+        inbound=_inbound(),
+        prompt="sensitive normalized prompt",
+        session_id="source-session",
+    )
+    output = MagicMock(side_effect=AssertionError("output must not be constructed"))
+    handler = MagicMock()
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", output)
+
+    result = run_prepared_turn(
+        prepared,
+        expected_session_id="source-session",
+        settings=_settings(),
+        session_resolver=_LockCheckingResolver(current),  # type: ignore[arg-type]
+        active_cancels=ActiveTurnRegistry(),
+        conversation_locks=_TrackingLocks(),  # type: ignore[arg-type]
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
+        handler=handler,
+        logger=LOGGER,
+    )
+
+    assert result is TurnExecutionResult.SESSION_MISMATCH
+    output.assert_not_called()
+    handler.assert_not_called()
+    assert lock_held is False
+
+
+def test_prepared_turn_does_not_log_normalized_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = SessionCore(store=InMemorySessionStore())
+    secret_prompt = "attachment secret must stay out of logs"
+    prepared = PreparedFeishuTurn(
+        inbound=_inbound(),
+        prompt=secret_prompt,
+        session_id=session.session_id,
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        result = _run_prepared(
+            monkeypatch,
+            prepared=prepared,
+            handler=MagicMock(),
+            resolver=_FakeSessionResolver(session),
+            expected_session_id=session.session_id,
+        )
+
+    assert result is TurnExecutionResult.DISPATCHED
+    assert secret_prompt not in caplog.text
+
+
+def test_inbound_turn_does_not_log_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = SessionCore(store=InMemorySessionStore())
+    inbound = _inbound("ordinary inbound secret must stay out of logs")
+    secret_prompt = "ordinary inbound secret must stay out of logs"
+
+    with caplog.at_level(logging.DEBUG):
+        _run(
+            monkeypatch,
+            inbound=inbound,
+            handler=MagicMock(),
+            resolver=_FakeSessionResolver(session),
+            settings=_settings(),
+            active_cancels=ActiveTurnRegistry(),
+        )
+
+    assert secret_prompt not in caplog.text
+    assert inbound.open_id not in caplog.text
+    assert inbound.chat_id not in caplog.text
+    assert session.session_id not in caplog.text
 
 
 def test_feedback_requires_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,6 +372,9 @@ def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) 
     )
     resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
     callback = MagicMock()
+    reply_actions = ReplyActionRegistry()
+    prior = reply_actions.begin(_inbound("prior"), prompt="prior", session_id="prior-session")
+    assert prior is not None
 
     _outbound, _replies = _run(
         monkeypatch,
@@ -214,11 +383,13 @@ def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) 
         resolver=resolver,
         settings=_settings(),
         active_cancels=ActiveTurnRegistry(),
+        reply_actions=reply_actions,
     )
 
     assert resolver.rotated is True
     assert resolver.resolved is False
     callback.assert_not_called()
+    assert reply_actions.state(prior.generation_id) is None
 
 
 def test_pairing_reply_does_not_require_an_organization(
