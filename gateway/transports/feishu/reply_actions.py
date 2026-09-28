@@ -122,10 +122,11 @@ class _ReplyActionRecord:
     card_id: str = ""
     next_sequence: int = 0
     reaction_times: dict[tuple[str, str, ReactionAction], int] = field(default_factory=dict)
+    active_good_messages: set[str] = field(default_factory=set)
+    active_retry_messages: set[str] = field(default_factory=set)
     pending_good: bool = False
     pending_retry: bool = False
     good_claimed: bool = False
-    good_cancelled: bool = False
 
 
 def _new_opaque_value() -> str:
@@ -325,13 +326,13 @@ class ReplyActionRegistry:
             )
             if executed:
                 if action is ReactionAction.GOOD:
-                    record.good_cancelled = not created
+                    self._set_pending(record, action, message_id, created)
                 return ReactionTransition.EXECUTED
             if not created:
-                self._set_pending(record, action, False)
+                self._set_pending(record, action, message_id, False)
                 return ReactionTransition.CANCELLED
 
-            self._set_pending(record, action, True)
+            self._set_pending(record, action, message_id, True)
             ready_states = {
                 ReplyActionState.READY,
                 ReplyActionState.RETRY_CLAIMED,
@@ -407,7 +408,6 @@ class ReplyActionRegistry:
                 return None
             record.pending_good = False
             record.good_claimed = True
-            record.good_cancelled = False
             return PreparedGood(
                 generation_id=record.generation_id,
                 final_message_id=record.final_message_id,
@@ -423,7 +423,7 @@ class ReplyActionRegistry:
             if record is None or not record.good_claimed:
                 return False
             record.good_claimed = False
-            record.pending_good = not record.good_cancelled
+            record.pending_good = bool(record.active_good_messages)
             return True
 
     def is_current_retry_claim(self, generation_id: str, conversation: str) -> bool:
@@ -530,11 +530,24 @@ class ReplyActionRegistry:
         return None
 
     @staticmethod
-    def _set_pending(record: _ReplyActionRecord, action: ReactionAction, pending: bool) -> None:
+    def _set_pending(
+        record: _ReplyActionRecord,
+        action: ReactionAction,
+        message_id: str,
+        pending: bool,
+    ) -> None:
         if action is ReactionAction.GOOD:
-            record.pending_good = pending
+            active = record.active_good_messages
         else:
-            record.pending_retry = pending
+            active = record.active_retry_messages
+        if pending:
+            active.add(message_id)
+        else:
+            active.discard(message_id)
+        if action is ReactionAction.GOOD:
+            record.pending_good = bool(active)
+        else:
+            record.pending_retry = bool(active)
 
     def _claim_retry_locked(self, record: _ReplyActionRecord) -> PreparedRetry | None:
         if record.state is not ReplyActionState.READY:

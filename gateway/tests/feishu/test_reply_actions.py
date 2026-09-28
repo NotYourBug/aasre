@@ -171,6 +171,42 @@ def test_failed_good_write_can_rearm_the_pending_intent() -> None:
     )
 
 
+def test_failed_good_write_preserves_a_reaction_on_another_answer_card() -> None:
+    registry = ReplyActionRegistry()
+    handle, _completion = _ready(registry)
+    for message_id in ("page-1", "page-2"):
+        registry.observe_reaction(
+            message_id=message_id,
+            actor_open_id="requester-1",
+            operator_type="user",
+            emoji_type="THUMBSUP",
+            action_time=1,
+            created=True,
+        )
+    assert (
+        registry.claim_pending_good(handle.generation_id, current_session_id="session-1")
+        is not None
+    )
+
+    assert (
+        registry.observe_reaction(
+            message_id="page-1",
+            actor_open_id="requester-1",
+            operator_type="user",
+            emoji_type="THUMBSUP",
+            action_time=2,
+            created=False,
+        )
+        is ReactionTransition.EXECUTED
+    )
+    assert registry.release_good_claim(handle.generation_id) is True
+
+    assert (
+        registry.claim_pending_good(handle.generation_id, current_session_id="session-1")
+        is not None
+    )
+
+
 def test_retry_claim_is_current_only_until_a_new_generation_begins() -> None:
     registry = ReplyActionRegistry()
     handle, _completion = _ready(registry)
