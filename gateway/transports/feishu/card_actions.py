@@ -14,6 +14,7 @@ from gateway.core.middleware.approvals import ApprovalBroker
 from gateway.transports.feishu.approvals import handle_card_action as handle_approval
 from gateway.transports.feishu.feedback import FeishuFeedbackService, feedback_toast
 from gateway.transports.feishu.pending_approvals import PendingApprovals
+from gateway.transports.feishu.retry import FeishuRetryService
 
 
 def handle_card_action(
@@ -24,6 +25,7 @@ def handle_card_action(
     env_allowed_open_ids: list[str],
     logger: logging.Logger,
     feedback: FeishuFeedbackService | None = None,
+    retry: FeishuRetryService | None = None,
 ) -> P2CardActionTriggerResponse:
     """Dispatch known exact payloads and reject ambiguous authority claims."""
     event = data.event
@@ -42,6 +44,8 @@ def handle_card_action(
         )
     if keys == {"feedback_id"} and feedback is not None:
         return feedback.handle_action(data)
-    if keys & {"approval_id", "feedback_id"}:
+    if keys == {"retry_id"} and retry is not None:
+        return retry.handle_action(data)
+    if keys & {"approval_id", "feedback_id", "retry_id"}:
         return feedback_toast("此操作暂不可用")
     return P2CardActionTriggerResponse()

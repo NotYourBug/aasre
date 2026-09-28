@@ -288,6 +288,6 @@ def test_a_handled_batch_is_logged(caplog: pytest.LogCaptureFixture) -> None:
             describer=lambda _d, _m: "a stack trace",
         )
 
-    assert "om_1" in caplog.text
+    assert "om_1" not in caplog.text
     assert "inlined=1" in caplog.text
     assert "described=1" in caplog.text

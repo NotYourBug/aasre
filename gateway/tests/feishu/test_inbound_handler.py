@@ -33,9 +33,15 @@ from gateway.core.middleware.conversation_locks import ConversationLockRegistry
 from gateway.tests.billing.turn_metering_harness import metered_callback
 from gateway.transports.feishu import inbound_handler
 from gateway.transports.feishu.events import FeishuInboundMessage
-from gateway.transports.feishu.inbound_handler import _run_turn
+from gateway.transports.feishu.inbound_handler import (
+    PreparedFeishuTurn,
+    TurnExecutionResult,
+    _run_turn,
+    run_prepared_turn,
+)
 from gateway.transports.feishu.inbound_security import FeishuInboundDecision
 from gateway.transports.feishu.pending_approvals import PendingApprovals
+from gateway.transports.feishu.reply_actions import ReplyActionRegistry
 from gateway.transports.feishu.session_rotation import conversation_key
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from integrations.feishu import ResourceRef
@@ -122,6 +128,7 @@ def _run(
     downloader: Any = None,
     feedback: Any = None,
     fail_send_text: bool = False,
+    reply_actions: ReplyActionRegistry | None = None,
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Run one turn synchronously; returns (outbound sends, chat replies)."""
     outbound: list[tuple[str, str]] = []
@@ -154,8 +161,219 @@ def _run(
         turn_cancel=turn_cancel,
         downloader=downloader,
         feedback=feedback,
+        reply_actions=reply_actions,
     )
     return outbound, replies
+
+
+def _run_prepared(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    prepared: PreparedFeishuTurn,
+    handler: Any,
+    resolver: _FakeSessionResolver,
+    expected_session_id: str | None,
+    conversation_locks: ConversationLockRegistry | Any = None,
+) -> TurnExecutionResult:
+    """Run one already-normalized turn through the shared execution seam."""
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", lambda **_kwargs: MagicMock())
+    return run_prepared_turn(
+        prepared,
+        expected_session_id=expected_session_id,
+        settings=_settings(),
+        session_resolver=resolver,  # type: ignore[arg-type]
+        active_cancels=ActiveTurnRegistry(),
+        conversation_locks=conversation_locks or ConversationLockRegistry(),
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
+        handler=handler,
+        logger=LOGGER,
+    )
+
+
+def test_prepared_turn_uses_cached_prompt_without_downloading_attachments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = SessionCore(store=InMemorySessionStore())
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="om_1",
+        text="original caption",
+        attachments=(ResourceRef(kind="file", key="file_1", name="app.log"),),
+    )
+    prepared = PreparedFeishuTurn(
+        inbound=inbound,
+        prompt="cached normalized attachment context",
+        session_id=session.session_id,
+    )
+    download = MagicMock(side_effect=AssertionError("attachments must not be downloaded again"))
+    monkeypatch.setattr(inbound_handler, "_with_attachment_context", download)
+    seen: list[str] = []
+
+    result = _run_prepared(
+        monkeypatch,
+        prepared=prepared,
+        handler=lambda text, *_args: seen.append(text),
+        resolver=_FakeSessionResolver(session),
+        expected_session_id=session.session_id,
+    )
+
+    assert result is TurnExecutionResult.DISPATCHED
+    assert seen == ["cached normalized attachment context"]
+    download.assert_not_called()
+
+
+def test_prepared_turn_checks_session_under_lock_before_output_or_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from contextlib import contextmanager
+
+    lock_held = False
+
+    class _TrackingLocks:
+        @contextmanager
+        def hold(self, _key: str) -> Any:
+            nonlocal lock_held
+            lock_held = True
+            try:
+                yield
+            finally:
+                lock_held = False
+
+    class _LockCheckingResolver(_FakeSessionResolver):
+        def resolve(self, **kwargs: object) -> SessionCore:
+            assert lock_held is True
+            return super().resolve(**kwargs)
+
+    current = SessionCore(store=InMemorySessionStore())
+    prepared = PreparedFeishuTurn(
+        inbound=_inbound(),
+        prompt="sensitive normalized prompt",
+        session_id="source-session",
+    )
+    output = MagicMock(side_effect=AssertionError("output must not be constructed"))
+    handler = MagicMock()
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", output)
+
+    result = run_prepared_turn(
+        prepared,
+        expected_session_id="source-session",
+        settings=_settings(),
+        session_resolver=_LockCheckingResolver(current),  # type: ignore[arg-type]
+        active_cancels=ActiveTurnRegistry(),
+        conversation_locks=_TrackingLocks(),  # type: ignore[arg-type]
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
+        handler=handler,
+        logger=LOGGER,
+    )
+
+    assert result is TurnExecutionResult.SESSION_MISMATCH
+    output.assert_not_called()
+    handler.assert_not_called()
+    assert lock_held is False
+
+
+def test_prepared_retry_refuses_a_generation_replaced_while_deferred(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = SessionCore(store=InMemorySessionStore())
+    inbound = _inbound("original")
+    registry = ReplyActionRegistry()
+    handle = registry.begin(inbound, prompt="normalized original", session_id=session.session_id)
+    assert handle is not None
+    assert registry.observe_message(handle.generation_id, "answer")
+    assert (
+        registry.complete(
+            handle.generation_id,
+            final_message_id="answer",
+            card_id="card",
+            next_sequence=2,
+        )
+        is not None
+    )
+    retry = registry.claim_retry_token(
+        handle.retry_token,
+        actor_open_id=inbound.open_id,
+        chat_id=inbound.chat_id,
+        current_session_id=session.session_id,
+    )
+    assert retry is not None
+    registry.begin(
+        _inbound("newer", message_id="m2"), prompt="newer", session_id=session.session_id
+    )
+    output = MagicMock(side_effect=AssertionError("stale retry must not construct output"))
+    handler = MagicMock()
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", output)
+
+    result = run_prepared_turn(
+        PreparedFeishuTurn(retry.inbound, retry.prompt, retry.session_id),
+        expected_session_id=retry.session_id,
+        expected_generation_id=retry.generation_id,
+        settings=_settings(),
+        session_resolver=_FakeSessionResolver(session),  # type: ignore[arg-type]
+        active_cancels=ActiveTurnRegistry(),
+        conversation_locks=ConversationLockRegistry(),
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
+        handler=handler,
+        logger=LOGGER,
+        reply_actions=registry,
+    )
+
+    assert result is TurnExecutionResult.GENERATION_MISMATCH
+    output.assert_not_called()
+    handler.assert_not_called()
+
+
+def test_prepared_turn_does_not_log_normalized_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = SessionCore(store=InMemorySessionStore())
+    secret_prompt = "attachment secret must stay out of logs"
+    prepared = PreparedFeishuTurn(
+        inbound=_inbound(),
+        prompt=secret_prompt,
+        session_id=session.session_id,
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        result = _run_prepared(
+            monkeypatch,
+            prepared=prepared,
+            handler=MagicMock(),
+            resolver=_FakeSessionResolver(session),
+            expected_session_id=session.session_id,
+        )
+
+    assert result is TurnExecutionResult.DISPATCHED
+    assert secret_prompt not in caplog.text
+
+
+def test_inbound_turn_does_not_log_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = SessionCore(store=InMemorySessionStore())
+    inbound = _inbound("ordinary inbound secret must stay out of logs")
+    secret_prompt = "ordinary inbound secret must stay out of logs"
+
+    with caplog.at_level(logging.DEBUG):
+        _run(
+            monkeypatch,
+            inbound=inbound,
+            handler=MagicMock(),
+            resolver=_FakeSessionResolver(session),
+            settings=_settings(),
+            active_cancels=ActiveTurnRegistry(),
+        )
+
+    assert secret_prompt not in caplog.text
+    assert inbound.open_id not in caplog.text
+    assert inbound.chat_id not in caplog.text
+    assert session.session_id not in caplog.text
 
 
 def test_feedback_requires_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,6 +424,9 @@ def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) 
     )
     resolver = _FakeSessionResolver(SessionCore(store=InMemorySessionStore()))
     callback = MagicMock()
+    reply_actions = ReplyActionRegistry()
+    prior = reply_actions.begin(_inbound("prior"), prompt="prior", session_id="prior-session")
+    assert prior is not None
 
     _outbound, _replies = _run(
         monkeypatch,
@@ -214,11 +435,13 @@ def test_new_rotation_short_circuits_the_agent(monkeypatch: pytest.MonkeyPatch) 
         resolver=resolver,
         settings=_settings(),
         active_cancels=ActiveTurnRegistry(),
+        reply_actions=reply_actions,
     )
 
     assert resolver.rotated is True
     assert resolver.resolved is False
     callback.assert_not_called()
+    assert reply_actions.state(prior.generation_id) is None
 
 
 def test_pairing_reply_does_not_require_an_organization(
@@ -357,6 +580,70 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
     assert seen_cancel and seen_cancel[0].is_set()
 
     feedback.issue.assert_not_called()
+
+
+def test_attachment_normalization_is_covered_by_the_turn_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    done = threading.Event()
+    handler = MagicMock()
+    outbound: list[str] = []
+
+    def blocking_download(_url: str, _max_bytes: int, _keep_partial: bool) -> DownloadedAttachment:
+        entered.set()
+        assert release.wait(5)
+        return DownloadedAttachment(data=b"late", content_type="text/plain", truncated=False)
+
+    def fake_send(
+        _app_id: str, _app_secret: str, _chat_id: str, text: str, **_kwargs: object
+    ) -> None:
+        outbound.append(text)
+
+    monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", fake_send)
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="om-attachment",
+        text="caption",
+        attachments=(ResourceRef(kind="file", key="file-1", name="slow.log"),),
+    )
+
+    def run() -> None:
+        try:
+            _run_turn(
+                inbound,
+                settings=_settings(turn_timeout_seconds=0.05),
+                session_resolver=_FakeSessionResolver(  # type: ignore[arg-type]
+                    SessionCore(store=InMemorySessionStore())
+                ),
+                active_cancels=ActiveTurnRegistry(),
+                conversation_locks=ConversationLockRegistry(),
+                approvals=ApprovalBroker(),
+                pending_approvals=PendingApprovals(),
+                send_text=lambda _chat, _text: "",
+                handler=handler,
+                logger=LOGGER,
+                downloader=blocking_download,
+            )
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert entered.wait(2)
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and TURN_TIMEOUT_MESSAGE not in outbound:
+            time.sleep(0.02)
+        assert TURN_TIMEOUT_MESSAGE in outbound
+    finally:
+        release.set()
+    assert done.wait(5)
+    thread.join(5)
+
+    handler.assert_not_called()
 
 
 def test_pre_registered_cancel_short_circuits_before_agent(

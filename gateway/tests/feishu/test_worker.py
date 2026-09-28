@@ -115,6 +115,31 @@ class _CallbackClient:
         type(self).response = self._event_handler._do_without_validation(_card_payload_bytes())
 
 
+class _ReactionClient:
+    def __init__(
+        self,
+        *_args: object,
+        event_handler: EventDispatcherHandler,
+        **_kwargs: object,
+    ) -> None:
+        self._event_handler = event_handler
+
+    def start(self) -> None:
+        event = {
+            "message_id": "answer-1",
+            "reaction_type": {"emoji_type": "CrossMark"},
+            "operator_type": "user",
+            "user_id": {"open_id": REQUESTER},
+            "action_time": "10",
+        }
+        for event_type in (
+            "im.message.reaction.created_v1",
+            "im.message.reaction.deleted_v1",
+        ):
+            payload = _p2_payload(event_type, event)
+            self._event_handler._do_without_validation(json.dumps(payload).encode())
+
+
 async def _dispatch_frame(dispatcher: EventDispatcherHandler, frame: Frame) -> None:
     client = worker._ReadyOnConnectClient(
         "app",
@@ -301,6 +326,31 @@ def test_gateway_card_callback_returns_generic_error_on_unexpected_failure(
     assert secret not in repr(test_logger.mock_calls)
 
 
+def test_gateway_registers_created_and_deleted_reaction_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[object] = []
+    monkeypatch.setattr(worker, "_ReadyOnConnectClient", _ReactionClient)
+
+    worker.run_feishu_gateway_thread(
+        settings=FeishuGatewaySettings(
+            app_id="app", app_secret="secret", allowed_open_ids=[REQUESTER]
+        ),
+        logger=LOGGER,
+        handler=MagicMock(),
+        bindings=MagicMock(),
+        executor=MagicMock(spec=ThreadPoolExecutor),
+        stop_event=threading.Event(),
+        ready_event=threading.Event(),
+        output_registry=MagicMock(),
+        reaction_handler=observed.append,
+    )
+
+    assert [event.created for event in observed] == [True, False]
+    assert all(event.message_id == "answer-1" for event in observed)
+    assert all(event.emoji_type == "CrossMark" for event in observed)
+
+
 def test_text_approval_reply_dispatches_as_an_ordinary_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -480,6 +530,44 @@ def test_dispatch_failure_releases_slot_and_unregisters_cancel() -> None:
     # The failed dispatch released the single slot and dropped the cancel Event.
     assert slots.acquire(blocking=False) is True
     assert registry.request_stop(key) is False
+
+
+def test_turn_done_releases_single_slot_before_deferred_callback() -> None:
+    released = threading.Event()
+    callback_saw_slot: list[bool] = []
+    slots = threading.BoundedSemaphore(1)
+    inbound = FeishuInboundMessage("chat", "actor", "message", "prompt")
+
+    async def _run() -> None:
+        loop = asyncio.get_running_loop()
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            with patch("gateway.transports.feishu.worker.handle_inbound_turn", MagicMock()):
+                assert _dispatch_turn(
+                    inbound,
+                    settings=FeishuGatewaySettings(app_id="app", app_secret="secret"),
+                    session_resolver=MagicMock(),  # type: ignore[arg-type]
+                    active_cancels=ActiveTurnRegistry(),
+                    conversation_locks=ConversationLockRegistry(),
+                    approvals=ApprovalBroker(),
+                    pending_approvals=PendingApprovals(),
+                    send_text=lambda _c, _t: "",
+                    handler=MagicMock(),
+                    logger=LOGGER,
+                    executor=executor,
+                    loop=loop,
+                    turn_slots=slots,
+                    on_released=lambda _key: (
+                        callback_saw_slot.append(slots.acquire(blocking=False)),
+                        released.set(),
+                    ),
+                )
+            assert await asyncio.to_thread(released.wait, 2)
+        finally:
+            executor.shutdown(wait=True)
+
+    asyncio.run(_run())
+    assert callback_saw_slot == [True]
 
 
 REQUESTER = "ou_user-1"

@@ -1,7 +1,7 @@
 # 飞书通讯能力补全设计（Feishu Capability Completion）
 
 - Date: 2026-09-12（2026-09-18 修订后续路线）
-- Status: Revision approved by user（2026-09-18）；S1–S4、S5a、S6 已交付，S5b 为下一项
+- Status: Revision approved by user（2026-09-18）；S1–S4、S5a–S5b、S6 已交付，S5c 已实现并待真实验收/PR
 - 上游 spec: [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
@@ -144,11 +144,13 @@ Slack Block Kit 的 markdown 原生渲染，在飞书的对应物是 **CardKit 2
 
 **关键约束**：
 
-- 仅内置 emoji 枚举（`THUMBSUP` / `EYE` / `CROSS`），不支持租户自定义表情。
+- 仅内置 emoji 枚举，不支持租户自定义表情。S5c 复核后的正式标识为 `THUMBSUP` / `CrossMark`；
+  早期调研记录中的 `EYE` / `CROSS` 不是当前官方标识。
 - 机器人**只能删除自己添加的**表情；用户打的表情删不掉，且事件**不返回 `reaction_id`**。
 - 用户可在流式**进行中**点表情 → 事件先到，而 agent 尚未生成完 → 状态机必须处理「生成中收到反馈」。
-- 权限：需 `获取单聊、群组消息` + `查看消息表情回复`，并订阅
-  `im.message.reaction.created_v1` / `deleted_v1`；表情事件**同样走 WS 长连接**，无需公网回调。
+- 权限：事件页列出的 `获取单聊、群组消息` / `查看消息表情回复` 任一项可满足事件权限；S5c 还依赖
+  用户 ID 字段权限取得 `open_id`，并订阅 `im.message.reaction.created_v1` / `deleted_v1`。表情事件
+  **同样走 WS 长连接**，无需公网回调。
 
 ## 3. 决策
 
@@ -165,7 +167,7 @@ Slack Block Kit 的 markdown 原生渲染，在飞书的对应物是 **CardKit 2
 - **R28（用户，2026-09-13）：reactions 纳入范围**，分两层用途：
   (a) **必做** —— 收到用户消息后立即在**用户原消息**上添加 `EYE`(👀) 表示已收到；best-effort，
   失败静默忽略、不阻塞主链路；
-  (b) **辅助** —— 监听 `im.message.reaction.created_v1`，把流式卡片消息上的 `THUMBSUP`/`CROSS`
+  (b) **辅助** —— 监听 `im.message.reaction.created_v1`，把流式卡片消息上的 `THUMBSUP`/`CrossMark`
   映射到与卡片按钮相同的业务逻辑，**仅作捷径，不作唯一入口**。
   **正式反馈入口**是流式结束后用 CardKit 组件追加 API 在卡片末尾插入的按钮组件。
   不要用 reaction 承担多状态控制 —— 状态一多就全部交给卡片按钮。
@@ -207,8 +209,8 @@ S5c/S8b 需要独立核实 reaction 标识与客户端能力，不能假定 S5b 
 | **S4** | 对话输出接线 | 把 turn 输出接到 S3：流式卡片 + 长消息分片 + outbound 回复线程 | S3 | 长调查可见进度；超长回答不截断；回复线程正确 | 已完成 |
 | **S5a** | 卡片审批 | Approve/Deny 卡片按钮**取代**文本审批；迁移既有授权与生命周期语义 | S3、S4；控制台订阅 `card.action.trigger` 并重新发布应用 | 只有原请求者可决定；重复、过期、旁观者、关闭排空均安全；真实回调验收通过后删除文本审批，合并态不存在双轨 | 已完成 |
 | **S6** | 告警与投递卡片化 | watchdog 告警、调查报告、定时投递改走 S3 渲染层 | S3 | 三条路径均以卡片保留 markdown/表格；超预算分页、卡片失败时兜底也不截断内容 | 已完成 |
-| **S5b** | 正式反馈（👀 已撤销） | 流式结束后追加 ✅采纳按钮；复用 transport-neutral feedback JSONL 存储 | S4、S5a | 仅原请求者可采纳；按最终 `message_id` + 操作者幂等记录 `good`，不保存回答正文、不启动新 turn | 现场反馈验收通过，待交付闭环 |
-| **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CROSS` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 待实施 |
+| **S5b** | 正式反馈（👀 已撤销） | 流式结束后追加 ✅采纳按钮；复用 transport-neutral feedback JSONL 存储 | S4、S5a | 仅原请求者可采纳；按最终 `message_id` + 操作者幂等记录 `good`，不保存回答正文、不启动新 turn | 已完成 |
+| **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CrossMark` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 已通过真实验收，待 PR |
 | **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 待实施 |
 | **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 重写 persona / action / gather / assistant 片段；只暴露当前渠道能力 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | 待实施 |
 | **S8b** | Agent 读取类工具 | 读消息、搜消息、列成员、加 reaction 逐项调研、逐项 spec/PR，不以工具集合打包 | S1、S7；加 reaction 复用 S5b/S5c 客户端能力 | 每项工具分别定义权限、分页、目标范围与跨聊天授权；只注册已完成且可验收的能力 | 待实施 |
@@ -277,7 +279,7 @@ R27 让卡片按钮取代文本审批，那就必须把文本审批的授权校�
 **→ S3 的退出标准“达到工程预算或平台拒绝时不丢内容”覆盖级 0–3；级 4 已由 S4 的纯文本
 分片补齐。**
 
-**当前顺序（R33）**：S1–S4、S5a、S6 已完成；后续为 **S5b → S5c → S8a → S7 → S8b**。
+**当前顺序（R33）**：S1–S4、S5a–S5c、S6 已完成；S5c 待 PR；后续为 **S8a → S7 → S8b**。
 不得再以“S7/S8 无依赖、可随时插入”为由提前全局改 prompt 或一次性铺开未调研工具。
 
 ## 5. 明确排除（YAGNI）
@@ -389,17 +391,17 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 | **生成中、重复或旧卡上的重试/reaction** | 高 | S5c 单独设计状态机；一次用户意图最多产生一个 turn/计费，流式中不立即重启，旧卡与会话轮换必须有确定结果，`deleted_v1` 不做补偿动作 |
 | `sequence` 乱序（`300317`）/ 流式超时（`200850`） | 中 | 每卡片维护单调递增计数器 + `uuid` 幂等；错误码走降级级 3 |
 | 卡片路径需控制台手工配置（订阅回调 + 重新发布） | 中 | **代码侧不可自动化**；S5a 合并前须在测试 chat 完成按钮回调验收，否则不得删除文本审批 |
-| S5c 另需订阅 `im.message.reaction.created_v1` / `deleted_v1` 并申请两个权限 | 中 | S5c 开工前单独预检；权限缺失时**收不到表情事件**（静默无反馈），不得影响 S5b 正式按钮入口 |
+| S5c 另需订阅 `im.message.reaction.created_v1` / `deleted_v1`，具备事件页列出的任一消息/reaction 读取权限，并为 `open_id` 具备用户 ID 字段权限 | 中 | S5c 开工前单独预检；权限或字段权限缺失时可能收不到事件或无法授权操作者，不得影响 S5b 正式按钮入口 |
 | S7 全局飞书化污染其他 transport | 高 | prompt 从当前 turn 的 platform/capability context 生成；非飞书 turn 不得出现飞书 persona、目标或工具名 |
 | S8b 读取工具扩大跨聊天数据面 | 高 | 每项工具单独 spec/PR，明确 token 权限、分页、目标 allowlist 与跨聊天授权；未完成的工具不得注册或写入 prompt |
 | S2 需飞书权限 `im:message` / `im:message:readonly`（**不是** `im:resource` —— 那是上传接口） | 中 | 同上，需控制台授权 |
 
 ## 8. 后续
 
-S1–S4、S5a、S6 已交付。本文只固定剩余子项目的边界、依赖、顺序与退出标准，**不作为一个跨项目实现计划**。
+S1–S4、S5a–S5b、S6 已交付。本文只固定剩余子项目的边界、依赖、顺序与退出标准，**不作为一个跨项目实现计划**。
 
-下一项是 **S5b 已读与正式反馈**：先单独 brainstorm 并形成 S5b spec，经用户评审后再用 `writing-plans`
-生成只覆盖 S5b 的实现计划。其余项目依 R33 顺序重复
+当前交付边界是 **S5c 真实飞书验收、PR、CI 与合并后检查**；完成后下一项为 **S8a Agent 主动发送/回复工具**。
+其余项目依 R33 顺序重复
 spec → plan → 实现 → PR 闭环。任何阶段发现需要改变相邻项目接口，先回写本文并重新取得用户确认。
 
 后续每个项目的现场验收除自身退出标准外，共用以下门禁：不提交 `.env` 或凭据；测试 chat 的外部发送

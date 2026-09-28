@@ -9,6 +9,8 @@ import pytest
 
 from gateway.transports.feishu import turn_output
 from gateway.transports.feishu.background import FeishuGatewayBackground
+from gateway.transports.feishu.events import FeishuInboundMessage
+from gateway.transports.feishu.reply_actions import ReplyActionRegistry
 from gateway.transports.feishu.turn_output import FeishuTurnOutput, FeishuTurnOutputRegistry
 
 
@@ -50,6 +52,15 @@ def test_background_stop_cancels_and_finishes_an_active_card(
     cancel = threading.Event()
     output.turn_cancel = cancel
     output.set_tool_status("working")
+    reply_actions = ReplyActionRegistry()
+    assert (
+        reply_actions.begin(
+            FeishuInboundMessage("chat", "actor", "message", "prompt"),
+            prompt="normalized",
+            session_id="session",
+        )
+        is not None
+    )
     background = FeishuGatewayBackground(
         thread=_Thread(),  # type: ignore[arg-type]
         stop_event=threading.Event(),
@@ -57,9 +68,19 @@ def test_background_stop_cancels_and_finishes_an_active_card(
         bindings=_Closeable(),  # type: ignore[arg-type]
         executor=_Executor(),  # type: ignore[arg-type]
         output_registry=registry,
+        reply_actions=reply_actions,
     )
 
     assert background.stop(timeout=0.1) is True
     assert cancel.is_set()
     assert output._session is not None
     assert output._session.finished == 1
+    assert len(reply_actions) == 0
+    assert (
+        reply_actions.begin(
+            FeishuInboundMessage("chat", "actor", "later", "prompt"),
+            prompt="later",
+            session_id="session",
+        )
+        is None
+    )

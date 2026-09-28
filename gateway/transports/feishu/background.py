@@ -17,7 +17,9 @@ from config.constants.paths import host_home
 from gateway.core.storage.session.binding_store import BindingStore, open_binding_store
 from gateway.transports.feishu.feedback import FeishuFeedbackService
 from gateway.transports.feishu.feedback_authority import FeedbackAuthorityStore
+from gateway.transports.feishu.final_actions import FinalActionCoordinator
 from gateway.transports.feishu.inbound_security import is_feedback_actor_authorized
+from gateway.transports.feishu.reply_actions import ReplyActionRegistry
 from gateway.transports.feishu.settings import FeishuGatewaySettings
 from gateway.transports.feishu.turn_output import FeishuTurnOutputRegistry
 from gateway.transports.feishu.worker import (
@@ -41,6 +43,8 @@ class FeishuGatewayBackground:
         executor: ThreadPoolExecutor,
         output_registry: FeishuTurnOutputRegistry,
         feedback: FeishuFeedbackService | None = None,
+        reply_actions: ReplyActionRegistry | None = None,
+        final_actions: FinalActionCoordinator | None = None,
     ) -> None:
         self._thread = thread
         self._stop_event = stop_event
@@ -49,22 +53,30 @@ class FeishuGatewayBackground:
         self._executor = executor
         self._output_registry = output_registry
         self._feedback = feedback
+        self._reply_actions = reply_actions
+        self._final_actions = final_actions
 
     def stop(self, *, timeout: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> bool:
         deadline = time.monotonic() + timeout
         self._stop_event.set()
+        if self._final_actions is not None:
+            self._final_actions.shutdown(timeout_seconds=0)
+        if self._reply_actions is not None:
+            self._reply_actions.close()
         if self._feedback is not None:
             self._feedback.shutdown(timeout_seconds=0)
         self._output_registry.shutdown()
         self._thread.join(timeout=max(0, deadline - time.monotonic()))
         if self._feedback is not None:
             self._feedback.shutdown(timeout_seconds=max(0, deadline - time.monotonic()))
+        if self._final_actions is not None:
+            self._final_actions.shutdown(timeout_seconds=max(0, deadline - time.monotonic()))
         self._executor.shutdown(wait=False, cancel_futures=False)
         try:
             self._bindings.close()
-        except Exception:
+        except Exception as exc:
             logging.getLogger(__name__).debug(
-                "[feishu-gateway] binding store close failed", exc_info=True
+                "[feishu-gateway] binding store close failed type=%s", type(exc).__name__
             )
         return not self._thread.is_alive()
 
@@ -111,12 +123,17 @@ def start_feishu_gateway_background(
     feedback = FeishuFeedbackService(
         authority=authority,
         feedback_path=gateway_home / FEISHU_FEEDBACK_FILENAME,
+        authorized=authorized,
+    )
+    reply_actions = ReplyActionRegistry()
+    final_actions = FinalActionCoordinator(
+        feedback=feedback,
+        reply_actions=reply_actions,
         card_client=FeishuCardClient(
             settings.app_id,
             settings.app_secret,
             timeout_seconds=FEISHU_INTERACTION_HTTP_TIMEOUT_SECONDS,
         ),
-        authorized=authorized,
     )
     thread = threading.Thread(
         target=run_feishu_gateway_thread,
@@ -130,6 +147,8 @@ def start_feishu_gateway_background(
             "ready_event": ready_event,
             "output_registry": output_registry,
             "feedback": feedback,
+            "reply_actions": reply_actions,
+            "final_actions": final_actions,
         },
         name="FeishuGatewayThread",
         daemon=True,
@@ -143,6 +162,8 @@ def start_feishu_gateway_background(
         executor=executor,
         output_registry=output_registry,
         feedback=feedback,
+        reply_actions=reply_actions,
+        final_actions=final_actions,
     )
 
 

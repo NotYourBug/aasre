@@ -213,14 +213,14 @@ def build_attachments_context(
         remaining -= item.consumed
         rendered.append(item)
     skipped = len(refs) - len(attempted)
-    _log_batch(message_id, rendered, skipped=skipped)
+    _log_batch(rendered, skipped=skipped)
     sections = [item.section for item in rendered]
     if skipped:
         sections.append(f"- {skipped} more — omitted (attachment limit reached)")
     return join_attachment_sections(sections)
 
 
-def _log_batch(message_id: str, rendered: list[_Rendered], *, skipped: int) -> None:
+def _log_batch(rendered: list[_Rendered], *, skipped: int) -> None:
     """Log one summary line per message.
 
     The gateway process runs at INFO and every failure path already warns, so
@@ -230,9 +230,8 @@ def _log_batch(message_id: str, rendered: list[_Rendered], *, skipped: int) -> N
     counts = Counter(item.outcome for item in rendered)
     summary = " ".join(f"{outcome}={counts[outcome]}" for outcome in sorted(counts))
     logger.info(
-        "%s message=%s resources=%d %s skipped=%d",
+        "%s resources=%d %s skipped=%d",
         _LOG_PREFIX,
-        message_id,
         len(rendered),
         summary,
         skipped,

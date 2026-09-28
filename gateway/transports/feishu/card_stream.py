@@ -67,6 +67,7 @@ class CardStreamSession:
         min_interval: float = FEISHU_STREAM_MIN_INTERVAL_SECONDS,
         min_chars: int = FEISHU_STREAM_MIN_CHARS,
         clock: Callable[[], float] = time.monotonic,
+        message_observer: Callable[[str], None] | None = None,
     ) -> None:
         self._client = client
         self._chat_id = chat_id
@@ -75,6 +76,7 @@ class CardStreamSession:
         self._min_interval = min_interval
         self._min_chars = min_chars
         self._clock = clock
+        self._message_observer = message_observer
 
         self._card_id = ""
         self._message_id = ""
@@ -91,6 +93,7 @@ class CardStreamSession:
         self._last_complete: FinalCardTarget | None = None
         self._finished = False
         self._final_target: FinalCardTarget | None = None
+        self._observation_failed = False
 
     @property
     def card_id(self) -> str:
@@ -117,6 +120,7 @@ class CardStreamSession:
         )
         if not self._card_id or not self._message_id:
             raise ValueError("Card delivery requires nonempty IDs")
+        self._observe_message(self._message_id)
         self._started = True
         self._last_flush = self._clock()
 
@@ -175,8 +179,11 @@ class CardStreamSession:
             logger.warning("Feishu card stream rejected; falling back to complete cards")
             self._render_error_fallback(text)
             return
-        except Exception:
-            logger.exception("Feishu card update failed; falling back to complete cards")
+        except Exception as exc:
+            logger.error(
+                "Feishu card update failed; falling back to complete cards type=%s",
+                type(exc).__name__,
+            )
             self._render_error_fallback(text)
             return
         self._rendered = text
@@ -213,8 +220,11 @@ class CardStreamSession:
         except FeishuStreamRejected:
             self._render_error_fallback(text)
             return
-        except Exception:
-            logger.exception("Feishu card overflow failed; falling back to complete cards")
+        except Exception as exc:
+            logger.error(
+                "Feishu card overflow failed; falling back to complete cards type=%s",
+                type(exc).__name__,
+            )
             self._render_error_fallback(text)
             return
         self._rendered = kept
@@ -239,9 +249,13 @@ class CardStreamSession:
                 )
                 if not card_id or not message_id:
                     raise ValueError("Card delivery requires nonempty IDs")
+                self._observe_message(message_id)
                 self._last_complete = FinalCardTarget(card_id, message_id, 1)
-        except Exception:
-            logger.exception("Feishu overflow cards could not all be delivered")
+        except Exception as exc:
+            logger.error(
+                "Feishu overflow cards could not all be delivered type=%s",
+                type(exc).__name__,
+            )
             self._delivery_failed = True
         else:
             self._delivered = upto
@@ -253,8 +267,8 @@ class CardStreamSession:
         """Level 3: the stream is unusable — deliver everything as plain cards."""
         try:
             self._close_current()
-        except Exception:
-            logger.exception("Feishu card stream could not even be closed")
+        except Exception as exc:
+            logger.error("Feishu card stream could not even be closed type=%s", type(exc).__name__)
         self._send_overflow(text, upto=len(text))
 
     def _close_current(self) -> None:
@@ -276,6 +290,7 @@ class CardStreamSession:
             self._started
             and not self._delivery_failed
             and not self._close_failed
+            and not self._observation_failed
             and self._pending.strip()
             and self._delivered >= len(self._pending.rstrip())
         ):
@@ -283,6 +298,16 @@ class CardStreamSession:
                 self._card_id, self._message_id, self._sequence + 1
             )
         return self._final_target
+
+    def _observe_message(self, message_id: str) -> None:
+        observer = self._message_observer
+        if observer is None:
+            return
+        try:
+            observer(message_id)
+        except Exception as exc:
+            self._observation_failed = True
+            logger.error("Feishu card message observation failed type=%s", type(exc).__name__)
 
     def _finish_delivery(self) -> None:
         """Flush the last text and close streaming, exactly once."""
@@ -298,8 +323,8 @@ class CardStreamSession:
             return
         try:
             self._close_current()
-        except Exception:
-            logger.exception("Feishu card stream could not be closed")
+        except Exception as exc:
+            logger.error("Feishu card stream could not be closed type=%s", type(exc).__name__)
         finally:
             self._closed = True
 
