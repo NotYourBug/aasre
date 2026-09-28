@@ -1,7 +1,7 @@
 # Feishu S5c Retry and Reaction Shortcuts Design
 
 - Date: 2026-09-27
-- Status: Approved by user (2026-09-27); implemented locally, pending live acceptance and PR
+- Status: Delivered (PR #37, merged 2026-09-28)
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
 - Scope: S5c only
 
