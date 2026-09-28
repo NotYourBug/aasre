@@ -12,7 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from core.llm.types import ToolCall
-from core.tool.contracts import AgentTool, AgentToolContext, RuntimeTool
+from core.tool.contracts import AgentTool, AgentToolContext, RegisteredTool, RuntimeTool
 from infrastructure.observability.errors.boundary import report_exception
 from infrastructure.observability.trace.redaction import redact_sensitive
 from infrastructure.observability.trace.spans import mark_span_outcome, tool_span
@@ -362,12 +362,26 @@ def _execute_one_tool_call(
             logger.debug("tool_call validation_error name=%s id=%s", tc.name, tc.id)
             return _error_result(validation_error, metadata={"tool_name": tc.name})
 
+        prepared_arguments = dict(tc.input)
+        if isinstance(tool, RegisteredTool):
+            prepared_arguments, preparation_error = tool.prepare_public_input(
+                prepared_arguments, resolved_integrations
+            )
+            if preparation_error:
+                mark_span_outcome(span_attrs, "validation_error", error=True)
+                return _error_result(preparation_error, metadata={"tool_name": tc.name})
+            validation_error = tool.validate_public_input(prepared_arguments)
+            if validation_error:
+                mark_span_outcome(span_attrs, "validation_error", error=True)
+                return _error_result(validation_error, metadata={"tool_name": tc.name})
+        prepared_call = ToolCall(id=tc.id, name=tc.name, input=prepared_arguments)
+
         source = str(getattr(tool, "source", "unknown"))
         span_attrs["source"] = source
         request = ToolExecutionRequest(
-            tool_call=tc,
+            tool_call=prepared_call,
             tool=tool,
-            arguments=dict(tc.input),
+            arguments=prepared_arguments,
             source=source,
             resolved_integrations=resolved_integrations,
         )
@@ -384,9 +398,10 @@ def _execute_one_tool_call(
             )
 
         logger.debug("tool_call start name=%s id=%s source=%s", tc.name, tc.id, source)
+        prepared_call.input = request.arguments
         raw = _invoke_runtime_tool(
             tool,
-            tc,
+            prepared_call,
             request=request,
             tool_sources=tool_sources,
             resolved_integrations=resolved_integrations,

@@ -138,6 +138,10 @@ def _value_matches_schema(value: Any, schema: dict[str, Any]) -> bool:
     if "enum" in schema and value not in schema.get("enum", []):
         return False
 
+    minimum = schema.get("minLength")
+    if isinstance(value, str) and isinstance(minimum, int) and len(value) < minimum:
+        return False
+
     one_of = schema.get("oneOf")
     if isinstance(one_of, list) and one_of:
         return any(
@@ -225,6 +229,7 @@ class ToolMetadata(StrictConfigModel):
     outputs: dict[str, str] = Field(default_factory=dict)
     output_schema: dict[str, Any] | None = None
     injected_params: list[str] = Field(default_factory=list)
+    log_omitted_input_fields: list[str] = Field(default_factory=list)
     retrieval_controls: RetrievalControls = Field(
         default_factory=RetrievalControls,
         description="Declares which structured retrieval controls this tool supports",
@@ -282,6 +287,7 @@ class BaseTool(ABC):
     #: Optional per-tool output→evidence mapper; assign a module-level function.
     evidence_mapper: ClassVar[EvidenceMapper | None] = None
     injected_params: ClassVar[Sequence[str]] = ()
+    log_omitted_input_fields: ClassVar[Sequence[str]] = ()
     retrieval_controls: ClassVar[RetrievalControls] = (
         RetrievalControls()
     )  # Declares supported controls
@@ -312,6 +318,7 @@ class BaseTool(ABC):
         cls.output_schema = metadata.output_schema
         cls.injected_params = tuple(metadata.injected_params)
         cls.retrieval_controls = metadata.retrieval_controls
+        cls.log_omitted_input_fields = tuple(metadata.log_omitted_input_fields)
         registry = cls.registry_metadata()
         cls.surfaces = registry.surfaces
         cls.tags = registry.tags
@@ -337,6 +344,7 @@ class BaseTool(ABC):
                 "outputs": dict(getattr(cls, "outputs", {})),
                 "output_schema": getattr(cls, "output_schema", None),
                 "injected_params": list(getattr(cls, "injected_params", [])),
+                "log_omitted_input_fields": list(getattr(cls, "log_omitted_input_fields", [])),
                 "retrieval_controls": getattr(cls, "retrieval_controls", RetrievalControls()),
             }
         )
@@ -369,6 +377,12 @@ class BaseTool(ABC):
         """
         return {}
 
+    def prepare_public_input(
+        self, payload: dict[str, Any], _resolved_integrations: dict[str, Any]
+    ) -> tuple[dict[str, Any], str | None]:
+        """Normalize safe public arguments before approval and execution."""
+        return dict(payload), None
+
 
 REGISTERED_TOOL_ATTR = "__opensre_registered_tool__"
 
@@ -381,6 +395,12 @@ def _always_available(_sources: dict[str, dict]) -> bool:
 
 def _extract_no_params(_sources: dict[str, dict]) -> dict[str, Any]:
     return {}
+
+
+def _prepare_no_change(
+    payload: dict[str, Any], _resolved_integrations: dict[str, Any]
+) -> tuple[dict[str, Any], str | None]:
+    return dict(payload), None
 
 
 def _normalize_surfaces(surfaces: Iterable[ToolSurface] | None) -> tuple[ToolSurface, ...]:
@@ -410,6 +430,7 @@ class RegisteredTool:
     output_schema: dict[str, Any] | None = None
     evidence_mapper: EvidenceMapper | None = field(default=None, repr=False)
     injected_params: tuple[str, ...] = ()
+    log_omitted_input_fields: tuple[str, ...] = ()
     retrieval_controls: RetrievalControls = field(
         default_factory=RetrievalControls,
     )
@@ -421,6 +442,9 @@ class RegisteredTool:
         default=_extract_no_params,
         repr=False,
     )
+    prepare_public_input: Callable[
+        [dict[str, Any], dict[str, Any]], tuple[dict[str, Any], str | None]
+    ] = field(default=_prepare_no_change, repr=False)
     tags: tuple[str, ...] = ()
     requires_approval: bool = False
     approval_reason: str = ""
@@ -449,6 +473,7 @@ class RegisteredTool:
                 "outputs": self.outputs,
                 "output_schema": self.output_schema,
                 "injected_params": list(self.injected_params),
+                "log_omitted_input_fields": list(self.log_omitted_input_fields),
                 "retrieval_controls": self.retrieval_controls,
             }
         )
@@ -467,6 +492,7 @@ class RegisteredTool:
         self.outputs = metadata.outputs
         self.output_schema = metadata.output_schema
         self.injected_params = tuple(metadata.injected_params)
+        self.log_omitted_input_fields = tuple(metadata.log_omitted_input_fields)
         self.retrieval_controls = metadata.retrieval_controls
         self.surfaces = _normalize_surfaces(self.surfaces)
 
@@ -476,6 +502,8 @@ class RegisteredTool:
             raise TypeError("is_available must be callable")
         if not callable(self.extract_params):
             raise TypeError("extract_params must be callable")
+        if not callable(self.prepare_public_input):
+            raise TypeError("prepare_public_input must be callable")
 
     @property
     def inputs(self) -> dict[str, str]:
@@ -591,6 +619,7 @@ class RegisteredTool:
             outputs=metadata.outputs,
             output_schema=resolved_output_schema,
             injected_params=tuple(metadata.injected_params),
+            log_omitted_input_fields=tuple(metadata.log_omitted_input_fields),
             retrieval_controls=retrieval_controls or metadata.retrieval_controls,
             surfaces=resolved_surfaces,
             run=tool.run,  # type: ignore[attr-defined]
@@ -601,6 +630,7 @@ class RegisteredTool:
             ),
             is_available=tool.is_available,
             extract_params=tool.extract_params,
+            prepare_public_input=tool.prepare_public_input,
             tags=resolved_tags,
             requires_approval=bool(
                 requires_approval
@@ -651,9 +681,14 @@ class RegisteredTool:
         output_model: type[BaseModel] | None = None,
         evidence_mapper: EvidenceMapper | None = None,
         injected_params: tuple[str, ...] | None = None,
+        log_omitted_input_fields: tuple[str, ...] | None = None,
         retrieval_controls: RetrievalControls | None = None,
         is_available: Callable[[dict[str, dict]], bool] | None = None,
         extract_params: Callable[[dict[str, dict]], dict[str, Any]] | None = None,
+        prepare_public_input: Callable[
+            [dict[str, Any], dict[str, Any]], tuple[dict[str, Any], str | None]
+        ]
+        | None = None,
         tags: tuple[str, ...] | None = None,
         requires_approval: bool | None = None,
         approval_reason: str | None = None,
@@ -691,10 +726,12 @@ class RegisteredTool:
             output_schema=resolved_output_schema,
             evidence_mapper=evidence_mapper,
             injected_params=tuple(injected_params or ()),
+            log_omitted_input_fields=tuple(log_omitted_input_fields or ()),
             retrieval_controls=retrieval_controls or RetrievalControls(),
             run=func,
             is_available=is_available or _always_available,
             extract_params=extract_params or _extract_no_params,
+            prepare_public_input=prepare_public_input or _prepare_no_change,
             tags=tags or (),
             requires_approval=bool(requires_approval),
             approval_reason=approval_reason or "",

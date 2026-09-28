@@ -29,7 +29,9 @@ ActionObserverFactory = Callable[[str], ToolEventObserver]
 _TOOL_INPUT_LOG_PREVIEW_LIMIT = 500
 
 
-def _tool_input_preview(value: Any) -> str:
+def _tool_input_preview(value: Any, *, omitted_fields: tuple[str, ...] = ()) -> str:
+    if isinstance(value, dict) and omitted_fields:
+        value = {key: "<omitted>" if key in omitted_fields else item for key, item in value.items()}
     preview = repr(value)
     if len(preview) > _TOOL_INPUT_LOG_PREVIEW_LIMIT:
         return f"{preview[: _TOOL_INPUT_LOG_PREVIEW_LIMIT - 3]}..."
@@ -66,6 +68,7 @@ class DefaultToolProvider:
         self._task_cancel_ports_factory = task_cancel_ports_factory
         self._slash_ports_factory = slash_ports_factory
         self._tool_scope: ActionToolScope | None = None
+        self._log_omitted_fields: dict[str, tuple[str, ...]] = {}
 
     def bind_session(self, session: Any) -> None:
         """Point this provider at a freshly resolved session (gateway reuse)."""
@@ -131,13 +134,22 @@ class DefaultToolProvider:
         )
         self._tool_scope = ctx
         if self._precomputed_action_tools is not None:
-            return list(self._precomputed_action_tools)
+            action_tools = list(self._precomputed_action_tools)
+            self._log_omitted_fields = {
+                tool.name: tuple(getattr(tool, "log_omitted_input_fields", ()))
+                for tool in action_tools
+            }
+            return action_tools
         resolved = (
             resolved_integrations
             if resolved_integrations is not None
             else self._resolved_integrations()
         )
-        return get_action_tools_from_integrations_view(ctx, resolved_integrations=resolved)
+        action_tools = get_action_tools_from_integrations_view(ctx, resolved_integrations=resolved)
+        self._log_omitted_fields = {
+            tool.name: tuple(getattr(tool, "log_omitted_input_fields", ())) for tool in action_tools
+        }
+        return action_tools
 
     def tool_resources(self) -> dict[str, Any]:
         if self._tool_scope is None:
@@ -163,7 +175,10 @@ class DefaultToolProvider:
                     logger.info(
                         "tool action name=%s input=%s",
                         tool_name,
-                        _tool_input_preview(data.get("input", {})),
+                        _tool_input_preview(
+                            data.get("input", {}),
+                            omitted_fields=self._log_omitted_fields.get(tool_name, ()),
+                        ),
                     )
             elif kind == "tool_end":
                 tool_name = str(data.get("name") or "").strip()
