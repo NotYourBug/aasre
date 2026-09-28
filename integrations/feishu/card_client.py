@@ -196,9 +196,17 @@ class FeishuCardClient:
             stage=FeishuCardCallStage.APPEND_ELEMENTS,
         )
 
-    def send_card(self, chat_id: str, card_id: str, *, receive_id_type: str = "chat_id") -> str:
+    def send_card(
+        self,
+        chat_id: str,
+        card_id: str,
+        *,
+        receive_id_type: str = "chat_id",
+        uuid: str | None = None,
+    ) -> str:
         """Send a message referencing an existing card; return its ``message_id``."""
         content = json.dumps({"type": "card", "data": {"card_id": card_id}})
+        request_uuid = uuid or str(uuid4())
         if self._reply_to_message_id:
             request = (
                 ReplyMessageRequest.builder()
@@ -208,6 +216,7 @@ class FeishuCardClient:
                     .msg_type("interactive")
                     .content(content)
                     .reply_in_thread(self._reply_in_thread)
+                    .uuid(request_uuid)
                     .build()
                 )
                 .build()
@@ -222,6 +231,7 @@ class FeishuCardClient:
                     .receive_id(chat_id)
                     .msg_type("interactive")
                     .content(content)
+                    .uuid(request_uuid)
                     .build()
                 )
                 .build()

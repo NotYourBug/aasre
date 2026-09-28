@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from integrations.feishu.card_client import FeishuCardClient
@@ -36,6 +37,7 @@ _SAFE_ERRORS = {
     FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN: "Feishu delivery could not be confirmed",
     FeishuDeliveryErrorCategory.TRANSPORT: "Feishu delivery transport failed",
     FeishuDeliveryErrorCategory.INTERNAL: "Feishu delivery failed",
+    FeishuDeliveryErrorCategory.CANCELLED: "Feishu delivery was cancelled",
 }
 
 
@@ -142,6 +144,25 @@ def _confirmed_text_send(result: FeishuMessageSendResult) -> bool:
     )
 
 
+def _incomplete_result(
+    *,
+    attempted: bool,
+    confirmed_message_ids: list[str],
+    delivery_mode: FeishuDeliveryMode,
+    error_category: FeishuDeliveryErrorCategory,
+) -> FeishuDocumentDeliveryResult:
+    return FeishuDocumentDeliveryResult(
+        status=(
+            FeishuDeliveryStatus.PARTIAL if confirmed_message_ids else FeishuDeliveryStatus.FAILED
+        ),
+        attempted=attempted,
+        confirmed_message_ids=tuple(confirmed_message_ids),
+        delivery_mode=delivery_mode,
+        error_category=error_category,
+        error=_safe_error(error_category),
+    )
+
+
 def _fallback_to_text(
     *,
     app_id: str,
@@ -154,6 +175,10 @@ def _fallback_to_text(
     card_page_total: int,
     trigger_category: FeishuDeliveryErrorCategory,
     confirmed_message_ids: list[str],
+    attempted: bool = False,
+    reply_to_message_id: str = "",
+    reply_in_thread: bool = False,
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> FeishuDocumentDeliveryResult:
     chunks = _text_chunks(markdown, source_cursor)
     logger.warning(
@@ -169,14 +194,38 @@ def _fallback_to_text(
     )
 
     for chunk in chunks:
-        try:
-            send_result = post_feishu_message(
-                app_id,
-                app_secret,
-                receive_id,
-                receive_id_type,
-                chunk.text,
+        if cancel_requested is not None and cancel_requested():
+            return _summary(
+                _incomplete_result(
+                    attempted=attempted,
+                    confirmed_message_ids=confirmed_message_ids,
+                    delivery_mode=FeishuDeliveryMode.TEXT_FALLBACK,
+                    error_category=FeishuDeliveryErrorCategory.CANCELLED,
+                ),
+                receive_id_type=receive_id_type,
+                card_page_total=card_page_total,
+                fallback_chunk_total=len(chunks),
             )
+        try:
+            attempted = True
+            if reply_to_message_id:
+                send_result = post_feishu_message(
+                    app_id,
+                    app_secret,
+                    receive_id,
+                    receive_id_type,
+                    chunk.text,
+                    reply_to_message_id=reply_to_message_id,
+                    reply_in_thread=reply_in_thread,
+                )
+            else:
+                send_result = post_feishu_message(
+                    app_id,
+                    app_secret,
+                    receive_id,
+                    receive_id_type,
+                    chunk.text,
+                )
         except Exception:
             send_result = FeishuMessageSendResult(
                 accepted=False,
@@ -195,7 +244,11 @@ def _fallback_to_text(
         logger.warning(
             _FAILED_LOG,
             extra={
-                "status": FeishuDeliveryStatus.FAILED.value,
+                "status": (
+                    FeishuDeliveryStatus.PARTIAL.value
+                    if confirmed_message_ids
+                    else FeishuDeliveryStatus.FAILED.value
+                ),
                 "delivery_mode": FeishuDeliveryMode.TEXT_FALLBACK.value,
                 "receive_id_type": _log_receive_id_type(receive_id_type),
                 "fallback_chunk_index": chunk.index,
@@ -205,13 +258,11 @@ def _fallback_to_text(
             },
         )
         return _summary(
-            FeishuDocumentDeliveryResult(
-                status=FeishuDeliveryStatus.FAILED,
-                attempted=True,
-                confirmed_message_ids=tuple(confirmed_message_ids),
+            _incomplete_result(
+                attempted=attempted,
+                confirmed_message_ids=confirmed_message_ids,
                 delivery_mode=FeishuDeliveryMode.TEXT_FALLBACK,
                 error_category=terminal_category,
-                error=_safe_error(terminal_category),
             ),
             receive_id_type=receive_id_type,
             card_page_total=card_page_total,
@@ -221,7 +272,7 @@ def _fallback_to_text(
     return _summary(
         FeishuDocumentDeliveryResult(
             status=FeishuDeliveryStatus.DEGRADED_SUCCESS,
-            attempted=True,
+            attempted=attempted,
             confirmed_message_ids=tuple(confirmed_message_ids),
             delivery_mode=FeishuDeliveryMode.TEXT_FALLBACK,
             error_category=trigger_category,
@@ -240,8 +291,12 @@ def deliver_feishu_document(
     receive_id: str,
     receive_id_type: str,
     markdown: str,
+    reply_to_message_id: str = "",
+    reply_in_thread: bool = False,
+    cancel_requested: Callable[[], bool] | None = None,
+    stop_on_ambiguous_write: bool = False,
 ) -> FeishuDocumentDeliveryResult:
-    """Deliver complete Markdown as cards, then lossless plaintext if needed."""
+    """Deliver Markdown losslessly; agent callers opt in to stopping on ambiguous writes."""
     app_id = app_id.strip()
     app_secret = app_secret.strip()
     receive_id = receive_id.strip()
@@ -275,6 +330,19 @@ def deliver_feishu_document(
             fallback_chunk_total=0,
         )
 
+    if cancel_requested is not None and cancel_requested():
+        return _summary(
+            _incomplete_result(
+                attempted=False,
+                confirmed_message_ids=[],
+                delivery_mode=FeishuDeliveryMode.NONE,
+                error_category=FeishuDeliveryErrorCategory.CANCELLED,
+            ),
+            receive_id_type=receive_id_type,
+            card_page_total=0,
+            fallback_chunk_total=0,
+        )
+
     try:
         pages = paginate(markdown)
     except Exception:
@@ -289,6 +357,9 @@ def deliver_feishu_document(
             card_page_total=0,
             trigger_category=FeishuDeliveryErrorCategory.INTERNAL,
             confirmed_message_ids=[],
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+            cancel_requested=cancel_requested,
         )
 
     if not pages:
@@ -303,10 +374,22 @@ def deliver_feishu_document(
             card_page_total=0,
             trigger_category=FeishuDeliveryErrorCategory.INTERNAL,
             confirmed_message_ids=[],
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+            cancel_requested=cancel_requested,
         )
 
     try:
-        client = FeishuCardClient(app_id, app_secret)
+        client = (
+            FeishuCardClient(
+                app_id,
+                app_secret,
+                reply_to_message_id=reply_to_message_id,
+                reply_in_thread=reply_in_thread,
+            )
+            if reply_to_message_id
+            else FeishuCardClient(app_id, app_secret)
+        )
     except Exception:
         return _fallback_to_text(
             app_id=app_id,
@@ -319,14 +402,30 @@ def deliver_feishu_document(
             card_page_total=len(pages),
             trigger_category=FeishuDeliveryErrorCategory.TRANSPORT,
             confirmed_message_ids=[],
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+            cancel_requested=cancel_requested,
         )
 
     confirmed_message_ids: list[str] = []
     source_cursor = 0
     failure_category: FeishuDeliveryErrorCategory | None = None
     failure_page_index = 1
+    attempted = False
 
     for page in pages:
+        if cancel_requested is not None and cancel_requested():
+            return _summary(
+                _incomplete_result(
+                    attempted=attempted,
+                    confirmed_message_ids=confirmed_message_ids,
+                    delivery_mode=FeishuDeliveryMode.CARDS,
+                    error_category=FeishuDeliveryErrorCategory.CANCELLED,
+                ),
+                receive_id_type=receive_id_type,
+                card_page_total=len(pages),
+                fallback_chunk_total=0,
+            )
         failure_page_index = page.index
         if page.source_start != source_cursor:
             failure_category = FeishuDeliveryErrorCategory.INTERNAL
@@ -347,7 +446,11 @@ def deliver_feishu_document(
         if not card_id:
             failure_category = FeishuDeliveryErrorCategory.DEFINITE_REJECTION
             break
+        if cancel_requested is not None and cancel_requested():
+            failure_category = FeishuDeliveryErrorCategory.CANCELLED
+            break
         try:
+            attempted = True
             message_id = client.send_card(
                 receive_id,
                 card_id,
@@ -379,6 +482,22 @@ def deliver_feishu_document(
             fallback_chunk_total=0,
         )
 
+    if failure_category is FeishuDeliveryErrorCategory.CANCELLED or (
+        stop_on_ambiguous_write
+        and failure_category is FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN
+    ):
+        return _summary(
+            _incomplete_result(
+                attempted=attempted,
+                confirmed_message_ids=confirmed_message_ids,
+                delivery_mode=FeishuDeliveryMode.CARDS,
+                error_category=failure_category,
+            ),
+            receive_id_type=receive_id_type,
+            card_page_total=len(pages),
+            fallback_chunk_total=0,
+        )
+
     return _fallback_to_text(
         app_id=app_id,
         app_secret=app_secret,
@@ -390,6 +509,10 @@ def deliver_feishu_document(
         card_page_total=len(pages),
         trigger_category=failure_category or FeishuDeliveryErrorCategory.INTERNAL,
         confirmed_message_ids=confirmed_message_ids,
+        attempted=attempted,
+        reply_to_message_id=reply_to_message_id,
+        reply_in_thread=reply_in_thread,
+        cancel_requested=cancel_requested,
     )
 
 

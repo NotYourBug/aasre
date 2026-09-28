@@ -16,6 +16,7 @@ class FeishuDeliveryStatus(StrEnum):
     SUCCESS = "success"
     DEGRADED_SUCCESS = "degraded_success"
     FAILED = "failed"
+    PARTIAL = "partial"
     SKIPPED = "skipped"
 
 
@@ -34,6 +35,7 @@ class FeishuDeliveryErrorCategory(StrEnum):
     DELIVERY_UNCERTAIN = "delivery_uncertain"
     TRANSPORT = "transport"
     INTERNAL = "internal"
+    CANCELLED = "cancelled"
 
 
 class FeishuSendCertainty(StrEnum):
