@@ -14,12 +14,14 @@ from __future__ import annotations
 
 from config.constants.feishu import (
     FEISHU_ALLOWED_OPEN_IDS_ENV,
+    FEISHU_ALLOWED_OUTBOUND_TARGETS_ENV,
     FEISHU_APP_ID_ENV,
     FEISHU_APP_SECRET_ENV,
     FEISHU_CHAT_RECEIVE_ID_ENV,
     FEISHU_CHAT_RECEIVE_ID_TYPE_ENV,
     FEISHU_RECEIVE_ID_TYPES,
 )
+from integrations.feishu.outbound_targets import parse_outbound_targets
 from integrations.feishu.verifier import verify_feishu
 from integrations.setup_flow import IntegrationSetupSpec, SetupField
 
@@ -28,6 +30,16 @@ APP_SECRET_FIELD = "app_secret"
 RECEIVE_ID_FIELD = "receive_id"
 RECEIVE_ID_TYPE_FIELD = "receive_id_type"
 ALLOWED_OPEN_IDS_FIELD = "allowed_open_ids"
+ALLOWED_OUTBOUND_TARGETS_FIELD = "allowed_outbound_targets"
+
+
+def validate_outbound_targets(value: str) -> str | None:
+    """Give prompt-time feedback for malformed exact outbound capabilities."""
+    try:
+        parse_outbound_targets(value)
+    except ValueError:
+        return "Use comma-separated receive_id_type:receive_id targets."
+    return None
 
 
 def validate_receive_id_type(value: str) -> str | None:
@@ -85,16 +97,26 @@ FEISHU_SETUP = IntegrationSetupSpec(
             env_var=FEISHU_ALLOWED_OPEN_IDS_ENV,
             required=False,
         ),
+        SetupField(
+            name=ALLOWED_OUTBOUND_TARGETS_FIELD,
+            label="Allowed outbound targets",
+            prompt="Comma-separated exact outbound targets (optional)",
+            env_var=FEISHU_ALLOWED_OUTBOUND_TARGETS_ENV,
+            required=False,
+            validate=validate_outbound_targets,
+        ),
     ),
     verify=verify_feishu,
 )
 
 __all__ = [
     "ALLOWED_OPEN_IDS_FIELD",
+    "ALLOWED_OUTBOUND_TARGETS_FIELD",
     "APP_ID_FIELD",
     "APP_SECRET_FIELD",
     "FEISHU_SETUP",
     "RECEIVE_ID_FIELD",
     "RECEIVE_ID_TYPE_FIELD",
     "validate_receive_id_type",
+    "validate_outbound_targets",
 ]

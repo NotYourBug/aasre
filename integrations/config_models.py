@@ -846,6 +846,10 @@ class FeishuConfig(StrictConfigModel):
         default="",
         description="Comma-separated open ids allowed to talk to the bot.",
     )
+    allowed_outbound_targets: str = Field(
+        default="",
+        description="Comma-separated exact outbound message targets.",
+    )
 
     @field_validator("app_id", mode="before")
     @classmethod

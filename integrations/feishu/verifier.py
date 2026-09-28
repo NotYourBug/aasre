@@ -11,7 +11,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from config.constants.feishu import FEISHU_RECEIVE_ID_TYPES
 from infrastructure.delivery.notifications.redaction import redact_token
+from integrations.feishu.outbound_targets import parse_outbound_targets
 from integrations.verification import register_verifier, result
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,16 @@ def verify_feishu(source: str, config: dict[str, Any]) -> dict[str, str]:
     app_secret = str(config.get("app_secret", "")).strip()
     if not app_id or not app_secret:
         return result("feishu", source, "missing", "Missing app_id or app_secret.")
+
+    try:
+        parse_outbound_targets(str(config.get("allowed_outbound_targets") or ""))
+    except ValueError:
+        return result("feishu", source, "failed", "Invalid Feishu outbound target configuration.")
+
+    default_receive_id = str(config.get("receive_id") or "").strip()
+    default_receive_id_type = str(config.get("receive_id_type") or "chat_id").strip()
+    if default_receive_id and default_receive_id_type not in FEISHU_RECEIVE_ID_TYPES:
+        return result("feishu", source, "failed", "Invalid Feishu default destination type.")
 
     try:
         import lark_oapi as lark

@@ -8,7 +8,11 @@ check the loop calls.
 
 from __future__ import annotations
 
-from integrations.feishu.setup import FEISHU_SETUP, RECEIVE_ID_TYPE_FIELD
+from integrations.feishu.setup import (
+    ALLOWED_OUTBOUND_TARGETS_FIELD,
+    FEISHU_SETUP,
+    RECEIVE_ID_TYPE_FIELD,
+)
 from integrations.setup_flow import SetupField
 
 
@@ -37,3 +41,13 @@ def test_destination_type_check_accepts_every_value_the_api_takes() -> None:
     assert validate is not None
     for name in ("chat_id", "email", "open_id", "union_id", "user_id"):
         assert validate(name) is None, name
+
+
+def test_outbound_target_setup_rejects_malformed_entries() -> None:
+    field = next(
+        field for field in FEISHU_SETUP.fields if field.name == ALLOWED_OUTBOUND_TARGETS_FIELD
+    )
+
+    assert field.validate is not None
+    assert field.validate("chat_id:oc_ops,unknown") is not None
+    assert field.validate("chat_id:oc_ops,open_id:ou_owner") is None

@@ -144,6 +144,26 @@ def test_chat_credentials_resolve_allowed_open_ids(monkeypatch: pytest.MonkeyPat
     assert credentials.load_chat_credentials_from_env().allowed_open_ids == "ou_store"
 
 
+def test_stored_empty_outbound_authority_revokes_stale_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FEISHU_CHAT_RECEIVE_ID", "oc_stale")
+    monkeypatch.setenv("FEISHU_ALLOWED_OUTBOUND_TARGETS", "chat_id:oc_stale")
+    monkeypatch.setattr(
+        credentials,
+        "_feishu_store_config",
+        lambda: {
+            "app_id": "cli_store",
+            "app_secret": "secret",
+            "receive_id": "",
+            "allowed_outbound_targets": "",
+        },
+    )
+
+    resolved = credentials.load_chat_credentials_from_env()
+
+    assert resolved.receive_id == ""
+    assert resolved.allowed_outbound_targets == ""
+
+
 def test_store_lookup_failure_degrades_to_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     """A broken catalog read must not take the gateway down at import time."""
 
