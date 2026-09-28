@@ -125,6 +125,7 @@ class _ReplyActionRecord:
     pending_good: bool = False
     pending_retry: bool = False
     good_claimed: bool = False
+    good_cancelled: bool = False
 
 
 def _new_opaque_value() -> str:
@@ -323,6 +324,8 @@ class ReplyActionRegistry:
                 }
             )
             if executed:
+                if action is ReactionAction.GOOD:
+                    record.good_cancelled = not created
                 return ReactionTransition.EXECUTED
             if not created:
                 self._set_pending(record, action, False)
@@ -404,6 +407,7 @@ class ReplyActionRegistry:
                 return None
             record.pending_good = False
             record.good_claimed = True
+            record.good_cancelled = False
             return PreparedGood(
                 generation_id=record.generation_id,
                 final_message_id=record.final_message_id,
@@ -419,7 +423,7 @@ class ReplyActionRegistry:
             if record is None or not record.good_claimed:
                 return False
             record.good_claimed = False
-            record.pending_good = True
+            record.pending_good = not record.good_cancelled
             return True
 
     def is_current_retry_claim(self, generation_id: str, conversation: str) -> bool:

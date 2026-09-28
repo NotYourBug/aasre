@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from threading import Event
 from unittest.mock import MagicMock
 
@@ -195,3 +196,67 @@ def test_rejected_feedback_queue_rearms_the_good_intent() -> None:
     assert (
         registry.claim_pending_good(handle.generation_id, current_session_id="session") is not None
     )
+
+
+def test_failed_feedback_write_does_not_restore_a_deleted_good_intent() -> None:
+    registry = ReplyActionRegistry()
+    handle = registry.begin(
+        FeishuInboundMessage("chat", "actor", "source", "prompt"),
+        prompt="normalized",
+        session_id="session",
+    )
+    assert handle is not None
+    registry.observe_message(handle.generation_id, "answer")
+    registry.complete(
+        handle.generation_id,
+        final_message_id="answer",
+        card_id="card",
+        next_sequence=2,
+    )
+    submitted = Event()
+    completions: list[Callable[[bool], None]] = []
+    feedback = MagicMock()
+
+    def record_good(**kwargs: object) -> bool:
+        completion = kwargs["on_complete"]
+        assert callable(completion)
+        completions.append(completion)
+        submitted.set()
+        return True
+
+    feedback.record_good.side_effect = record_good
+    service = FeishuReactionService(
+        reply_actions=registry,
+        feedback=feedback,
+        authorized=lambda _actor, _chat: True,
+        current_session_id=lambda _actor, _chat: "session",
+        dispatch_retry=lambda _prepared: True,
+    )
+
+    service.handle(
+        FeishuReactionEvent(
+            event_id="created",
+            message_id="answer",
+            actor_open_id="actor",
+            operator_type="user",
+            emoji_type="THUMBSUP",
+            action_time=1,
+            created=True,
+        )
+    )
+    assert submitted.wait(2)
+    service.handle(
+        FeishuReactionEvent(
+            event_id="deleted",
+            message_id="answer",
+            actor_open_id="actor",
+            operator_type="user",
+            emoji_type="THUMBSUP",
+            action_time=2,
+            created=False,
+        )
+    )
+    completions[0](False)
+    service.shutdown(timeout_seconds=5)
+
+    assert registry.claim_pending_good(handle.generation_id, current_session_id="session") is None
