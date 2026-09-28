@@ -13,9 +13,52 @@ from core.tool.execution import (
     ToolExecutionRequest,
     execute_tool_calls,
 )
+from gateway.core.middleware.approvals import arguments_preview
 from integrations.feishu.tools.feishu_reply_message_tool import tool as reply_module
 from integrations.feishu.tools.feishu_send_message_tool import tool as send_module
 from integrations.feishu.tools.feishu_send_message_tool.tool import feishu_send_message
+
+
+def test_canonical_target_stays_visible_in_approval_preview() -> None:
+    previews: list[str] = []
+
+    def before(request: ToolExecutionRequest) -> BeforeToolCallResult:
+        previews.append(arguments_preview(request.arguments))
+        return BeforeToolCallResult(blocked=True, reason="do not dispatch")
+
+    sources = {
+        "feishu": {
+            "app_id": "cli_test",
+            "app_secret": "secret",
+            "allowed_outbound_targets": "chat_id:oc_ops",
+        }
+    }
+    calls = (
+        (
+            feishu_send_message,
+            {"message": "x" * 1_000, "target": "chat_id:oc_ops"},
+        ),
+        (
+            reply_module.feishu_reply_message,
+            {
+                "message": "x" * 1_000,
+                "message_id": "om_parent",
+                "target": "chat_id:oc_ops",
+                "reply_in_thread": False,
+            },
+        ),
+    )
+    for candidate, arguments in calls:
+        result = execute_tool_calls(
+            [ToolCall(id="blocked-write", name=candidate.name, input=arguments)],
+            [RegisteredTool.from_base_tool(candidate)],
+            sources,
+            hooks=ToolExecutionHooks(before_tool_call=before),
+        )[0]
+        assert result.is_error is True
+
+    assert len(previews) == 2
+    assert all('"target": "chat_id:oc_ops"' in preview for preview in previews)
 
 
 def test_unauthorized_target_is_rejected_before_approval() -> None:

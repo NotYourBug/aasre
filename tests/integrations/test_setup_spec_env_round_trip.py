@@ -308,6 +308,7 @@ _SUBMITTED: dict[str, dict[str, str]] = {
         "receive_id": "oc_feishu_1",
         "receive_id_type": "chat_id",
         "allowed_open_ids": "ou_1,ou_2",
+        "allowed_outbound_targets": "chat_id:oc_ops",
     },
     "kubernetes": {
         "kubeconfig_path": "/tmp/opensre-test-kubeconfig",

@@ -6,7 +6,13 @@ from typing import Any
 
 from core.agent.cancel import tool_resources_cancel_requested
 from core.domain.types.tools import ToolSurface
-from core.tool import AgentToolContext, BaseTool, SideEffectLevel, ToolExecutionResult
+from core.tool import (
+    AgentToolContext,
+    BaseTool,
+    SideEffectLevel,
+    ToolExecutionResult,
+    report_run_error,
+)
 from core.tool_framework import tool
 from integrations.feishu.credentials import load_chat_credentials_from_env
 from integrations.feishu.document_delivery import deliver_feishu_document
@@ -24,7 +30,15 @@ class FeishuReplyMessageTool(BaseTool):
     """Reply with complete Markdown only to a verified parent in an approved chat."""
 
     name = "feishu_reply_message"
-    description = "Reply to a message in an authorized Feishu chat after approval."
+    description = (
+        "Reply with complete Markdown to a specified message in an authorized Feishu chat "
+        "after approval. Use only for a requested parent-message reply, not an ordinary chat answer."
+    )
+    use_cases = [
+        "Replying to a named incident message in an authorized Feishu chat",
+        "Posting a requested threaded update beneath an existing Feishu message",
+    ]
+    anti_examples = ["Sending a new message when the requested parent is unavailable"]
     source = "feishu"
     requires = ["feishu"]
     surfaces = (ToolSurface.ACTION,)
@@ -144,7 +158,13 @@ class FeishuReplyMessageTool(BaseTool):
                 cancel_requested=lambda: tool_resources_cancel_requested(context.resources),
                 stop_on_ambiguous_write=True,
             )
-        except Exception:
+        except Exception as exc:
+            report_run_error(
+                RuntimeError(f"Feishu reply delivery raised {type(exc).__name__}"),
+                tool_name=self.name,
+                source="feishu",
+                component="integrations.feishu.tools.feishu_reply_message_tool",
+            )
             return failed_result(
                 target=resolved.canonical,
                 reply_to_message_id=message_id,

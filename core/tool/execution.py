@@ -362,10 +362,11 @@ def _execute_one_tool_call(
             logger.debug("tool_call validation_error name=%s id=%s", tc.name, tc.id)
             return _error_result(validation_error, metadata={"tool_name": tc.name})
 
-        prepared_arguments = dict(tc.input)
+        prepared_call = tc
+        request_arguments = dict(tc.input)
         if isinstance(tool, RegisteredTool):
             prepared_arguments, preparation_error = tool.prepare_public_input(
-                prepared_arguments, resolved_integrations
+                dict(tc.input), resolved_integrations
             )
             if preparation_error:
                 mark_span_outcome(span_attrs, "validation_error", error=True)
@@ -374,14 +375,17 @@ def _execute_one_tool_call(
             if validation_error:
                 mark_span_outcome(span_attrs, "validation_error", error=True)
                 return _error_result(validation_error, metadata={"tool_name": tc.name})
-        prepared_call = ToolCall(id=tc.id, name=tc.name, input=prepared_arguments)
+            # Field order matters in truncated approval previews, even when dicts compare equal.
+            if prepared_arguments != tc.input or tuple(prepared_arguments) != tuple(tc.input):
+                prepared_call = ToolCall(id=tc.id, name=tc.name, input=prepared_arguments)
+                request_arguments = prepared_arguments
 
         source = str(getattr(tool, "source", "unknown"))
         span_attrs["source"] = source
         request = ToolExecutionRequest(
             tool_call=prepared_call,
             tool=tool,
-            arguments=prepared_arguments,
+            arguments=request_arguments,
             source=source,
             resolved_integrations=resolved_integrations,
         )
@@ -398,7 +402,8 @@ def _execute_one_tool_call(
             )
 
         logger.debug("tool_call start name=%s id=%s source=%s", tc.name, tc.id, source)
-        prepared_call.input = request.arguments
+        if prepared_call is not tc:
+            prepared_call.input = request.arguments
         raw = _invoke_runtime_tool(
             tool,
             prepared_call,

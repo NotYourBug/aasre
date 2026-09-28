@@ -5,14 +5,22 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from lark_oapi.api.im.v1 import GetMessageResponse
 
 from integrations.feishu import message_lookup
 
 
-def _stub_lookup(monkeypatch: pytest.MonkeyPatch, items: list[Any]) -> None:
+def _stub_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    items: list[Any] | None = None,
+    *,
+    response: Any | None = None,
+) -> None:
     class _Message:
         def get(self, request: Any) -> Any:
             assert request.message_id == "om_parent"
+            if response is not None:
+                return response
             data = type("Data", (), {"items": items})()
             return type("Response", (), {"success": lambda _self: True, "data": data})()
 
@@ -96,6 +104,35 @@ def test_exact_live_parent_returns_only_metadata(monkeypatch: pytest.MonkeyPatch
 
     result = message_lookup.lookup_reply_parent("cli_1", "secret", "om_parent", "oc_approved")
 
+    assert result == message_lookup.FeishuMessageMetadata("om_parent", "oc_approved")
+    assert "body" not in vars(result)
+
+
+def test_sdk_deserialized_live_parent_returns_only_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = GetMessageResponse(
+        {
+            "code": 0,
+            "data": {
+                "items": [
+                    {
+                        "message_id": "om_parent",
+                        "chat_id": "oc_approved",
+                        "deleted": False,
+                        "body": {"content": "private parent message body"},
+                    }
+                ]
+            },
+        }
+    )
+    _stub_lookup(monkeypatch, response=response)
+
+    result = message_lookup.lookup_reply_parent("cli_1", "secret", "om_parent", "oc_approved")
+
+    assert response.data is not None
+    assert response.data.items is not None
+    assert response.data.items[0].deleted is False
     assert result == message_lookup.FeishuMessageMetadata("om_parent", "oc_approved")
     assert "body" not in vars(result)
 

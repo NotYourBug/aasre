@@ -6,7 +6,13 @@ from typing import Any
 
 from core.agent.cancel import tool_resources_cancel_requested
 from core.domain.types.tools import ToolSurface
-from core.tool import AgentToolContext, BaseTool, SideEffectLevel, ToolExecutionResult
+from core.tool import (
+    AgentToolContext,
+    BaseTool,
+    SideEffectLevel,
+    ToolExecutionResult,
+    report_run_error,
+)
 from core.tool_framework import tool
 from integrations.feishu.credentials import load_chat_credentials_from_env
 from integrations.feishu.document_delivery import deliver_feishu_document
@@ -23,7 +29,15 @@ class FeishuSendMessageTool(BaseTool):
     """Send complete Markdown to one approved exact Feishu destination."""
 
     name = "feishu_send_message"
-    description = "Send a Markdown message to an authorized Feishu target after approval."
+    description = (
+        "Send complete Markdown to an authorized Feishu target after approval. "
+        "Use for an explicitly requested extra notification, not to answer the current chat turn."
+    )
+    use_cases = [
+        "Sending a requested incident update to an authorized Feishu chat",
+        "Notifying a configured Feishu destination with a complete Markdown report",
+    ]
+    anti_examples = ["Answering the current conversation without an extra outbound message"]
     source = "feishu"
     requires = ["feishu"]
     surfaces = (ToolSurface.ACTION,)
@@ -101,7 +115,13 @@ class FeishuSendMessageTool(BaseTool):
                 cancel_requested=lambda: tool_resources_cancel_requested(context.resources),
                 stop_on_ambiguous_write=True,
             )
-        except Exception:
+        except Exception as exc:
+            report_run_error(
+                RuntimeError(f"Feishu send delivery raised {type(exc).__name__}"),
+                tool_name=self.name,
+                source="feishu",
+                component="integrations.feishu.tools.feishu_send_message_tool",
+            )
             return failed_result(
                 target=target,
                 error_type="delivery_uncertain",
