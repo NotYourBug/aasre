@@ -125,6 +125,69 @@ def test_sensitive_prompt_and_raw_token_are_hidden_from_debug_repr() -> None:
     assert handle.retry_token not in repr(handle)
 
 
+def test_normalized_prompt_replaces_preliminary_retry_content() -> None:
+    registry = ReplyActionRegistry()
+    handle = registry.begin(_inbound(), prompt="preliminary", session_id="session-1")
+
+    assert registry.update_prompt(handle.generation_id, "normalized attachment content") is True
+    registry.observe_message(handle.generation_id, "page-1")
+    registry.complete(
+        handle.generation_id,
+        final_message_id="page-1",
+        card_id="card-1",
+        next_sequence=2,
+    )
+
+    retry = registry.claim_retry_token(
+        handle.retry_token,
+        actor_open_id="requester-1",
+        chat_id="chat-1",
+        current_session_id="session-1",
+    )
+    assert retry is not None
+    assert retry.prompt == "normalized attachment content"
+
+
+def test_failed_good_write_can_rearm_the_pending_intent() -> None:
+    registry = ReplyActionRegistry()
+    handle, _completion = _ready(registry)
+    registry.observe_reaction(
+        message_id="page-2",
+        actor_open_id="requester-1",
+        operator_type="user",
+        emoji_type="THUMBSUP",
+        action_time=1,
+        created=True,
+    )
+
+    assert (
+        registry.claim_pending_good(handle.generation_id, current_session_id="session-1")
+        is not None
+    )
+    assert registry.release_good_claim(handle.generation_id) is True
+    assert (
+        registry.claim_pending_good(handle.generation_id, current_session_id="session-1")
+        is not None
+    )
+
+
+def test_retry_claim_is_current_only_until_a_new_generation_begins() -> None:
+    registry = ReplyActionRegistry()
+    handle, _completion = _ready(registry)
+    retry = registry.claim_retry_token(
+        handle.retry_token,
+        actor_open_id="requester-1",
+        chat_id="chat-1",
+        current_session_id="session-1",
+    )
+    assert retry is not None
+    assert registry.is_current_retry_claim(handle.generation_id, "chat-1:requester-1")
+
+    registry.begin(_inbound(message_id="new-source"), prompt="new", session_id="session-1")
+
+    assert not registry.is_current_retry_claim(handle.generation_id, "chat-1:requester-1")
+
+
 def test_exact_reaction_names_and_newer_timestamps_only() -> None:
     registry = ReplyActionRegistry()
     handle = registry.begin(_inbound(), prompt="normalized", session_id="session-1")

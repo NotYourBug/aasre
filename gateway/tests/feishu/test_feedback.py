@@ -6,6 +6,7 @@ from threading import Event
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from gateway.core.storage.feedback import FeedbackWriteResult
 from gateway.transports.feishu.feedback import FeishuFeedbackService
 from gateway.transports.feishu.feedback_authority import FeedbackAuthorityStore
 
@@ -84,3 +85,23 @@ def test_blocked_authority_does_not_block_callback_and_queue_is_bounded(tmp_path
     finally:
         release.set()
         service.shutdown(timeout_seconds=5)
+
+
+def test_reaction_feedback_reports_a_failed_durable_write(tmp_path: Path) -> None:
+    completed: list[bool] = []
+    service = FeishuFeedbackService(
+        authority=MagicMock(),
+        feedback_path=tmp_path / "feedback.jsonl",
+        authorized=lambda _actor, _chat: True,
+    )
+    service._append_good = MagicMock(return_value=FeedbackWriteResult.FAILED)  # type: ignore[method-assign]
+
+    assert service.record_good(
+        requester_open_id="actor",
+        chat_id="chat",
+        message_id="answer",
+        on_complete=completed.append,
+    )
+    service.shutdown(timeout_seconds=5)
+
+    assert completed == [False]

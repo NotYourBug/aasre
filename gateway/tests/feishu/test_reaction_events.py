@@ -151,3 +151,47 @@ def test_delete_before_completion_cancels_pending_retry() -> None:
     service.shutdown(timeout_seconds=5)
 
     assert not dispatched.is_set()
+
+
+def test_rejected_feedback_queue_rearms_the_good_intent() -> None:
+    registry = ReplyActionRegistry()
+    handle = registry.begin(
+        FeishuInboundMessage("chat", "actor", "source", "prompt"),
+        prompt="normalized",
+        session_id="session",
+    )
+    assert handle is not None
+    registry.observe_message(handle.generation_id, "answer")
+    registry.complete(
+        handle.generation_id,
+        final_message_id="answer",
+        card_id="card",
+        next_sequence=2,
+    )
+    feedback = MagicMock()
+    feedback.record_good.return_value = False
+    service = FeishuReactionService(
+        reply_actions=registry,
+        feedback=feedback,
+        authorized=lambda _actor, _chat: True,
+        current_session_id=lambda _actor, _chat: "session",
+        dispatch_retry=lambda _prepared: True,
+    )
+
+    service.handle(
+        FeishuReactionEvent(
+            event_id="event",
+            message_id="answer",
+            actor_open_id="actor",
+            operator_type="user",
+            emoji_type="THUMBSUP",
+            action_time=1,
+            created=True,
+        )
+    )
+    service.shutdown(timeout_seconds=5)
+
+    feedback.record_good.assert_called_once()
+    assert (
+        registry.claim_pending_good(handle.generation_id, current_session_id="session") is not None
+    )

@@ -275,6 +275,58 @@ def test_prepared_turn_checks_session_under_lock_before_output_or_handler(
     assert lock_held is False
 
 
+def test_prepared_retry_refuses_a_generation_replaced_while_deferred(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = SessionCore(store=InMemorySessionStore())
+    inbound = _inbound("original")
+    registry = ReplyActionRegistry()
+    handle = registry.begin(inbound, prompt="normalized original", session_id=session.session_id)
+    assert handle is not None
+    assert registry.observe_message(handle.generation_id, "answer")
+    assert (
+        registry.complete(
+            handle.generation_id,
+            final_message_id="answer",
+            card_id="card",
+            next_sequence=2,
+        )
+        is not None
+    )
+    retry = registry.claim_retry_token(
+        handle.retry_token,
+        actor_open_id=inbound.open_id,
+        chat_id=inbound.chat_id,
+        current_session_id=session.session_id,
+    )
+    assert retry is not None
+    registry.begin(
+        _inbound("newer", message_id="m2"), prompt="newer", session_id=session.session_id
+    )
+    output = MagicMock(side_effect=AssertionError("stale retry must not construct output"))
+    handler = MagicMock()
+    monkeypatch.setattr(inbound_handler, "FeishuTurnOutput", output)
+
+    result = run_prepared_turn(
+        PreparedFeishuTurn(retry.inbound, retry.prompt, retry.session_id),
+        expected_session_id=retry.session_id,
+        expected_generation_id=retry.generation_id,
+        settings=_settings(),
+        session_resolver=_FakeSessionResolver(session),  # type: ignore[arg-type]
+        active_cancels=ActiveTurnRegistry(),
+        conversation_locks=ConversationLockRegistry(),
+        approvals=ApprovalBroker(),
+        pending_approvals=PendingApprovals(),
+        handler=handler,
+        logger=LOGGER,
+        reply_actions=registry,
+    )
+
+    assert result is TurnExecutionResult.GENERATION_MISMATCH
+    output.assert_not_called()
+    handler.assert_not_called()
+
+
 def test_prepared_turn_does_not_log_normalized_prompt(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
@@ -528,6 +580,70 @@ def test_turn_timeout_finalizes_output_and_sets_cancel(
     assert seen_cancel and seen_cancel[0].is_set()
 
     feedback.issue.assert_not_called()
+
+
+def test_attachment_normalization_is_covered_by_the_turn_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    done = threading.Event()
+    handler = MagicMock()
+    outbound: list[str] = []
+
+    def blocking_download(_url: str, _max_bytes: int, _keep_partial: bool) -> DownloadedAttachment:
+        entered.set()
+        assert release.wait(5)
+        return DownloadedAttachment(data=b"late", content_type="text/plain", truncated=False)
+
+    def fake_send(
+        _app_id: str, _app_secret: str, _chat_id: str, text: str, **_kwargs: object
+    ) -> None:
+        outbound.append(text)
+
+    monkeypatch.setattr("gateway.transports.feishu.turn_output._send_text", fake_send)
+    inbound = FeishuInboundMessage(
+        chat_id="oc_chat-1",
+        open_id="ou_user-1",
+        message_id="om-attachment",
+        text="caption",
+        attachments=(ResourceRef(kind="file", key="file-1", name="slow.log"),),
+    )
+
+    def run() -> None:
+        try:
+            _run_turn(
+                inbound,
+                settings=_settings(turn_timeout_seconds=0.05),
+                session_resolver=_FakeSessionResolver(  # type: ignore[arg-type]
+                    SessionCore(store=InMemorySessionStore())
+                ),
+                active_cancels=ActiveTurnRegistry(),
+                conversation_locks=ConversationLockRegistry(),
+                approvals=ApprovalBroker(),
+                pending_approvals=PendingApprovals(),
+                send_text=lambda _chat, _text: "",
+                handler=handler,
+                logger=LOGGER,
+                downloader=blocking_download,
+            )
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert entered.wait(2)
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and TURN_TIMEOUT_MESSAGE not in outbound:
+            time.sleep(0.02)
+        assert TURN_TIMEOUT_MESSAGE in outbound
+    finally:
+        release.set()
+    assert done.wait(5)
+    thread.join(5)
+
+    handler.assert_not_called()
 
 
 def test_pre_registered_cancel_short_circuits_before_agent(

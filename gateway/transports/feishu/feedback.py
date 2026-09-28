@@ -82,9 +82,24 @@ class FeishuFeedbackService:
         """Revoke adoption authority after a definite component rejection."""
         return self._authority.invalidate(token)
 
-    def record_good(self, *, requester_open_id: str, chat_id: str, message_id: str) -> bool:
+    def record_good(
+        self,
+        *,
+        requester_open_id: str,
+        chat_id: str,
+        message_id: str,
+        on_complete: Callable[[bool], None] | None = None,
+    ) -> bool:
         """Queue reaction-backed good feedback through the same durable writer."""
-        return self._submit(partial(self._record_good, requester_open_id, chat_id, message_id))
+        return self._submit(
+            partial(
+                self._record_good,
+                requester_open_id,
+                chat_id,
+                message_id,
+                on_complete,
+            )
+        )
 
     def handle_action(self, data: P2CardActionTrigger) -> P2CardActionTriggerResponse:
         """Admit a minimal callback receipt without waiting for disk or network."""
@@ -132,13 +147,27 @@ class FeishuFeedbackService:
         except Exception:
             logger.warning("Feishu feedback persistence unavailable")
 
-    def _record_good(self, actor: str, chat: str, message_id: str) -> None:
+    def _record_good(
+        self,
+        actor: str,
+        chat: str,
+        message_id: str,
+        on_complete: Callable[[bool], None] | None,
+    ) -> None:
+        succeeded = False
         try:
             if not self._authorized(actor, chat):
                 return
-            self._append_good(actor, chat, message_id)
+            result = self._append_good(actor, chat, message_id)
+            succeeded = result in {FeedbackWriteResult.WRITTEN, FeedbackWriteResult.DUPLICATE}
         except Exception:
             logger.warning("Feishu feedback persistence unavailable")
+        finally:
+            if on_complete is not None:
+                try:
+                    on_complete(succeeded)
+                except Exception:
+                    logger.warning("Feishu feedback completion callback unavailable")
 
     def _append_good(self, actor: str, chat: str, message_id: str) -> FeedbackWriteResult:
         return append_feedback_entry_once(

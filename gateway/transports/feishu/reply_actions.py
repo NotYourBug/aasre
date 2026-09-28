@@ -228,6 +228,21 @@ class ReplyActionRegistry:
             record.state = ReplyActionState.STREAMING
             return True
 
+    def update_prompt(self, generation_id: str, prompt: str) -> bool:
+        """Replace a preparing generation's prompt with normalized content."""
+        if not prompt:
+            return False
+        with self._lock:
+            self._prune_locked(self._clock())
+            record = self._live_record_locked(generation_id)
+            if record is None or record.state not in {
+                ReplyActionState.PREPARING,
+                ReplyActionState.STREAMING,
+            }:
+                return False
+            record.prompt = prompt
+            return True
+
     def complete(
         self,
         generation_id: str,
@@ -394,6 +409,33 @@ class ReplyActionRegistry:
                 final_message_id=record.final_message_id,
                 requester_open_id=record.requester_open_id,
                 chat_id=record.chat_id,
+            )
+
+    def release_good_claim(self, generation_id: str) -> bool:
+        """Rearm a good intent whose durable write was not accepted."""
+        with self._lock:
+            self._prune_locked(self._clock())
+            record = self._live_record_locked(generation_id)
+            if record is None or not record.good_claimed:
+                return False
+            record.good_claimed = False
+            record.pending_good = True
+            return True
+
+    def is_current_retry_claim(self, generation_id: str, conversation: str) -> bool:
+        """Return whether a claimed retry still owns its conversation."""
+        with self._lock:
+            self._prune_locked(self._clock())
+            record = self._live_record_locked(generation_id)
+            return (
+                record is not None
+                and record.conversation_key == conversation
+                and self._conversation_index.get(conversation) == generation_id
+                and record.state
+                in {
+                    ReplyActionState.RETRY_CLAIMED,
+                    ReplyActionState.RETRY_DISPATCHED,
+                }
             )
 
     def mark_retry_dispatched(self, generation_id: str) -> bool:

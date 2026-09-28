@@ -186,11 +186,23 @@ class FeishuReactionService:
                     context.generation_id, current_session_id=current
                 )
                 if claimed is not None:
-                    self._feedback.record_good(
-                        requester_open_id=claimed.requester_open_id,
-                        chat_id=claimed.chat_id,
-                        message_id=claimed.final_message_id,
-                    )
+
+                    def on_complete(succeeded: bool) -> None:
+                        if not succeeded:
+                            self._reply_actions.release_good_claim(claimed.generation_id)
+
+                    try:
+                        accepted = self._feedback.record_good(
+                            requester_open_id=claimed.requester_open_id,
+                            chat_id=claimed.chat_id,
+                            message_id=claimed.final_message_id,
+                            on_complete=on_complete,
+                        )
+                    except Exception:
+                        self._reply_actions.release_good_claim(claimed.generation_id)
+                        raise
+                    if not accepted:
+                        self._reply_actions.release_good_claim(claimed.generation_id)
                 return
             prepared = self._reply_actions.claim_pending_retry(
                 context.generation_id, current_session_id=current

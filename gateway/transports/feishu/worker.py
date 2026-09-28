@@ -276,6 +276,7 @@ def _dispatch_prepared_retry(
             session_id=prepared.session_id,
         ),
         expected_session_id=prepared.session_id,
+        expected_generation_id=prepared.generation_id,
         settings=settings,
         session_resolver=session_resolver,
         active_cancels=active_cancels,

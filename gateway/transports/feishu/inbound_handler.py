@@ -57,7 +57,7 @@ _UNREADABLE_ATTACHMENT = "- attachment — could not be read"
 
 @dataclass(frozen=True, slots=True)
 class PreparedFeishuTurn:
-    """An authorized Feishu turn whose attachment context is already normalized."""
+    """An authorized Feishu turn carrying its current prompt representation."""
 
     inbound: FeishuInboundMessage
     prompt: str
@@ -69,6 +69,7 @@ class TurnExecutionResult(StrEnum):
 
     DISPATCHED = "dispatched"
     CANCELLED = "cancelled"
+    GENERATION_MISMATCH = "generation_mismatch"
     SESSION_MISMATCH = "session_mismatch"
     PRINCIPAL_UNAVAILABLE = "principal_unavailable"
 
@@ -114,8 +115,10 @@ def _execute_prepared_turn(
     reply_actions: ReplyActionRegistry | None = None,
     final_actions: FinalActionCoordinator | None = None,
     action_handle: ReplyActionHandle | None = None,
+    normalize_attachments: bool = False,
+    downloader: Downloader | None = None,
 ) -> TurnExecutionResult:
-    """Execute one normalized prompt while its conversation lock is held."""
+    """Execute one prompt while its conversation lock is held."""
     inbound = prepared.inbound
     key = conversation_key(inbound)
     terminal = TerminalOutcomeArbiter(turn_cancel)
@@ -216,7 +219,20 @@ def _execute_prepared_turn(
                     on_denied=_on_credit_denied,
                 ),
             ):
-                handler(prepared.prompt, session, output, logger)
+                prompt = prepared.prompt
+                if normalize_attachments and inbound.attachments:
+                    prompt = _with_attachment_context(inbound, settings, downloader, logger)
+                    if terminal.cancel_event.is_set():
+                        output.disqualify_feedback()
+                        return TurnExecutionResult.CANCELLED
+                    if (
+                        reply_actions is not None
+                        and action_handle is not None
+                        and not reply_actions.update_prompt(action_handle.generation_id, prompt)
+                    ):
+                        output.disqualify_feedback()
+                        return TurnExecutionResult.CANCELLED
+                handler(prompt, session, output, logger)
         except Exception as exc:
             logger.error("[feishu-gateway] turn errored type=%s", type(exc).__name__)
             if terminal.claim():
@@ -262,11 +278,18 @@ def run_prepared_turn(
     feedback: FeishuFeedbackService | None = None,
     reply_actions: ReplyActionRegistry | None = None,
     final_actions: FinalActionCoordinator | None = None,
+    expected_generation_id: str | None = None,
 ) -> TurnExecutionResult:
     """Run an authorized normalized prompt only in its still-current session."""
     inbound = prepared.inbound
     key = conversation_key(inbound)
     with conversation_locks.hold(key):
+        if expected_generation_id is not None and (
+            reply_actions is None
+            or not reply_actions.is_current_retry_claim(expected_generation_id, key)
+        ):
+            logger.info("[feishu-gateway] prepared turn refused: generation changed")
+            return TurnExecutionResult.GENERATION_MISMATCH
         try:
             scope = resolve_feishu_scope(open_id=inbound.open_id)
         except PrincipalResolutionError:
@@ -382,9 +405,7 @@ def _run_turn(
 
         logger.info("[feishu-gateway] inbound turn accepted")
 
-        agent_text = inbound.text
-        if inbound.attachments:
-            agent_text = _with_attachment_context(inbound, settings, downloader, logger)
+        agent_text = inbound.text or _UNREADABLE_ATTACHMENT
         prepared = PreparedFeishuTurn(
             inbound=inbound,
             prompt=agent_text,
@@ -411,6 +432,8 @@ def _run_turn(
             reply_actions=reply_actions,
             final_actions=final_actions,
             action_handle=action_handle,
+            normalize_attachments=bool(inbound.attachments),
+            downloader=downloader,
         )
 
 
