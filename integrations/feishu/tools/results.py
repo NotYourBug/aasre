@@ -84,8 +84,9 @@ def delivery_result(
             and (not delivery.attempted or delivery.error_category in _DEFINITE_PLATFORM_REJECTIONS)
         ),
         "error_type": delivery.error_category.value if delivery.error_category else "",
-        "error": delivery.error,
     }
+    if not complete:
+        payload["error"] = delivery.error
     return ToolExecutionResult(content=json.dumps(payload), details=payload, is_error=not complete)
 
 

@@ -298,6 +298,7 @@ def test_approved_current_send_uses_exact_chat_and_complete_body(monkeypatch) ->
     assert result.details["status"] == "sent"
     assert result.details["certainty"] == "confirmed_sent"
     assert result.details["confirmed_message_ids"] == ["om_sent"]
+    assert "error" not in result.details
 
 
 def test_partial_ambiguous_delivery_is_not_retry_safe() -> None:
