@@ -7,24 +7,30 @@ from typing import Any
 from core.agent_harness.spi.grounding import list_action_skills, load_skill_body
 from core.agent_harness.tools import ActionToolScope, execute_with_action_context
 from core.domain.types.tools import ToolSurface
-from core.tool import RegisteredTool, SideEffectLevel
+from core.tool import AgentToolContext, RegisteredTool, SideEffectLevel
 from core.tool_framework.utils import object_schema, string_property
+from infrastructure.harness_providers.prompt_context import (
+    ACTION_PROMPT_CONTEXT_RESOURCE,
+    ActionPromptContext,
+)
 from tools.interactive_shell.action_names import ActionToolName
 
 
-def execute_skill_view_tool(args: dict[str, Any], ctx: ActionToolScope) -> dict[str, Any]:
+def execute_skill_view_tool(
+    args: dict[str, Any], ctx: ActionToolScope, *, prompt_context: ActionPromptContext
+) -> dict[str, Any]:
     _ = ctx
     name = str(args.get("name", "")).strip()
     if not name:
-        available = [skill.name for skill in list_action_skills()]
+        available = [skill.name for skill in list_action_skills(prompt_context)]
         return {
             "ok": False,
             "error": "missing skill name",
             "available": available,
         }
-    body = load_skill_body(name)
+    body = load_skill_body(name, context=prompt_context)
     if not body:
-        available = [skill.name for skill in list_action_skills()]
+        available = [skill.name for skill in list_action_skills(prompt_context)]
         return {
             "ok": False,
             "name": name,
@@ -42,8 +48,18 @@ def execute_skill_view_tool(args: dict[str, Any], ctx: ActionToolScope) -> dict[
     }
 
 
-def run_skill_view(*, name: str, context: Any) -> dict[str, Any]:
-    return execute_with_action_context({"name": name}, context, execute_skill_view_tool)
+def run_skill_view(*, name: str, context: AgentToolContext) -> dict[str, Any]:
+    resource = context.resources.get(ACTION_PROMPT_CONTEXT_RESOURCE)
+    prompt_context = (
+        resource
+        if isinstance(resource, ActionPromptContext)
+        else ActionPromptContext("gateway", None, frozenset())
+    )
+
+    def execute(args: dict[str, Any], scope: ActionToolScope) -> dict[str, Any]:
+        return execute_skill_view_tool(args, scope, prompt_context=prompt_context)
+
+    return execute_with_action_context({"name": name}, context, execute)
 
 
 skill_view_tool = RegisteredTool(
@@ -59,7 +75,7 @@ skill_view_tool = RegisteredTool(
             "name": string_property(
                 description=(
                     "Skill name from the SKILLS INDEX (kebab-case), e.g. "
-                    "'morning-report' or 'architecture-audit'."
+                    "'architecture-audit' or 'github-ci-fix'."
                 ),
                 min_length=1,
             ),

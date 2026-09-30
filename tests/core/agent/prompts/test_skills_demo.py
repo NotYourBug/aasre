@@ -10,6 +10,7 @@ from core.agent_harness.prompts.skills.loader import (
     load_skills_index,
 )
 from core.agent_harness.turns.turn_snapshot import TurnSnapshot
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 
 
 def test_skills_demo_block_lists_frontmatter_demos_only() -> None:
@@ -40,7 +41,8 @@ def test_agent_prompt_includes_skill_demos() -> None:
             last_state=None,
             last_synthetic_observation_path=None,
             reasoning_effort=None,
-        )
+        ),
+        context=SHELL_PROMPT_CONTEXT,
     )
 
     assert "ONLY the skill demos" in prompt
@@ -63,7 +65,8 @@ def test_agent_prompt_combines_demo_catalog_with_selectable_choice_contract() ->
             reasoning_effort=None,
             prompt_surface="interactive_shell",
             interactive_choice_available=True,
-        )
+        ),
+        context=SHELL_PROMPT_CONTEXT,
     )
     collapsed = " ".join(prompt.split())
 

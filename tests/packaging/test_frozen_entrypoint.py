@@ -13,6 +13,8 @@ import re
 import tomllib
 from pathlib import Path
 
+from infrastructure.deployment.packaging.release_manifest import skill_data_entries
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _ENTRYPOINT_MODULE = "surfaces.entrypoint"
 _ENTRYPOINT_SOURCE = "surfaces/entrypoint.py"
@@ -60,13 +62,18 @@ def test_frozen_bundle_ships_the_shared_surface_data() -> None:
     assert (REPO_ROOT / "surfaces/shared/sample_alerts/alert.json").is_file()
 
 
-def test_frozen_bundle_ships_the_shared_system_prompt() -> None:
-    """The shared prompt loader reads its adjacent Markdown at runtime."""
+def test_frozen_bundle_ships_both_system_prompts_from_common_manifest() -> None:
+    """Both prompt loaders require adjacent Markdown in the frozen artifact."""
     spec = (REPO_ROOT / "opensre.spec").read_text(encoding="utf-8")
-
-    assert '"core.agent_harness.prompts"' in spec
-    assert 'includes=["opensre_system_prompt.md"]' in spec
-    assert (REPO_ROOT / "core/agent_harness/prompts/opensre_system_prompt.md").is_file()
+    package_data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "tool"
+    ]["setuptools"]["package-data"]["core.agent_harness.prompts"]
+    assert "skill_data_entries(ROOT)" in spec
+    entries = {Path(dest) / Path(source).name for source, dest in skill_data_entries(REPO_ROOT)}
+    for name in ("opensre_system_prompt.md", "gateway_system_prompt.md"):
+        assert name in package_data
+        assert Path("core/agent_harness/prompts") / name in entries
+        assert (REPO_ROOT / "core/agent_harness/prompts" / name).is_file()
 
 
 def test_release_artifacts_do_not_ship_removed_planning_instructions() -> None:

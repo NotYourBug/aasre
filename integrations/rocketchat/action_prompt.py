@@ -1,23 +1,26 @@
-"""Rocket.Chat action-agent prompt fragment — routes Rocket.Chat delivery requests to tools.
+"""ROCKET.CHAT delivery recipes for the final offered tool view."""
 
-Registered with :func:`infrastructure.harness_providers.register_action_prompt_fragment`
-from ``integrations/harness_adapters.py``.
-"""
-
-from __future__ import annotations
+from infrastructure.harness_providers.prompt_context import ActionPromptContext
 
 
-def rocketchat_action_prompt_fragment() -> str:
-    return """ROCKET.CHAT DELIVERY:
-- rocketchat_send_message — send a Rocket.Chat message ONLY when Rocket.Chat is
-  connected and the user explicitly asks to send, post, notify, or message
-  Rocket.Chat. Use the user's requested message body as `message` and the named
-  destination (#channel / @user) as `channel`; with a webhook-only setup the
-  destination is fixed, so omit `channel`.
-Delivery tool unavailable for Rocket.Chat: do NOT invent a slash/CLI subcommand
-to deliver a Rocket.Chat message and do NOT substitute a different channel.
-When rocketchat_send_message is unavailable, explain that directly or route to
-slash_invoke(command="/integrations", args=["setup", "rocketchat"])."""
+def rocketchat_action_prompt_fragment(context: ActionPromptContext) -> str:
+    """Emit ROCKET.CHAT delivery guidance only on an eligible surface."""
+    if context.surface == "gateway" and context.active_platform != "rocketchat":
+        return ""
+    if "rocketchat_send_message" not in context.offered_tool_names:
+        return ""
+    lines = [
+        "ROCKET.CHAT DELIVERY:",
+        "rocketchat_send_message — send only when the user explicitly asks for an extra "
+        "ROCKET.CHAT send, post, notification or message. Use message and the named channel (#channel / @user); with a fixed webhook omit channel.",
+        "The gateway delivers ordinary answers automatically. Do not duplicate them with "
+        "an extra send. Do not invent delivery commands or substitute another channel.",
+    ]
+    if context.surface == "interactive_shell" and "slash_invoke" in context.offered_tool_names:
+        lines.append(
+            'For setup use slash_invoke(command="/integrations", args=["setup", "rocketchat"]).'
+        )
+    return "\n".join(lines)
 
 
 __all__ = ["rocketchat_action_prompt_fragment"]

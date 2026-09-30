@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from core.agent_harness.prompts import (
@@ -13,6 +15,8 @@ from core.agent_harness.prompts import (
     build_action_user_message,
 )
 from core.agent_harness.turns.turn_snapshot import TurnSnapshot
+from infrastructure.harness_providers.prompt_context import ActionPromptContext
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 
 
 def _ctx() -> TurnSnapshot:
@@ -62,7 +66,7 @@ def test_action_system_prompt_envelope_matches_legacy_rendering(
 
     monkeypatch.setenv(OPENSRE_MEMORY_DISABLED_ENV, "1")
     ctx = _ctx()
-    envelope = build_action_system_prompt_envelope(ctx)
+    envelope = build_action_system_prompt_envelope(ctx, context=SHELL_PROMPT_CONTEXT)
 
     # ACTION_VENDOR_FRAGMENTS carries integration-owned prompt recipes
     # (e.g. Slack/GitHub action routing) registered via
@@ -94,7 +98,7 @@ def test_action_system_prompt_envelope_matches_legacy_rendering(
         envelope.require_block(PromptBlockId.RECENT_CONVERSATION).kind
         == PromptBlockKind.CONVERSATION
     )
-    assert envelope.render() == build_action_system_prompt(ctx)
+    assert envelope.render() == build_action_system_prompt(ctx, context=SHELL_PROMPT_CONTEXT)
 
 
 def _turn(messages: list[tuple[str, str]]) -> TurnSnapshot:
@@ -110,6 +114,55 @@ def _turn(messages: list[tuple[str, str]]) -> TurnSnapshot:
     )
 
 
+def test_gateway_cached_bytes_follow_channel_tools_but_not_history() -> None:
+    first = replace(_turn([("user", "history-one")]), prompt_surface="gateway")
+    second = replace(
+        first, text="different user message", conversation_messages=(("user", "history-two"),)
+    )
+    feishu = ActionPromptContext(
+        "gateway", "feishu", frozenset({"skill_view", "feishu_send_message"})
+    )
+    envelopes = [
+        build_action_system_prompt_envelope(turn, context=feishu) for turn in (first, second)
+    ]
+    assert envelopes[0].render_cached() == envelopes[1].render_cached()
+    assert envelopes[0].render_ephemeral() != envelopes[1].render_ephemeral()
+    for envelope in envelopes:
+        assert envelope.separator.join(filter(None, envelope.render_split())) == envelope.render()
+        assert "history-" not in envelope.render_cached()
+    reply_only = build_action_system_prompt_envelope(
+        first,
+        context=replace(
+            feishu, offered_tool_names=frozenset({"skill_view", "feishu_reply_message"})
+        ),
+    )
+    slack = build_action_system_prompt_envelope(
+        first,
+        context=ActionPromptContext(
+            "gateway", "slack", frozenset({"skill_view", "slack_send_message"})
+        ),
+    )
+    for changed in (reply_only, slack):
+        assert changed.render_cached() != envelopes[0].render_cached()
+        for block_id in (PromptBlockId.ACTION_SYSTEM_BASE, PromptBlockId.ACTION_RUNTIME_FACTS):
+            assert changed.require_block(block_id).tier == PromptTier.STABLE
+            assert (
+                changed.require_block(block_id).content
+                == envelopes[0].require_block(block_id).content
+            )
+        for block_id in (
+            PromptBlockId.ACTION_GATEWAY_PERSONA,
+            PromptBlockId.ACTION_VENDOR_FRAGMENTS,
+            PromptBlockId.ACTION_SKILLS,
+        ):
+            assert changed.require_block(block_id).tier == PromptTier.CONTEXT
+    without_skill = build_action_system_prompt_envelope(
+        first, context=replace(feishu, offered_tool_names=frozenset())
+    )
+    assert without_skill.block(PromptBlockId.ACTION_SKILLS) is None
+    assert "skill_view" not in without_skill.render_cached()
+
+
 def test_the_cached_prefix_is_byte_identical_across_turns() -> None:
     """Two turns in one session must share a byte-identical cacheable prefix.
 
@@ -123,8 +176,12 @@ def test_the_cached_prefix_is_byte_identical_across_turns() -> None:
     second = _turn([("user", "hello"), ("assistant", "hi"), ("user", "and again")])
 
     # Act
-    first_cached = build_action_system_prompt_envelope(first).render_cached()
-    second_cached = build_action_system_prompt_envelope(second).render_cached()
+    first_cached = build_action_system_prompt_envelope(
+        first, context=SHELL_PROMPT_CONTEXT
+    ).render_cached()
+    second_cached = build_action_system_prompt_envelope(
+        second, context=SHELL_PROMPT_CONTEXT
+    ).render_cached()
 
     # Assert
     assert first_cached == second_cached
@@ -138,7 +195,9 @@ def test_per_turn_conversation_never_reaches_the_cached_prefix() -> None:
     """
     # Arrange
     marker = "zzmarker-utterance-that-must-not-be-cached"
-    envelope = build_action_system_prompt_envelope(_turn([("user", marker)]))
+    envelope = build_action_system_prompt_envelope(
+        _turn([("user", marker)]), context=SHELL_PROMPT_CONTEXT
+    )
 
     # Act
     cached = envelope.render_cached()
@@ -158,7 +217,9 @@ def test_the_split_halves_reassemble_into_the_unchanged_render() -> None:
     ephemeral block to follow every cached block in declaration order.
     """
     # Arrange
-    envelope = build_action_system_prompt_envelope(_turn([("user", "hello")]))
+    envelope = build_action_system_prompt_envelope(
+        _turn([("user", "hello")]), context=SHELL_PROMPT_CONTEXT
+    )
 
     # Act
     cached, ephemeral = envelope.render_split()
@@ -176,7 +237,9 @@ def test_every_block_declares_which_tier_it_belongs_to(
 
     monkeypatch.setenv(OPENSRE_MEMORY_DISABLED_ENV, "1")
     # Arrange
-    envelope = build_action_system_prompt_envelope(_turn([("user", "hello")]))
+    envelope = build_action_system_prompt_envelope(
+        _turn([("user", "hello")]), context=SHELL_PROMPT_CONTEXT
+    )
 
     # Act
     tiers = {block.id: block.tier for block in envelope.blocks}
@@ -184,9 +247,9 @@ def test_every_block_declares_which_tier_it_belongs_to(
     # Assert
     assert tiers == {
         PromptBlockId.ACTION_SYSTEM_BASE: PromptTier.STABLE,
-        PromptBlockId.ACTION_VENDOR_FRAGMENTS: PromptTier.STABLE,
+        PromptBlockId.ACTION_VENDOR_FRAGMENTS: PromptTier.CONTEXT,
         PromptBlockId.ACTION_RUNTIME_FACTS: PromptTier.STABLE,
-        PromptBlockId.ACTION_SKILLS: PromptTier.STABLE,
+        PromptBlockId.ACTION_SKILLS: PromptTier.CONTEXT,
         PromptBlockId.CONNECTED_INTEGRATIONS: PromptTier.CONTEXT,
         PromptBlockId.TURN_INTERACTION: PromptTier.EPHEMERAL,
         PromptBlockId.RECENT_CONVERSATION: PromptTier.EPHEMERAL,
@@ -205,8 +268,12 @@ def test_the_action_envelope_exposes_a_stable_half_the_provider_can_cache() -> N
     second = _turn([("user", "hello"), ("assistant", "hi"), ("user", "again")])
 
     # Act
-    first_cached, first_ephemeral = build_action_system_prompt_envelope(first).render_split()
-    second_cached, _ = build_action_system_prompt_envelope(second).render_split()
+    first_cached, first_ephemeral = build_action_system_prompt_envelope(
+        first, context=SHELL_PROMPT_CONTEXT
+    ).render_split()
+    second_cached, _ = build_action_system_prompt_envelope(
+        second, context=SHELL_PROMPT_CONTEXT
+    ).render_split()
 
     # Assert
     assert first_cached == second_cached
@@ -223,10 +290,10 @@ def test_the_rendered_prompt_is_unchanged_by_the_split() -> None:
     snapshot = _turn([("user", "hello")])
 
     # Act
-    rendered = build_action_system_prompt_envelope(snapshot).render()
+    rendered = build_action_system_prompt_envelope(snapshot, context=SHELL_PROMPT_CONTEXT).render()
 
     # Assert
-    assert rendered == build_action_system_prompt(snapshot)
+    assert rendered == build_action_system_prompt(snapshot, context=SHELL_PROMPT_CONTEXT)
 
 
 def test_driver_puts_conversation_on_the_user_turn_not_system() -> None:
@@ -238,7 +305,7 @@ def test_driver_puts_conversation_on_the_user_turn_not_system() -> None:
     # Arrange
     marker = "zzmarker-utterance-that-must-leave-system"
     snapshot = _turn([("user", marker)])
-    envelope = build_action_system_prompt_envelope(snapshot)
+    envelope = build_action_system_prompt_envelope(snapshot, context=SHELL_PROMPT_CONTEXT)
 
     # Act — same split the action driver uses
     system = envelope.render_cached()
@@ -257,8 +324,12 @@ def test_driver_system_prefix_is_byte_identical_across_turns() -> None:
     second = _turn([("user", "hello"), ("assistant", "hi"), ("user", "and again")])
 
     # Act
-    first_system = build_action_system_prompt_envelope(first).render_cached()
-    second_system = build_action_system_prompt_envelope(second).render_cached()
+    first_system = build_action_system_prompt_envelope(
+        first, context=SHELL_PROMPT_CONTEXT
+    ).render_cached()
+    second_system = build_action_system_prompt_envelope(
+        second, context=SHELL_PROMPT_CONTEXT
+    ).render_cached()
 
     # Assert
     assert first_system == second_system
@@ -274,7 +345,9 @@ def test_the_literal_user_message_leads_and_ephemeral_history_follows() -> None:
     then acted on the wrong thing entirely.
     """
     # Arrange
-    envelope = build_action_system_prompt_envelope(_turn([("user", "zzmarker-prefix-envelope")]))
+    envelope = build_action_system_prompt_envelope(
+        _turn([("user", "zzmarker-prefix-envelope")]), context=SHELL_PROMPT_CONTEXT
+    )
 
     # Act
     user_message = build_action_user_message("run /health", prefix=envelope.render_ephemeral())
@@ -298,7 +371,8 @@ def test_newest_conversation_survives_head_preserving_truncation() -> None:
                 ("user", "zzmarker-newest-turn"),
                 ("assistant", "fresh reply"),
             ]
-        )
+        ),
+        context=SHELL_PROMPT_CONTEXT,
     )
     message = build_action_user_message(
         "follow up on that",
@@ -332,7 +406,9 @@ def test_split_reassembles_when_long_term_memory_is_present(
     )
 
     marker = "zzmarker-memory-order-utterance"
-    envelope = build_action_system_prompt_envelope(_turn([("user", marker)]))
+    envelope = build_action_system_prompt_envelope(
+        _turn([("user", marker)]), context=SHELL_PROMPT_CONTEXT
+    )
     ids = [block.id for block in envelope.blocks]
     assert PromptBlockId.LONG_TERM_MEMORY in ids
     assert ids.index(PromptBlockId.LONG_TERM_MEMORY) < ids.index(PromptBlockId.RECENT_CONVERSATION)

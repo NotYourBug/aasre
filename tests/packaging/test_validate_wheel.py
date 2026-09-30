@@ -8,6 +8,15 @@ from zipfile import ZipFile
 from infrastructure.deployment.packaging.validate_wheel import missing_skill_files
 
 
+def test_missing_wheel_reports_both_prompt_bases(tmp_path: Path) -> None:
+    wheel_path = tmp_path / "opensre.whl"
+    with ZipFile(wheel_path, "w"):
+        pass
+    missing = missing_skill_files(wheel_path)
+    assert "core/agent_harness/prompts/opensre_system_prompt.md" in missing
+    assert "core/agent_harness/prompts/gateway_system_prompt.md" in missing
+
+
 def test_missing_skill_files_reports_absent_runtime_data(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     skill_path = repo_root / "core/agent_harness/prompts/skills/example/SKILL.md"

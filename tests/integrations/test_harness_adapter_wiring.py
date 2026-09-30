@@ -19,6 +19,7 @@ from core.domain.alerts import extraction as alert_extraction
 from core.domain.diagnosis import taxonomy_registry
 from core.domain.types import incident_anchors
 from surfaces.shared.terminal.output import boundary as output_boundary
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT, SLACK_PROMPT_CONTEXT
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +43,7 @@ def test_gather_prompt_fragments_cover_every_registered_vendor() -> None:
 
 def test_action_prompt_fragments_cover_every_registered_vendor() -> None:
     # Act
-    fragments = harness_providers.action_prompt_vendor_fragments()
+    fragments = harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT)
 
     # Assert
     assert "slack_read_messages" in fragments
@@ -63,7 +64,7 @@ def test_assistant_prompt_fragments_cover_every_registered_vendor() -> None:
 
 def test_gateway_persona_fragment_is_registered() -> None:
     # Act
-    persona = harness_providers.gateway_persona_fragments()
+    persona = harness_providers.gateway_persona_fragments(context=SLACK_PROMPT_CONTEXT)
 
     # Assert: the Slack teammate persona wording core no longer owns.
     assert "AI production engineer" in persona
@@ -143,11 +144,11 @@ def test_taxonomy_profile_registered_for_hermes() -> None:
 
 def test_reinstalling_ports_does_not_duplicate_fragments() -> None:
     # Arrange: capture the single-install prompt text.
-    once = harness_providers.action_prompt_vendor_fragments()
+    once = harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT)
 
     # Act: startup wiring may run more than once (REPL + gateway in one process).
     output_boundary.install_harness_providers()
-    twice = harness_providers.action_prompt_vendor_fragments()
+    twice = harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT)
 
     # Assert: each _register_* clears first, so text is not doubled.
     assert twice == once
@@ -159,8 +160,8 @@ def test_reset_clears_every_vendor_registry() -> None:
 
     # Assert: nothing vendor-specific survives into the next test.
     assert harness_providers.gather_prompt_vendor_fragments() == ""
-    assert harness_providers.action_prompt_vendor_fragments() == ""
+    assert harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT) == ""
     assert harness_providers.assistant_prompt_vendor_fragments() == ""
-    assert harness_providers.gateway_persona_fragments() == ""
+    assert harness_providers.gateway_persona_fragments(context=SLACK_PROMPT_CONTEXT) == ""
     assert harness_providers.preferred_evidence_sources_for("metric_read") == ()
     assert harness_providers.repo_scope._vcs_repo_scope_providers == []

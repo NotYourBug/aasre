@@ -1,11 +1,32 @@
 from __future__ import annotations
 
+from infrastructure.harness_providers import (
+    register_action_prompt_fragment,
+    register_gateway_persona_fragment,
+)
+from infrastructure.harness_providers.prompt_context import ActionPromptContext
 from tools.investigation.stages.gather_evidence.prompt import (
     _relevant_sources,
     build_investigation_system_prompt,
     format_alert_context,
 )
 from tools.investigation.stages.gather_evidence.tools import STAGNATION_NUDGE
+
+
+def test_investigation_does_not_consume_channel_action_or_persona_factories() -> None:
+    def channel_marker(_context: ActionPromptContext) -> str:
+        return "CHANNEL-PERSONA-MUST-STAY-OUT"
+
+    register_action_prompt_fragment(channel_marker)
+    register_gateway_persona_fragment(channel_marker)
+    state = {"alert_source": "grafana", "planned_actions": ["get_sre_guidance"]}
+    prompt = build_investigation_system_prompt(state) + format_alert_context(state)
+    assert "CHANNEL-PERSONA-MUST-STAY-OUT" not in prompt
+    assert "colleague in Feishu" not in prompt
+    assert "colleague in Slack" not in prompt
+    assert "feishu_send_message" not in prompt
+    assert "slack_send_message" not in prompt
+    assert "`get_sre_guidance`" in prompt
 
 
 def test_build_investigation_system_prompt_non_hermes_uses_generic_category_instruction() -> None:

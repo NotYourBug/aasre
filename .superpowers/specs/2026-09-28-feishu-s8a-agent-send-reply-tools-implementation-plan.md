@@ -1,7 +1,7 @@
 # Feishu S8a Agent Send/Reply Tools — Implementation Plan
 
 - Date: 2026-09-28
-- Status: Approved by user (2026-09-28); implementation in progress
+- Status: Implemented and merged as PR #38 (2026-09-30); live short send, normal/threaded reply and denial verified. Live multi-page pagination was not exercised; offline pagination passed and the user approved merge with that limitation.
 - Approved design: [`2026-09-28-feishu-s8a-agent-send-reply-tools-design.md`](2026-09-28-feishu-s8a-agent-send-reply-tools-design.md)
 - Scope: S8a only; no S7 prompt/persona work or S8b read/search/member/reaction tools
 - Checkout: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`, branch `codex/feishu-s8a-spec`

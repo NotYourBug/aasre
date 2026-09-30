@@ -9,6 +9,8 @@ from core.domain.types.tools import ToolSurface
 from core.tool.contracts import RegisteredTool
 from core.tool.execution import availability_view
 from infrastructure.harness_providers import resolve_surface_tool_map, resolve_surface_tools
+from infrastructure.harness_providers.messaging_sources import messaging_source_allowed
+from infrastructure.harness_providers.prompt_context import ActionPromptContext
 from infrastructure.observability.trace.redaction import redact_sensitive
 
 _ACTION_SESSION_SOURCE = "_action_session"
@@ -86,9 +88,23 @@ def action_tool_names(tools: Iterable[RegisteredTool]) -> tuple[str, ...]:
     return tuple(tool.name for tool in tools)
 
 
+def filter_action_tools_for_channel(tools: list[Any], context: ActionPromptContext) -> list[Any]:
+    """Apply the final messaging-source gate after normal tool availability."""
+    return [
+        tool
+        for tool in tools
+        if messaging_source_allowed(
+            getattr(tool, "source", ""),
+            surface=context.surface,
+            active_platform=context.active_platform,
+        )
+    ]
+
+
 __all__ = [
     "IntegrationsView",
     "action_tool_names",
+    "filter_action_tools_for_channel",
     "get_action_tool",
     "get_action_tools_from_integrations_view",
 ]

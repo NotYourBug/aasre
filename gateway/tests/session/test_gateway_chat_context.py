@@ -19,6 +19,12 @@ def test_telegram_turn_hides_slack() -> None:
     assert "telegram" not in hidden
 
 
-def test_no_platform_injects_no_hidden_set() -> None:
+def test_no_platform_hides_all_messaging_sources() -> None:
     merged = inject_gateway_chat_context({}, chat_id="C1")
-    assert "_gateway_hidden_integrations" not in merged
+    assert {"slack", "feishu", "rocketchat"} <= set(merged["_gateway_hidden_integrations"])
+
+
+def test_delivery_only_source_is_hidden_on_inbound_gateway() -> None:
+    merged = inject_gateway_chat_context({}, chat_id="chat", platform="feishu")
+    assert "rocketchat" in merged["_gateway_hidden_integrations"]
+    assert "feishu" not in merged["_gateway_hidden_integrations"]

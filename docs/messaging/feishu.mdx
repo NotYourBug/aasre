@@ -74,7 +74,14 @@ opensre messaging status -p feishu
 
 Treat the app secret like a password and keep it out of source control.
 
-Agent send and reply tools require a separate approval for every call. They can
+Ordinary answers return to the current Feishu conversation automatically; no
+agent send/reply tool or separate approval is needed. The agent only offers
+messaging actions for the current channel and its available tools. A Feishu chat
+does not expose Slack messaging workflows or the Slack-only `morning-report`
+skill. Local shell and Slack chats retain that skill.
+
+Extra messages sent with agent send and reply tools require a separate approval
+for every call. They can
 target the current Feishu chat, the configured default destination, or an exact
 entry in `FEISHU_ALLOWED_OUTBOUND_TARGETS`. This outbound list is separate from
 `FEISHU_ALLOWED_OPEN_IDS`, which controls who can talk to the bot. Replies require

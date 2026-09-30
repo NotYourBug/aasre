@@ -17,7 +17,7 @@ import logging
 import re
 import shlex
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from core.agent import Agent
@@ -37,10 +37,12 @@ from core.agent_harness.prompts import (
     build_action_system_prompt_envelope,
     build_action_user_message,
 )
+from core.agent_harness.prompts.kernel.channel_context import build_action_prompt_context
 from core.agent_harness.session.integration_resolution import resolve_and_cache_integrations
 from core.agent_harness.session.pending_choice import parse_ask_user_answers
 from core.agent_harness.session.terminal_access import execute_cli_onboard_on_missing_key
 from core.agent_harness.session_goal.goal import strip_session_goal_progress_tags
+from core.agent_harness.tools.action_tools import filter_action_tools_for_channel
 from core.agent_harness.turns.conversation_recording import record_conversation_turn
 from core.agent_harness.turns.goal_review import build_goal_reviewer, tap_executed_tool_names
 from core.agent_harness.turns.turn_plan import TurnPlan
@@ -59,6 +61,10 @@ from core.tool.execution import (
 )
 from core.tool_framework.tags import SUMMARIZE_OBSERVATION_TAG
 from infrastructure.analytics.react_turn import run_react_agent_with_telemetry
+from infrastructure.harness_providers.prompt_context import (
+    ACTION_PROMPT_CONTEXT_RESOURCE,
+    ActionPromptContext,
+)
 from infrastructure.observability.trace.prompts import persist_turn_system_prompt
 from infrastructure.observability.trace.spans import component_span
 
@@ -702,6 +708,7 @@ def _build_action_agent(
     tool_hooks: ToolExecutionHooks | None,
     tool_resources: dict[str, Any],
     observer: Any,
+    prompt_context: ActionPromptContext,
 ) -> ActionTurnPlan:
     """Build the Agent for one action turn; return an ``ActionTurnPlan``.
 
@@ -746,7 +753,8 @@ def _build_action_agent(
         envelope = build_action_system_prompt_envelope(
             # No turn plan means no surface is known here; setup facts are
             # omitted rather than guessed (see _setup_state_for_surface).
-            turn_snapshot or TurnSnapshot.from_session(message, session, surface=None)
+            turn_snapshot or TurnSnapshot.from_session(message, session, surface=None),
+            context=prompt_context,
         )
         # Cached half stays byte-identical across turns; ephemeral (conversation,
         # prior-action-facts) rides with the user message so Anthropic's system
@@ -1100,8 +1108,18 @@ def _run_action_turn(
         is_tty=args.is_tty,
         resolved_integrations=resolved_integrations,
     )
+    channel_context = build_action_prompt_context(
+        surface=turn_snapshot.prompt_surface if turn_snapshot is not None else None,
+        resolved_integrations=resolved_integrations,
+        offered_tool_names=frozenset(),
+    )
+    agent_tools = filter_action_tools_for_channel(agent_tools, channel_context)
+    prompt_context = replace(
+        channel_context, offered_tool_names=frozenset(tool.name for tool in agent_tools)
+    )
     tool_resources_provider = getattr(args.tools, "tool_resources", None)
-    tool_resources = tool_resources_provider() if callable(tool_resources_provider) else {}
+    tool_resources = dict(tool_resources_provider()) if callable(tool_resources_provider) else {}
+    tool_resources[ACTION_PROMPT_CONTEXT_RESOURCE] = prompt_context
     observer = args.tools.observer(message=message)
     log.debug(
         "action_turn start tools=%s integrations=%s",
@@ -1125,6 +1143,7 @@ def _run_action_turn(
             tool_hooks=with_duplicate_action_call_guard(args.tool_hooks),
             tool_resources=tool_resources,
             observer=observer,
+            prompt_context=prompt_context,
         )
         result = run_react_agent_with_telemetry(
             built.agent,

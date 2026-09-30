@@ -47,6 +47,7 @@ from tests.core.agent.scenario_loader import (
     select_cases,
     select_representative,
 )
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 from tools.interactive_shell.action_names import TOOL_KIND_TO_NAME, ActionToolName, ToolKind
 from tools.interactive_shell.actions.investigation import normalize_investigation_alert_text
 
@@ -457,7 +458,8 @@ def _assert_live_action_planning_once(case: ScenarioCase) -> None:
     result = Agent(
         llm=llm,
         system=build_action_system_prompt(
-            TurnSnapshot.from_session(prompt, session, surface="interactive_shell")
+            TurnSnapshot.from_session(prompt, session, surface="interactive_shell"),
+            context=SHELL_PROMPT_CONTEXT,
         ),
         tools=[_planning_probe_tool(tool) for tool in tools],
         resolved_integrations={},

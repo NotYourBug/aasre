@@ -12,13 +12,7 @@ def gateway_delivery_context(context: AgentToolContext | None) -> tuple[str, str
     """Extract default gateway delivery platform and chat identifier from tool context."""
     if context is None:
         return "", ""
-    try:
-        from core.agent_harness.tools import action_context_from_agent_context
-
-        action_ctx = action_context_from_agent_context(context)
-    except RuntimeError:
-        return "", ""
-    resolved = getattr(action_ctx.session, "resolved_integrations_cache", None) or {}
+    resolved = context.resolved_integrations
     provider = str(resolved.get("_gateway_platform") or "").strip().lower()
     chat_id = str(resolved.get("_gateway_chat_id") or "").strip()
     return provider, chat_id

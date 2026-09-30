@@ -18,7 +18,8 @@ def _session(integrations: list[str], cache: dict) -> SimpleNamespace:
 def test_hidden_integrations_are_filtered_out() -> None:
     # Arrange: the gateway injected telegram as hidden (a Slack turn).
     session = _session(
-        ["slack", "telegram", "github"], {"_gateway_hidden_integrations": ("telegram",)}
+        ["slack", "telegram", "rocketchat", "github"],
+        {"_gateway_platform": "slack", "_gateway_hidden_integrations": ()},
     )
     provider = DefaultPromptContextProvider(session, surface="gateway")
 

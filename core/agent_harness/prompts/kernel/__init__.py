@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.agent_harness.prompts.kernel.channel_context import build_action_prompt_context
 from core.agent_harness.prompts.kernel.envelope import (
     PromptBlock,
     PromptBlockId,
@@ -16,6 +17,7 @@ from core.agent_harness.prompts.kernel.surfaces import (
 )
 
 __all__ = [
+    "build_action_prompt_context",
     "PromptBlock",
     "PromptBlockId",
     "PromptBlockKind",

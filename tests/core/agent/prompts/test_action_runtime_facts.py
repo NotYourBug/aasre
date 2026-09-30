@@ -13,6 +13,7 @@ from typing import Any
 
 from core.agent_harness.prompts.action import build_action_system_prompt
 from core.agent_harness.turns.turn_snapshot import TurnSnapshot
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 
 _FACT_MARKERS = (
     "host operating system is ",
@@ -38,7 +39,7 @@ def _snapshot(**overrides: Any) -> TurnSnapshot:
 def test_the_action_prompt_states_the_same_runtime_facts_as_the_assistant() -> None:
     """A user-facing speaker must not have to guess the host it runs on."""
     # Act
-    prompt = build_action_system_prompt(_snapshot())
+    prompt = build_action_system_prompt(_snapshot(), context=SHELL_PROMPT_CONTEXT)
 
     # Assert
     missing = [marker for marker in _FACT_MARKERS if marker not in prompt]
@@ -51,6 +52,6 @@ def test_the_action_prompt_states_the_same_runtime_facts_as_the_assistant() -> N
 
 def test_the_action_prompt_states_cloud_absence_rather_than_leaving_it_open() -> None:
     """Silence about the cloud is what the AWS answer filled in."""
-    prompt = build_action_system_prompt(_snapshot())
+    prompt = build_action_system_prompt(_snapshot(), context=SHELL_PROMPT_CONTEXT)
 
     assert "cloud" in prompt.lower()
