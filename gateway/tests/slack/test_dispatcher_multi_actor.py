@@ -310,19 +310,23 @@ def test_many_actors_parallel_turns_all_bindings_survive(
 ) -> None:
     """Fan-out across N actors / N threads — every binding row remains."""
     n = 8
-    barrier = threading.Barrier(n)
+    all_arrived = threading.Event()
+    release = threading.Event()
     errors: list[Exception] = []
     sessions: dict[str, str] = {}
     lock = threading.Lock()
 
     def handler(text: str, session: Any, sink: Any, _logger: logging.Logger) -> None:
-        barrier.wait(timeout=5)
         for i in range(n):
             uid = f"U_{i:03d}"
             if f"user=<@{uid}>" in text:
                 with lock:
                     sessions[uid] = session.session_id
+                    if len(sessions) == n:
+                        all_arrived.set()
                 break
+        if not release.wait(timeout=30):
+            raise TimeoutError("Coordinator did not release the concurrent turns")
         sink.finalize("ok")
 
     dispatcher = SlackTurnDispatcher(
@@ -347,7 +351,11 @@ def test_many_actors_parallel_turns_all_bindings_survive(
     threads = [threading.Thread(target=worker, args=(i,), name=f"u{i}") for i in range(n)]
     for t in threads:
         t.start()
-    _join(threads)
+    try:
+        assert all_arrived.wait(timeout=30), "Not all actors reached the handler"
+    finally:
+        release.set()
+        _join(threads)
 
     assert not errors, errors
     assert set(sessions) == {f"U_{i:03d}" for i in range(n)}

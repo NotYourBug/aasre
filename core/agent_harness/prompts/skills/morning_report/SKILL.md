@@ -1,5 +1,6 @@
 ---
 name: morning-report
+gateway_platforms: [slack]
 description: >-
   Weather + news morning briefing: fetch live weather and headlines, compose
   a plain-text briefing, deliver it. Multi-step; load before acting.

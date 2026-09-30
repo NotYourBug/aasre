@@ -8,7 +8,10 @@ from typing import Any
 
 import pytest
 
+from core.agent_harness.tools import ActionToolScope
+from core.agent_harness.tools.tool_context import ACTION_TOOL_CONTEXT_RESOURCE_KEY
 from core.domain.work_items import WorkItemChannelTarget, WorkItemPriority, make_work_item
+from core.tool import AgentToolContext
 from infrastructure.scheduling.scheduler.types import Provider
 from tools.system.work_items.delivery import (
     delivery_targets,
@@ -40,8 +43,29 @@ def _build_stub_session(resolved: dict[str, str]) -> Any:
     return type("StubSession", (), {"resolved_integrations_cache": resolved})()
 
 
-def _build_stub_action_ctx(session: Any) -> Any:
-    return type("StubActionContext", (), {"session": session})()
+def test_frozen_gateway_defaults_ignore_rebound_session_cache() -> None:
+    frozen = {"_gateway_platform": "telegram", "_gateway_chat_id": "original-chat"}
+    session = _build_stub_session(dict(frozen))
+    context = AgentToolContext(
+        resolved_integrations=frozen,
+        resources={
+            ACTION_TOOL_CONTEXT_RESOURCE_KEY: ActionToolScope(session=session, console=None)
+        },
+    )
+    session.resolved_integrations_cache = {
+        "_gateway_platform": "slack",
+        "_gateway_chat_id": "other-chat",
+    }
+    assert gateway_delivery_context(context) == ("telegram", "original-chat")
+    assert delivery_targets(provider="", chat_id="", context=context) == [
+        WorkItemChannelTarget(provider="telegram", chat_id="original-chat")
+    ]
+    missing = AgentToolContext(
+        resolved_integrations={},
+        resources=context.resources,
+    )
+    assert gateway_delivery_context(missing) == ("", "")
+    assert gateway_delivery_context(None) == ("", "")
 
 
 def test_validate_provider() -> None:
@@ -78,30 +102,18 @@ def test_normalize_validation_helpers() -> None:
     assert normalize_selectors(["a", "b"]) == ["a", "b"]
 
 
-def test_delivery_targets_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
-    session = _build_stub_session({"_gateway_platform": "telegram", "_gateway_chat_id": "12345"})
-    action_ctx = _build_stub_action_ctx(session)
-
-    from core import agent_harness
-
-    def _action_context_from_agent_context(_ctx: Any) -> Any:
-        return action_ctx
-
-    monkeypatch.setattr(
-        agent_harness.tools,
-        "action_context_from_agent_context",
-        _action_context_from_agent_context,
+def test_delivery_targets_resolution() -> None:
+    context = AgentToolContext(
+        resolved_integrations={"_gateway_platform": "telegram", "_gateway_chat_id": "12345"}
     )
-
-    stub_context = type("StubContext", (), {})()
-    provider, chat_id = gateway_delivery_context(stub_context)  # type: ignore[arg-type]
+    provider, chat_id = gateway_delivery_context(context)
     assert provider == "telegram"
     assert chat_id == "12345"
 
     targets = delivery_targets(
         provider="",
         chat_id="",
-        context=stub_context,  # type: ignore[arg-type]
+        context=context,
     )
     assert len(targets) == 1
     assert targets[0].provider == "telegram"
