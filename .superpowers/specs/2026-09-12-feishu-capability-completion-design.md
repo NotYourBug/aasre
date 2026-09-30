@@ -1,7 +1,7 @@
 # 飞书通讯能力补全设计（Feishu Capability Completion）
 
 - Date: 2026-09-12（2026-09-18 修订后续路线）
-- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）及 S8a 已交付；S7 已实现并完成 PR #41 代码验收（CI green、Greptile 5/5、无未解决评审），等待明确合并指令、未合并；S8b 未开始
+- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）及 S8a 已交付；S7 已按明确指令合并 PR #41（d03ddad），合并后新增 CodeQL 告警修复闭环中，尚未标记完整交付；S8b 未开始
 - 上游 spec: [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
@@ -212,7 +212,7 @@ S5c/S8b 需要独立核实 reaction 标识与客户端能力，不能假定 S5b 
 | **S5b** | 正式反馈（👀 已撤销） | 流式结束后追加 ✅采纳按钮；复用 transport-neutral feedback JSONL 存储 | S4、S5a | 仅原请求者可采纳；按最终 `message_id` + 操作者幂等记录 `good`，不保存回答正文、不启动新 turn | 已完成 |
 | **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CrossMark` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 已完成 |
 | **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 已合并 PR #38；真实发送/回复/拒绝审批已验收，真实多页投递未验收（离线测试通过，用户同意带此限制合并） |
-| **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 生成实际运行的 action/persona 片段及能力视图；历史 gather/assistant 注册表保留且无新增消费者 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | PR #41 已完成实现、离线验收和代码评审闭环（CI green、Greptile 5/5、无未解决评审）；等待明确合并指令，未合并 |
+| **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 生成实际运行的 action/persona 片段及能力视图；历史 gather/assistant 注册表保留且无新增消费者 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | PR #41 已按用户指令合并（d03ddad）；合并后新增八条 CodeQL 字符串拼接告警的修复及复扫闭环中，尚未标记完整交付 |
 | **S8b** | Agent 读取类工具 | 读消息、搜消息、列成员、加 reaction 逐项调研、逐项 spec/PR，不以工具集合打包 | S1、S7；加 reaction 复用 S5b/S5c 客户端能力 | 每项工具分别定义权限、分页、目标范围与跨聊天授权；只注册已完成且可验收的能力 | 待实施 |
 
 **依赖与节奏**：S5a 只迁移审批；S6 不等待反馈状态机；S5b 不包含重试；S5c 才允许产生新 turn。
@@ -404,9 +404,10 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 S1–S4、S5a–S5c、S6、S8a 已交付。本文只固定剩余子项目的边界、依赖、顺序与退出标准，**不作为一个跨项目实现计划**。
 
 当前交付边界是 **S7 运行时渠道感知 prompt**，其设计及独立实施计划已分别获用户批准。
-[PR #41](https://github.com/NotYourBug/aasre/pull/41) 已完成实现、离线验收和代码评审闭环
-（CI green、Greptile 5/5、无未解决评审）；文档提交同样按最新 HEAD 跟进检查。
-未合并，等待用户明确合并指令；合并后的 main CI、完整 CodeQL 和 Release 尚不构成已完成交付证据：
+[PR #41](https://github.com/NotYourBug/aasre/pull/41) 已完成实现、离线验收及评审并按用户指令合并
+（d03ddad；合并前 CI green、Greptile 5/5、无未解决评审）。完整 CodeQL 工作流成功，
+但发现八条 S7 新引入的字符串拼接告警，正在同一工作树修复并跟进复扫；既有 38 条告警不批量清理。
+Release 按原仓库 guard 跳过。完整交付仍以修复后 main CI、完整 CodeQL 对比及 Release 实际状态为准：
 [`S7 design`](2026-09-30-feishu-s7-runtime-channel-aware-prompts-design.md) /
 [`S7 implementation plan`](2026-09-30-feishu-s7-runtime-channel-aware-prompts-implementation-plan.md)。
 其余项目依 R33 顺序重复

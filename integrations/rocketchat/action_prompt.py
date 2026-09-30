@@ -2,6 +2,14 @@
 
 from infrastructure.harness_providers.prompt_context import ActionPromptContext
 
+_DELIVERY_GUIDANCE = (
+    "ROCKET.CHAT DELIVERY:\n"
+    "rocketchat_send_message — send only when the user explicitly asks for an extra "
+    "ROCKET.CHAT send, post, notification or message. Use message and the named channel (#channel / @user); with a fixed webhook omit channel.\n"
+    "The gateway delivers ordinary answers automatically. Do not duplicate them with "
+    "an extra send. Do not invent delivery commands or substitute another channel."
+)
+
 
 def rocketchat_action_prompt_fragment(context: ActionPromptContext) -> str:
     """Emit ROCKET.CHAT delivery guidance only on an eligible surface."""
@@ -9,13 +17,7 @@ def rocketchat_action_prompt_fragment(context: ActionPromptContext) -> str:
         return ""
     if "rocketchat_send_message" not in context.offered_tool_names:
         return ""
-    lines = [
-        "ROCKET.CHAT DELIVERY:",
-        "rocketchat_send_message — send only when the user explicitly asks for an extra "
-        "ROCKET.CHAT send, post, notification or message. Use message and the named channel (#channel / @user); with a fixed webhook omit channel.",
-        "The gateway delivers ordinary answers automatically. Do not duplicate them with "
-        "an extra send. Do not invent delivery commands or substitute another channel.",
-    ]
+    lines = [_DELIVERY_GUIDANCE]
     if context.surface == "interactive_shell" and "slash_invoke" in context.offered_tool_names:
         lines.append(
             'For setup use slash_invoke(command="/integrations", args=["setup", "rocketchat"]).'

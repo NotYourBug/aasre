@@ -2,6 +2,21 @@
 
 from infrastructure.harness_providers.prompt_context import ActionPromptContext
 
+_SEND_REPLY_GUIDANCE = (
+    "Prefer slack_reply_message for a named channel/thread. slack_send_message uses "
+    "a fixed channel when a webhook is configured; bot-token sends require channel_id."
+)
+_DELIVERY_RESULT_GUIDANCE = (
+    "After each tool returns, answer from its output. Ordinary gateway answers are "
+    "delivered automatically; extra delivery follows an explicit additional send/reply "
+    "or required delivery in a user-requested visible skill, using offered tools "
+    "and normal approval. Never duplicate an ordinary answer."
+)
+_NO_DELIVERY_COMMAND_GUIDANCE = (
+    "Do NOT invent a delivery command: `/messaging send slack …` is NOT a real command. "
+    "Do not substitute a different channel when the requested tool is unavailable."
+)
+
 _RECIPES: tuple[tuple[frozenset[str], str], ...] = (
     (
         frozenset({"slack_send_message"}),
@@ -53,8 +68,7 @@ user's "yes", call slack_list_team_members and summarize the observed result."""
     ),
     (
         frozenset({"slack_send_message", "slack_reply_message"}),
-        "Prefer slack_reply_message for a named channel/thread. slack_send_message uses "
-        "a fixed channel when a webhook is configured; bot-token sends require channel_id.",
+        _SEND_REPLY_GUIDANCE,
     ),
     (
         frozenset({"work_task_add"}),
@@ -92,12 +106,8 @@ def slack_action_prompt_fragment(context: ActionPromptContext) -> str:
     guidance = [
         "SLACK TEAMMATE REQUESTS USE SLACK TOOLS:",
         *recipes,
-        "After each tool returns, answer from its output. Ordinary gateway answers are "
-        "delivered automatically; extra delivery follows an explicit additional send/reply "
-        "or required delivery in a user-requested visible skill, using offered tools "
-        "and normal approval. Never duplicate an ordinary answer.",
-        "Do NOT invent a delivery command: `/messaging send slack …` is NOT a real command. "
-        "Do not substitute a different channel when the requested tool is unavailable.",
+        _DELIVERY_RESULT_GUIDANCE,
+        _NO_DELIVERY_COMMAND_GUIDANCE,
     ]
     if context.surface == "interactive_shell" and "slash_invoke" in context.offered_tool_names:
         guidance.append(

@@ -2,6 +2,14 @@
 
 from infrastructure.harness_providers.prompt_context import ActionPromptContext
 
+_DELIVERY_GUIDANCE = (
+    "BUZZ DELIVERY:\n"
+    "buzz_send_message — send only when the user explicitly asks for an extra "
+    "BUZZ send, post, notification or message. Use message and a named channel UUID; omit channel to use the configured default_channel.\n"
+    "The gateway delivers ordinary answers automatically. Do not duplicate them with "
+    "an extra send. Do not invent delivery commands or substitute another channel."
+)
+
 
 def buzz_action_prompt_fragment(context: ActionPromptContext) -> str:
     """Emit BUZZ delivery guidance only on an eligible surface."""
@@ -9,13 +17,7 @@ def buzz_action_prompt_fragment(context: ActionPromptContext) -> str:
         return ""
     if "buzz_send_message" not in context.offered_tool_names:
         return ""
-    lines = [
-        "BUZZ DELIVERY:",
-        "buzz_send_message — send only when the user explicitly asks for an extra "
-        "BUZZ send, post, notification or message. Use message and a named channel UUID; omit channel to use the configured default_channel.",
-        "The gateway delivers ordinary answers automatically. Do not duplicate them with "
-        "an extra send. Do not invent delivery commands or substitute another channel.",
-    ]
+    lines = [_DELIVERY_GUIDANCE]
     if context.surface == "interactive_shell" and "slash_invoke" in context.offered_tool_names:
         lines.append('For setup use slash_invoke(command="/integrations", args=["setup", "buzz"]).')
     return "\n".join(lines)

@@ -1,7 +1,7 @@
 # Feishu S7 Runtime Channel-Aware Prompts — Implementation Plan
 
 - Date: 2026-09-30
-- Status: Approved by user (2026-09-30); implementation and offline acceptance complete; PR #41 code head passed CI and Greptile 5/5 with no unresolved threads; awaiting explicit merge instruction, not merged
+- Status: Approved by user (2026-09-30); PR #41 merged by explicit user instruction as d03ddad; post-merge S7 CodeQL findings are being remediated; final delivery closure pending
 - Approved design: [`2026-09-30-feishu-s7-runtime-channel-aware-prompts-design.md`](2026-09-30-feishu-s7-runtime-channel-aware-prompts-design.md)
 - Roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md), R33/R34
 - Checkout: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`
@@ -582,8 +582,8 @@ Completed local evidence (2026-09-30):
   38 open alerts (#1–#38), verified before merge with `per_page=100`;
   the earlier 30-alert count read only the API's default first page.
   No baseline alert was dismissed or batch-fixed here.
-  Full CodeQL/main/release post-merge checks remain conditional on a future
-  authorized merge; none is claimed from this unmerged PR.
+  The post-merge results are recorded below; an unrelated baseline alert is
+  not part of the S7 remediation scope.
 
 - Runtime review-fix head `f814caafad0284650cbc2c3492fa86176207f00e`:
   [CI 36679305866](https://github.com/NotYourBug/aasre/actions/runs/36679305866),
@@ -599,6 +599,38 @@ Completed local evidence (2026-09-30):
   latest head after pushing it; the code-head result above is not a claim that
   future or unobserved commits have passed.
 
-S7 implementation/PR acceptance is complete; merging and post-merge delivery
-remain pending the user's explicit instruction. No live Feishu acceptance was run;
+S7 implementation/PR acceptance is complete. The user explicitly authorized
+merge on 2026-09-30; PR #41 was squash-merged as
+`d03ddade687ee3b203ecf315916ed4fba3989f37` after the final baseline erratum head
+`b3589f0b2c3d7890b78441c45056665d14b80be9` passed 29 checks / 7 intentional skips,
+Greptile 5/5 and zero unresolved threads. No live Feishu acceptance was run;
 S8a's real multipage delivery limitation remains unchanged. S8b remains separate.
+
+### Post-merge verification and S7-only remediation
+
+- Initial merge workflows: [CI 36681532842](https://github.com/NotYourBug/aasre/actions/runs/36681532842)
+  succeeded, including coverage-report;
+  [synthetic 36681532705](https://github.com/NotYourBug/aasre/actions/runs/36681532705)
+  and [interactive shell 36681532656](https://github.com/NotYourBug/aasre/actions/runs/36681532656)
+  succeeded. [Release 36681532685](https://github.com/NotYourBug/aasre/actions/runs/36681532685)
+  was skipped by the unchanged repository guard; no release was published.
+- [Full CodeQL 36681532674](https://github.com/NotYourBug/aasre/actions/runs/36681532674)
+  succeeded for Python and JS/TS. Python analysis 1864742178 found 46 alerts:
+  the original 38 plus eight S7-introduced `py/implicit-string-concatenation-in-list`
+  findings (#39–#46) in Slack, Telegram, Buzz and Rocket.Chat action prompt lists.
+  JS/TS analysis 1864734112 found zero alerts. Workflow success alone did not
+  close this gate; the eight new findings require repair and a clean comparison.
+- The follow-up uses the same approved worktree, on `codex/feishu-s7-codeql`.
+  [PR #42](https://github.com/NotYourBug/aasre/pull/42) extracts vendor-owned
+  complete guidance to private module constants, following the repository's
+  specific CodeQL rule; no prompt bytes, authorization, tool
+  availability, scan configuration or unrelated baseline alert is changed.
+- Before editing, a temporary characterization test pinned all 16 rendered
+  vendor/surface/tool views and passed on the merged implementation. It remains
+  green after the edit. Full lint/format/typecheck passed; focused verification
+  passed 79 cases (78 repository cases plus that temporary byte comparison).
+- PR #42's first branch full scan 36683077281 succeeded. Greptile correctly
+  required module constants rather than CodeQL's generic explicit-`+` example;
+  the final change follows the more specific repository instruction.
+- Final follow-up review, main CI, full CodeQL comparison and delivery status remain
+  pending. Do not mark S7 delivered until that loop is complete.
