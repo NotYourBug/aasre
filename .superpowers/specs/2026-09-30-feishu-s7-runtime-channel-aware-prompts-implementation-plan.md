@@ -609,7 +609,7 @@ S8a's real multipage delivery limitation remains unchanged. S8b remains separate
 ### Post-merge verification and S7-only remediation
 
 - Initial merge workflows: [CI 36681532842](https://github.com/NotYourBug/aasre/actions/runs/36681532842)
-  has passing test shards and pending coverage-report;
+  succeeded, including coverage-report;
   [synthetic 36681532705](https://github.com/NotYourBug/aasre/actions/runs/36681532705)
   and [interactive shell 36681532656](https://github.com/NotYourBug/aasre/actions/runs/36681532656)
   succeeded. [Release 36681532685](https://github.com/NotYourBug/aasre/actions/runs/36681532685)
@@ -621,12 +621,16 @@ S8a's real multipage delivery limitation remains unchanged. S8b remains separate
   JS/TS analysis 1864734112 found zero alerts. Workflow success alone did not
   close this gate; the eight new findings require repair and a clean comparison.
 - The follow-up uses the same approved worktree, on `codex/feishu-s7-codeql`.
-  It changes only these deliberate concatenations to explicit `+`, following
-  CodeQL's documented recommendation; no prompt bytes, authorization, tool
+  [PR #42](https://github.com/NotYourBug/aasre/pull/42) extracts vendor-owned
+  complete guidance to private module constants, following the repository's
+  specific CodeQL rule; no prompt bytes, authorization, tool
   availability, scan configuration or unrelated baseline alert is changed.
 - Before editing, a temporary characterization test pinned all 16 rendered
   vendor/surface/tool views and passed on the merged implementation. It remains
   green after the edit. Full lint/format/typecheck passed; focused verification
   passed 79 cases (78 repository cases plus that temporary byte comparison).
-- Final follow-up PR, main CI, full CodeQL comparison and delivery status remain
+- PR #42's first branch full scan 36683077281 succeeded. Greptile correctly
+  required module constants rather than CodeQL's generic explicit-`+` example;
+  the final change follows the more specific repository instruction.
+- Final follow-up review, main CI, full CodeQL comparison and delivery status remain
   pending. Do not mark S7 delivered until that loop is complete.
