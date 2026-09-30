@@ -1,10 +1,11 @@
 # Feishu S8b-1 Single-Message Read Design
 
 - Date: 2026-09-30
-- Status: Draft for user review; design and implementation plan are not approved
+- Status: Core design approved by user (2026-09-30); §12 gate refinement and independent implementation plan await approval. User requested plan preparation only, with no execution.
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
+- Implementation plan: [Independent plan](2026-09-30-feishu-s8b1-read-message-implementation-plan.md), awaiting separate approval
 - Scope: One read-only ACTION tool, `feishu_get_message`, for a known message ID in the current Feishu chat
-- Scope assumption: Current-chat-only is the recommended first release; the user may revise this draft before approval
+- Scope decision: Current-chat-only first release, approved with this design on 2026-09-30
 
 ## 1. Intent and success criteria
 
@@ -17,7 +18,7 @@ message. A message from another chat, an unverifiable response, or a revoked or
 unavailable message never releases content to the model. Permissions granted to
 the bot by Feishu are necessary but do not replace OpenSRE's current-chat boundary.
 
-This draft assumes current-chat-only access. It adds no read allowlist, default
+This design fixes current-chat-only access. It adds no read allowlist, default
 read target, shell access, user OAuth, or cross-chat capability. Existing default
 delivery targets and `FEISHU_ALLOWED_OUTBOUND_TARGETS` authorize writes only.
 
@@ -82,7 +83,7 @@ flow automatically requests broader permissions or probes real messages.
 
 | Approach | Trade-off | Decision |
 | --- | --- | --- |
-| Current-chat-only, known ID, one guarded GET | Small authority surface; unsuitable for shell and cross-chat lookup | Recommended for S8b-1 |
+| Current-chat-only, known ID, one guarded GET | Small authority surface; unsuitable for shell and cross-chat lookup | Selected for S8b-1 |
 | Known ID plus a separate read-chat allowlist | Enables cross-chat workflows; requires independent configuration, actor policy and authorization contracts | Defer to a separately approved extension |
 | Chat history/search first | Makes message discovery easier; adds time windows, pagination and a wider data surface | Subsequent independent S8b projects |
 
@@ -180,7 +181,7 @@ integration cannot import. Promote its unchanged pure function and private
 patterns to `infrastructure/safety/masking/secrets.py`. Migrate its gateway
 attachment and approval consumers and its test to the canonical path; retain
 no forwarding function or old public scrubber export. Characterize the existing
-behavior before this move. This targeted extraction is part of the proposed
+behavior before this move. This targeted extraction is part of the approved
 design and must preserve all existing attachment/approval behavior.
 
 Serialize the sanitized object once and return at most 12,000 Unicode
@@ -306,13 +307,15 @@ text/card reads and a controlled foreign/deleted-message rejection, including
 the SDK-retrieval limitation in section 6. Do not reuse S8a/S7 authorization,
 start/restart a live gateway, or treat offline fixtures as live acceptance.
 Any permission changes are external configuration actions requiring current
-authorization. No real reads or live operations are authorized by this draft.
+authorization. No real reads or live operations are authorized by this design approval.
 
 ## 11. Approval and delivery boundary
 
-This artifact is the independent S8b-1 design draft only. Product code, tests,
-runtime configuration, dependencies, user docs and workflows remain unchanged
-while the draft is reviewed. It does not approve its own recommendations.
+The user explicitly approved this independent S8b-1 design on 2026-09-30.
+The approval includes current-chat-only access and the targeted scrubber
+extraction. It authorizes preparation of the separate implementation plan;
+product code, tests, runtime configuration, dependencies, user docs and
+workflows remain unchanged until that plan is separately approved.
 
 After explicit design approval, write a separate implementation plan with exact
 files, behavioral characterization/TDD order, focused CI commands, commit and
@@ -327,3 +330,33 @@ morning-report adaptation, release activation and old CodeQL cleanup remain
 separate work. Follow the PR template, AI disclosure, checks after every push,
 Greptile 5/5, an explicit merge instruction and post-merge main CI/full CodeQL/
 release closure. Preserve S8a's previously recorded live multipage limitation.
+
+## 12. Planning refinement awaiting approval: gateway-only enforcement
+
+The approved access scope remains current-chat-only. Plan review found that
+S7's `filter_action_tools_for_channel` deliberately preserves messaging tools
+on the interactive shell, even when a resolved view contains gateway markers.
+Normal availability receives integration sources, not the host's surface;
+those markers alone cannot prove this turn actually came from a gateway.
+
+The independent implementation plan therefore proposes one narrow adjacent
+contract extension, still awaiting approval:
+
+- Add the shared `GATEWAY_ONLY_TOOL_TAG = "gateway_only"` in
+  `config/constants/tool_policy.py`, re-export it, and opt only the new
+  `feishu_get_message` tool into this existing tool-tag mechanism.
+- Extend the existing final action-tool filter with a generic tag check:
+  tagged tools require `ActionPromptContext.surface == "gateway"`, in addition
+  to the existing messaging-source check. Keep both function signatures and
+  all untagged tools' behavior unchanged; do not introduce a vendor/name branch
+  or a new registry.
+- At execution, require the existing frozen `ActionPromptContext` resource
+  to identify a Feishu gateway, alongside the frozen integration scope. Missing,
+  malformed or shell resources cannot enable a GET, including direct calls
+  and custom/precomputed providers. Public preparation can validate input and
+  integration scope only; the final host filter and runtime check enforce the
+  actual surface.
+
+This refinement enforces the approved no-shell contract without broadening
+access. Future implementation-plan approval must explicitly include this shared
+gate extension; the earlier design approval alone does not authorize it.
