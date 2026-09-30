@@ -258,8 +258,8 @@ produces `FeishuGetMessageTool` and decorated `feishu_get_message`.
 - `read_failure(code: FeishuReadErrorCode) -> ToolExecutionResult`.
 - `FeishuGetMessageTool.run(self, *, message_id: str, context: AgentToolContext) -> ToolExecutionResult`.
 
-- [ ] Add `test_public_input_cannot_inject_scope_or_credentials`: invalid/missing/whitespace-only/overlong IDs and additional target/chat/token fields are rejected before GET. Normal preparation rechecks integration scope; direct invocation additionally checks the frozen prompt resource. A shell with valid gateway markers, a missing resource and default/outbound targets all cause zero GETs.
-- [ ] Add `test_execution_matches_frozen_app_and_returns_only_safe_read_result`: execute through `core.tool.execute_tool_calls` and `RegisteredTool.from_base_tool` with intercepted SDK transport and a named fake credential loader. Assert changed resolved app identity causes zero GETs; success has the design's exact fields, `json.loads(content) == details`, no sender envelope/tenant/credential data and no S8a `sent`/certainty fields.
+- [x] Add `test_public_input_cannot_inject_scope_or_credentials`: invalid/missing/whitespace-only/overlong IDs and additional target/chat/token fields are rejected before GET. Normal preparation rechecks integration scope; direct invocation additionally checks the frozen prompt resource. A shell with valid gateway markers, a missing resource and default/outbound targets all cause zero GETs.
+- [x] Add `test_execution_matches_frozen_app_and_returns_only_safe_read_result`: execute through `core.tool.execute_tool_calls` and `RegisteredTool.from_base_tool` with intercepted SDK transport and a named fake credential loader. Assert changed resolved app identity causes zero GETs; success has the design's exact fields, `json.loads(content) == details`, no sender envelope/tenant/credential data and no S8a `sent`/certainty fields.
 
 ```python
 assert result.is_error is False
@@ -269,12 +269,12 @@ assert result.details["resource_content_included"] is False
 assert "sent" not in result.details and "certainty" not in result.details
 ```
 
-- [ ] Add `test_error_and_truncated_details_cannot_retain_original_body`: assert the result and trace-facing details contain only the sanitized prefix on success, and no body/foreign metadata on failure. Verify the read does not request approval or dispatch any send/reply/reaction fallback.
-- [ ] Run `uv run python -m pytest tests/integrations/test_feishu_get_message_tool.py -q`; require behavioral RED after the minimal tool interface is importable.
-- [ ] Implement schema/metadata with the proposed gateway-only tag, shared availability and preparation, `resolve_runtime_read_scope` before credential loading, credential/app-ID agreement, cancellation and guarded client dispatch. Declare schema `maxLength=256`; trim the ID before the normalizer's length check and onward dispatch, including direct calls. Test runtime resources include the real frozen gateway/Feishu `ActionPromptContext`, as the actual runner supplies. Use a safe wrapper containing only an exception type for unexpected telemetry, never original details. Map errors in the read tool's own result module.
-- [ ] Export only the decorated public tool from the lightweight package `__init__.py`. Discovery already walks `integrations.feishu.tools`; do not add a second root or register unimplemented capabilities.
-- [ ] Run the tool tests plus `uv run python -m pytest tests/integrations/test_feishu_send_reply_tools.py tests/integrations/test_feishu_outbound_targets.py -q`; expect GREEN with write approvals/targets unchanged.
-- [ ] Commit the listed files as `feat(feishu): expose current-chat message read tool`.
+- [x] Add `test_error_and_truncated_details_cannot_retain_original_body`: assert the result and trace-facing details contain only the sanitized prefix on success, and no body/foreign metadata on failure. Verify the read does not request approval or dispatch any send/reply/reaction fallback.
+- [x] Run `uv run python -m pytest tests/integrations/test_feishu_get_message_tool.py -q`; require behavioral RED after the minimal tool interface is importable.
+- [x] Implement schema/metadata with the proposed gateway-only tag, shared availability and preparation, `resolve_runtime_read_scope` before credential loading, credential/app-ID agreement, cancellation and guarded client dispatch. Declare schema `maxLength=256`; trim the ID before the normalizer's length check and onward dispatch, including direct calls. Test runtime resources include the real frozen gateway/Feishu `ActionPromptContext`, as the actual runner supplies. Use a safe wrapper containing only an exception type for unexpected telemetry, never original details. Map errors in the read tool's own result module.
+- [x] Export only the decorated public tool from the lightweight package `__init__.py`. Discovery already walks `integrations.feishu.tools`; do not add a second root or register unimplemented capabilities.
+- [x] Run the tool tests plus `uv run python -m pytest tests/integrations/test_feishu_send_reply_tools.py tests/integrations/test_feishu_outbound_targets.py -q`; expect GREEN with write approvals/targets unchanged.
+- [x] Commit the listed files as `feat(feishu): expose current-chat message read tool`.
 
 ### Task 6: Real action wiring, prompt agreement and user guidance
 
