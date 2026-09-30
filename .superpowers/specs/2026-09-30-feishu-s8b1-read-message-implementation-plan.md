@@ -116,7 +116,7 @@ are future implementation checks, not validation already performed.
 infrastructure path. Existing `budgeted_section(...)` and `arguments_preview(...)`
 signatures and rendered outputs do not change.
 
-- [ ] Add `test_scrubber_preserves_existing_secret_replacements`, initially importing the old gateway function. Assert unchanged benign Markdown and the exact existing replacements for private-key, Slack/app-token, AWS-key, Bearer and generic assignment inputs. Keep one characterization test for this move.
+- [x] Add `test_scrubber_preserves_existing_secret_replacements`, initially importing the old gateway function. Assert unchanged benign Markdown and the exact existing replacements for private-key, Slack/app-token, AWS-key, Bearer and generic assignment inputs. Keep one characterization test for this move.
 
 ```python
 assert scrub_secrets("status: healthy") == "status: healthy"
@@ -124,10 +124,10 @@ assert scrub_secrets("Bearer abcdefghijklmnopqrst") == "Bearer [REDACTED]"
 assert scrub_secrets("token=abcdefgh") == "token=[REDACTED]"
 ```
 
-- [ ] Run `uv run python -m pytest tests/masking/test_secrets.py gateway/tests/discord/test_attachments_inline.py gateway/tests/runtime/test_approval_arguments_preview.py -q`; obtain GREEN on the pre-move code.
-- [ ] Move the pure function and patterns unchanged, migrate both product consumers and tests, remove the old public `scrub_secrets` export/definition and unused `re` import. Leave the masking package facade import-only; no forwarding shim is needed.
-- [ ] Run the same command plus `uv run python -m pytest gateway/tests/feishu/test_attachments.py gateway/tests/slack/test_attachments.py -q`; expect GREEN with identical preview/attachment behavior.
-- [ ] Search all imports with `rg -n 'scrub_secrets' gateway infrastructure tests`; verify all callers use the canonical path, then commit the listed files as `refactor(safety): share canonical secret scrubber`.
+- [x] Run `uv run python -m pytest tests/masking/test_secrets.py gateway/tests/discord/test_attachments_inline.py gateway/tests/runtime/test_approval_arguments_preview.py -q`; obtain GREEN on the pre-move code.
+- [x] Move the pure function and patterns unchanged, migrate both product consumers and tests, remove the old public `scrub_secrets` export/definition and unused `re` import. Leave the masking package facade import-only; no forwarding shim is needed.
+- [x] Run the same command plus `uv run python -m pytest gateway/tests/feishu/test_attachments.py gateway/tests/slack/test_attachments.py -q`; expect GREEN with identical preview/attachment behavior.
+- [x] Search all imports with `rg -n 'scrub_secrets' gateway infrastructure tests`; verify all callers use the canonical path, then commit the listed files as `refactor(safety): share canonical secret scrubber`.
 
 ### Task 2: Frozen read scope and leaf read records
 
@@ -149,7 +149,7 @@ Missing or malformed resources raise the same safe authorization error.
 `Mapping` is imported from `collections.abc`. The proposed shared tag is
 `GATEWAY_ONLY_TOOL_TAG = "gateway_only"`.
 
-- [ ] Add `test_read_scope_requires_typed_current_chat_and_verified_chat_app`: exercise a real `FeishuConfig` and its dictionary equivalent; assert `FeishuReadScope("cli_test", "oc_current")`, then reject explicit unverified credentials, missing/blank credentials, malformed metadata and wrong/missing platform. Check that no default/outbound-only configuration grants a scope.
+- [x] Add `test_read_scope_requires_typed_current_chat_and_verified_chat_app`: exercise a real `FeishuConfig` and its dictionary equivalent; assert `FeishuReadScope("cli_test", "oc_current")`, then reject explicit unverified credentials, missing/blank credentials, malformed metadata and wrong/missing platform. Check that no default/outbound-only configuration grants a scope.
 
 ```python
 assert resolve_read_scope(valid_view) == FeishuReadScope("cli_test", "oc_current")
@@ -157,11 +157,11 @@ assert is_read_available(unverified_view) is False
 assert is_read_available(outbound_only_view) is False
 ```
 
-- [ ] Add `test_runtime_scope_rejects_shell_with_gateway_markers`: retain the valid Feishu integration view while changing only the frozen prompt resource to shell, wrong platform, missing or malformed; assert authorization failure. A gateway/Feishu resource and the valid view return the same immutable scope. This tests runtime authority separately from integration candidacy.
-- [ ] Run `uv run python -m pytest tests/integrations/test_feishu_read_scope.py -q`; require an assertion failure from the importable unimplemented resolver, not ImportError.
-- [ ] Implement the immutable records, scope/runtime resolvers and proposed tag constant. Preserve string types, copy stripped app/chat values once and never retain the mutable integration map. Default locally classified verification follows `availability_view`; an explicit false flag is never overwritten. Availability catches the safe domain rejection and performs no credential loading/network I/O. Import the existing prompt-context leaf without changing that resource's contract.
-- [ ] Run the test again; expect GREEN and no captured/logged configuration secrets.
-- [ ] Commit the listed files as `feat(feishu): define current-chat read authority`.
+- [x] Add `test_runtime_scope_rejects_shell_with_gateway_markers`: retain the valid Feishu integration view while changing only the frozen prompt resource to shell, wrong platform, missing or malformed; assert authorization failure. A gateway/Feishu resource and the valid view return the same immutable scope. This tests runtime authority separately from integration candidacy.
+- [x] Run `uv run python -m pytest tests/integrations/test_feishu_read_scope.py -q`; require an assertion failure from the importable unimplemented resolver, not ImportError.
+- [x] Implement the immutable records, scope/runtime resolvers and proposed tag constant. Preserve string types, copy stripped app/chat values once and never retain the mutable integration map. Default locally classified verification follows `availability_view`; an explicit false flag is never overwritten. Availability catches the safe domain rejection and performs no credential loading/network I/O. Import the existing prompt-context leaf without changing that resource's contract.
+- [x] Run the test again; expect GREEN and no captured/logged configuration secrets.
+- [x] Commit the listed files as `feat(feishu): define current-chat read authority`.
 
 ### Task 3: Bounded sanitized message-body representation
 
@@ -185,7 +185,7 @@ Named limits:
 | `FEISHU_MESSAGE_READ_MAX_NODES` | `8_192` |
 | `FEISHU_MESSAGE_READ_TIMEOUT_SECONDS` | `10.0` |
 
-- [ ] Add `test_content_sanitizes_decoded_json_before_prefix`: use a JSON object with a secret-bearing key and a decoded Bearer/private-key string crossing the 12,000-character prefix. Assert `len(result.body_content) <= 12_000`, `truncated is True`, `body_format == "json_prefix"`, `redacted is True`, and no credential value or cut credential fragment remains.
+- [x] Add `test_content_sanitizes_decoded_json_before_prefix`: use a JSON object with a secret-bearing key and a decoded Bearer/private-key string crossing the 12,000-character prefix. Assert `len(result.body_content) <= 12_000`, `truncated is True`, `body_format == "json_prefix"`, `redacted is True`, and no credential value or cut credential fragment remains.
 
 ```python
 assert len(result.body_content) <= 12_000
@@ -194,13 +194,13 @@ assert result.redacted is True
 assert "abcdefghijklmnopqrstuvwxyz012345" not in result.body_content
 ```
 
-- [ ] Add `test_content_preserves_rich_text_and_card_nodes`: feed documented-shaped post and original 2.0 card objects; assert unfamiliar benign nodes survive, complete output parses, and `body_format == "json"` / `truncated is False`. Resource keys stay metadata; no fetch/vision callback exists in this module.
-- [ ] Add `test_content_bounds_use_utf8_bytes_and_count_json_values`: pin CJK byte overflow, exact-boundary acceptance and over-limit depth/nodes. Root value has depth 1; containers and value leaves count as nodes, object keys do not. Use a bounded iterative preflight before recursive helpers. Test malformed/non-object/non-finite JSON as unsupported; parser recursion failure maps to `content_too_complex`.
-- [ ] Add `test_configured_masking_uses_a_fresh_map_per_read`: enable the existing policy in the test environment, read different chats' identifier-bearing content, and assert each result contains only its own placeholders and no original identifier/mapping.
-- [ ] Run `uv run python -m pytest tests/integrations/test_feishu_message_content.py -q`; obtain behavioral RED on the importable normalizer.
-- [ ] Implement UTF-8 preflight, JSON-object parsing, complexity checks, ordered sanitization and one serialization. Compare sanitized data to the parsed original to set `redacted`; then discard originals. Reject invalid Unicode/non-finite numeric values safely. Convert parser exceptions to safe codes and raise domain errors outside the catch blocks so `__context__`/`__cause__` cannot retain the parser's original document. Return the bounded string prefix with explicit flags; catch neither by disabling validation nor by changing the configured limits.
-- [ ] Run the same tests plus `uv run python -m pytest tests/masking/ -q`; expect GREEN.
-- [ ] Commit the listed files as `feat(feishu): bound and sanitize read content`.
+- [x] Add `test_content_preserves_rich_text_and_card_nodes`: feed documented-shaped post and original 2.0 card objects; assert unfamiliar benign nodes survive, complete output parses, and `body_format == "json"` / `truncated is False`. Resource keys stay metadata; no fetch/vision callback exists in this module.
+- [x] Add `test_content_bounds_use_utf8_bytes_and_count_json_values`: pin CJK byte overflow, exact-boundary acceptance and over-limit depth/nodes. Root value has depth 1; containers and value leaves count as nodes, object keys do not. Use a bounded iterative preflight before recursive helpers. Test malformed/non-object/non-finite JSON as unsupported; parser recursion failure maps to `content_too_complex`.
+- [x] Add `test_configured_masking_uses_a_fresh_map_per_read`: enable the existing policy in the test environment, read different chats' identifier-bearing content, and assert each result contains only its own placeholders and no original identifier/mapping.
+- [x] Run `uv run python -m pytest tests/integrations/test_feishu_message_content.py -q`; obtain behavioral RED on the importable normalizer.
+- [x] Implement UTF-8 preflight, JSON-object parsing, complexity checks, ordered sanitization and one serialization. Compare sanitized data to the parsed original to set `redacted`; then discard originals. Reject invalid Unicode/non-finite numeric values safely. Convert parser exceptions to safe codes and raise domain errors outside the catch blocks so `__context__`/`__cause__` cannot retain the parser's original document. Return the bounded string prefix with explicit flags; catch neither by disabling validation nor by changing the configured limits.
+- [x] Run the same tests plus `uv run python -m pytest tests/masking/ -q`; expect GREEN.
+- [x] Commit the listed files as `feat(feishu): bound and sanitize read content`.
 
 ### Task 4: Single guarded SDK GET without content leakage
 
@@ -224,7 +224,7 @@ The probe exposes `requests: list[GetMessageRequest]`, `timeouts: list[float]`
 and `app_ids: list[str]`. It intercepts real SDK transport/token acquisition and
 returns realistic deserialized GET responses, using no real credential loader.
 
-- [ ] Add `test_sdk_get_uses_original_card_format_and_tenant_identity`: intercept the real SDK transport and token acquisition with named test functions; deserialize an actual `GetMessageResponse` payload. Assert one GET, `user_id_type="open_id"`, `card_msg_content_type="user_card_content"`, timeout `10.0`, tenant token selection and exact requested message/chat in the returned record. Use `HTTPStatus.OK` in fake HTTP responses.
+- [x] Add `test_sdk_get_uses_original_card_format_and_tenant_identity`: intercept the real SDK transport and token acquisition with named test functions; deserialize an actual `GetMessageResponse` payload. Assert one GET, `user_id_type="open_id"`, `card_msg_content_type="user_card_content"`, timeout `10.0`, tenant token selection and exact requested message/chat in the returned record. Use `HTTPStatus.OK` in fake HTTP responses.
 
 ```python
 assert len(probe.requests) == 1
@@ -234,14 +234,14 @@ assert probe.timeouts == [10.0]
 assert message.chat_id == "oc_current"
 ```
 
-- [ ] Add `test_foreign_or_unverifiable_message_never_touches_body`: a sentinel property raises on body access. Exercise wrong chat/ID, absent or non-false deletion and multiple items; assert safe rejection, untouched body, zero normalizer calls and no second request. Explicit `merge_forward` rejects before content processing even with one item.
-- [ ] Add `test_upstream_failure_does_not_leak_canary_or_retry`: upstream code/message and raised transport exceptions contain a canary; assert the safe error code and absence of the canary/foreign IDs in errors and captured diagnostics. No response/raw object is passed to telemetry.
-- [ ] Add `test_cancellation_discards_completed_get` and `test_captured_scope_survives_mutation_during_get`: switch cancellation or mutate the originating view inside the intercepted GET; verify respectively no content release and continued comparison against the captured immutable scope.
-- [ ] Run `uv run python -m pytest tests/integrations/test_feishu_message_read.py -q`; require behavioral RED from the importable client.
-- [ ] Implement client construction, app-ID agreement, cancellation checks and one GET. Inspect identity/deletion before body/msg-type processing, then invoke Task 3. Convert caught upstream/parser exceptions to safe codes and raise domain errors outside those catch blocks so no original `__context__`/`__cause__` is attached. Missing access/membership/invisible/deleted upstream outcomes map to `message_unavailable`; reuse known rate-limit constants. Unknown/transport errors map to `upstream_error`. HTTP comparisons use `HTTPStatus`; no raw provider text is retained.
-- [ ] Define `FEISHU_MESSAGE_READ_UNAVAILABLE_ERROR_CODES = frozenset({230050, 230110})` for GET-specific invisible/deleted cases and classify it alongside existing `FEISHU_AUTHORIZATION_ERROR_CODES`. Reuse `FEISHU_RATE_LIMIT_ERROR_CODES` and `HTTPStatus.TOO_MANY_REQUESTS` for rate limiting. Keep literals out of independent feature/test classification tables; do not change S8a's existing classification.
-- [ ] Run the client tests plus `uv run python -m pytest tests/integrations/test_feishu_message_lookup.py -q`; expect GREEN and unchanged metadata-only reply preflight.
-- [ ] Commit the listed files as `feat(feishu): verify single-message reads before release`.
+- [x] Add `test_foreign_or_unverifiable_message_never_touches_body`: a sentinel property raises on body access. Exercise wrong chat/ID, absent or non-false deletion and multiple items; assert safe rejection, untouched body, zero normalizer calls and no second request. Explicit `merge_forward` rejects before content processing even with one item.
+- [x] Add `test_upstream_failure_does_not_leak_canary_or_retry`: upstream code/message and raised transport exceptions contain a canary; assert the safe error code and absence of the canary/foreign IDs in errors and captured diagnostics. No response/raw object is passed to telemetry.
+- [x] Add `test_cancellation_discards_completed_get` and `test_captured_scope_survives_mutation_during_get`: switch cancellation or mutate the originating view inside the intercepted GET; verify respectively no content release and continued comparison against the captured immutable scope.
+- [x] Run `uv run python -m pytest tests/integrations/test_feishu_message_read.py -q`; require behavioral RED from the importable client.
+- [x] Implement client construction, app-ID agreement, cancellation checks and one GET. Inspect identity/deletion before body/msg-type processing, then invoke Task 3. Convert caught upstream/parser exceptions to safe codes and raise domain errors outside those catch blocks so no original `__context__`/`__cause__` is attached. Missing access/membership/invisible/deleted upstream outcomes map to `message_unavailable`; reuse known rate-limit constants. Unknown/transport errors map to `upstream_error`. HTTP comparisons use `HTTPStatus`; no raw provider text is retained.
+- [x] Define `FEISHU_MESSAGE_READ_UNAVAILABLE_ERROR_CODES = frozenset({230050, 230110})` for GET-specific invisible/deleted cases and classify it alongside existing `FEISHU_AUTHORIZATION_ERROR_CODES`. Reuse `FEISHU_RATE_LIMIT_ERROR_CODES` and `HTTPStatus.TOO_MANY_REQUESTS` for rate limiting. Keep literals out of independent feature/test classification tables; do not change S8a's existing classification.
+- [x] Run the client tests plus `uv run python -m pytest tests/integrations/test_feishu_message_lookup.py -q`; expect GREEN and unchanged metadata-only reply preflight.
+- [x] Commit the listed files as `feat(feishu): verify single-message reads before release`.
 
 ### Task 5: ACTION tool validation, execution and safe results
 
