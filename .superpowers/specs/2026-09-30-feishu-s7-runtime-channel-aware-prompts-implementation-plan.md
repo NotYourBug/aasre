@@ -560,6 +560,29 @@ Completed local evidence (2026-09-30):
   packaged loader and read both adjacent Markdown bases without the source tree.
   No full PyInstaller binary build or release workflow activation was performed.
 
-PR/check/review IDs will be added after delivery gates complete. S7 is not marked
-delivered or merged yet. No live Feishu acceptance was run; S8a's real multipage
-delivery limitation remains unchanged. S8b remains a separate future project.
+### PR verification record
+
+- PR: [#41](https://github.com/NotYourBug/aasre/pull/41), against main;
+  initial complete head `01017d6e901592fc8130d1efe74210a2c70c242f`.
+- Initial checks: [CI 36677550583](https://github.com/NotYourBug/aasre/actions/runs/36677550583),
+  [synthetic 36677550659](https://github.com/NotYourBug/aasre/actions/runs/36677550659),
+  [interactive shell 36677550449](https://github.com/NotYourBug/aasre/actions/runs/36677550449):
+  29 success / 7 intentional skip, no failures.
+- First [Greptile review](https://github.com/NotYourBug/aasre/pull/41#issuecomment-5905408229):
+  4/5, two valid findings. Captured two behavioral assertion REDs before fixing
+  the bot-token-only Slack channel_id recipe and reconciling the gateway base
+  with required delivery in a user-requested visible skill. Both tests then passed.
+  This does not grant new target authority or bypass per-call approval, and the
+  morning-report body/delivery workflow remains unchanged.
+- Review-fix validation: 82 focused prompt, cache, real-runner, skill, Slack
+  transport and packaging tests passed; full Ruff lint/format and mypy passed.
+  The rebuilt wheel again passed its runtime-data validator and isolated
+  extracted-wheel import/read probe for both prompt bases.
+- CodeQL pre-S7 main baseline at `407a9b2baa527353195b8d16aa86cc9ba27d67ae`:
+  30 open alerts (#9–#38). No baseline alert was dismissed or batch-fixed here.
+  Full CodeQL/main/release post-merge checks remain conditional on a future
+  authorized merge; none is claimed from this unmerged PR.
+
+Latest-head CI and Greptile closure will be recorded after the review fixes.
+S7 is not marked delivered or merged yet. No live Feishu acceptance was run;
+S8a's real multipage delivery limitation remains unchanged. S8b remains separate.

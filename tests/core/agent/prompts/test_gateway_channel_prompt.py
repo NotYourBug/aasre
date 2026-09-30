@@ -83,3 +83,27 @@ def test_connected_integrations_hide_inactive_delivery_sources() -> None:
     assert (
         neutral.require_block("connected-integrations").content.splitlines()[0].endswith("github")
     )
+
+
+def test_slack_send_only_explains_bot_token_destination() -> None:
+    prompt = prompt_for("slack", "slack_send_message")
+    assert "Without a webhook" in prompt
+    assert "channel_id" in prompt
+    assert "never invent" in prompt.lower()
+    assert "slack_reply_message" not in prompt
+
+
+def test_requested_slack_skill_delivery_preserves_normal_authorization() -> None:
+    from core.agent_harness.prompts.skills.loader import load_skill_body
+
+    context = ActionPromptContext(
+        "gateway", "slack", frozenset({"slack_send_message", "skill_view"})
+    )
+    turn = snapshot(InMemorySessionState(), surface="gateway", platform="slack")
+    envelope = build_action_system_prompt_envelope(turn, context=context)
+    base = envelope.require_block("action-agent-system-base").content
+    vendor = envelope.require_block("action-agent-vendor-fragments").content
+    assert "required delivery in a visible skill" in base
+    assert "cannot grant new destination authority or bypass approvals" in base
+    assert "requested visible skill" in vendor
+    assert "ALWAYS DELIVER TO SLACK" in load_skill_body("morning-report", context=context)

@@ -1,8 +1,4 @@
-"""Shared OpenSRE system prompt loaded from ``opensre_system_prompt.md``.
-
-The Markdown lives beside this loader so every agent path imports one shared
-base without reaching through the action package.
-"""
+"""Surface-specific OpenSRE bases loaded from adjacent bundled Markdown."""
 
 from __future__ import annotations
 

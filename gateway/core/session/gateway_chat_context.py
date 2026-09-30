@@ -8,11 +8,7 @@ from infrastructure.harness_providers.messaging_sources import inactive_messagin
 
 
 def _inactive_chat_transports(active_platform: str) -> tuple[str, ...]:
-    """Chat transports other than the active one, so the agent hides them.
-
-    Transport knowledge lives here in the gateway (which owns messaging), not in
-    core: a Slack teammate should not advertise Telegram, and vice versa.
-    """
+    """Return inactive inbound and delivery-only sources from the boot registry."""
     return tuple(
         sorted(inactive_messaging_sources(surface="gateway", active_platform=active_platform))
     )

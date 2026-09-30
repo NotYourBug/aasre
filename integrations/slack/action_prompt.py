@@ -5,9 +5,14 @@ from infrastructure.harness_providers.prompt_context import ActionPromptContext
 _RECIPES: tuple[tuple[frozenset[str], str], ...] = (
     (
         frozenset({"slack_send_message"}),
-        """slack_send_message — send an explicitly requested notification through the incoming
-webhook's fixed channel. Put the requested text in message. Observe any preceding
-lookup before composing the actual message; never fabricate its values.""",
+        """slack_send_message — send an explicitly requested notification or required
+delivery from a user-requested visible skill. A configured incoming webhook posts
+to its fixed channel and ignores channel_id. Without a webhook, bot-token sends
+require a known channel_id. Use trusted current-chat metadata or the user's known
+target; if it is unavailable, ask for the destination and never invent an ID.
+Do not assume a webhook exists just because this tool is offered. Put the text
+in message and observe preceding lookups before composing it; never fabricate
+their values. Normal target validation and per-call approval still apply.""",
     ),
     (
         frozenset({"slack_reply_message"}),
@@ -48,7 +53,8 @@ user's "yes", call slack_list_team_members and summarize the observed result."""
     ),
     (
         frozenset({"slack_send_message", "slack_reply_message"}),
-        "Prefer slack_reply_message for a named channel/thread; slack_send_message uses a fixed webhook.",
+        "Prefer slack_reply_message for a named channel/thread. slack_send_message uses "
+        "a fixed channel when a webhook is configured; bot-token sends require channel_id.",
     ),
     (
         frozenset({"work_task_add"}),
@@ -87,7 +93,9 @@ def slack_action_prompt_fragment(context: ActionPromptContext) -> str:
         "SLACK TEAMMATE REQUESTS USE SLACK TOOLS:",
         *recipes,
         "After each tool returns, answer from its output. Ordinary gateway answers are "
-        "delivered automatically; extra delivery is for an explicit additional send or reply.",
+        "delivered automatically; extra delivery follows an explicit additional send/reply "
+        "or required delivery in a user-requested visible skill, using offered tools "
+        "and normal approval. Never duplicate an ordinary answer.",
         "Do NOT invent a delivery command: `/messaging send slack …` is NOT a real command. "
         "Do not substitute a different channel when the requested tool is unavailable.",
     ]
