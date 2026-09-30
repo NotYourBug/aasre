@@ -12,6 +12,7 @@ from collections.abc import Iterator
 import pytest
 
 import infrastructure.harness_providers as harness_providers
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT, SLACK_PROMPT_CONTEXT
 
 
 @pytest.fixture(autouse=True)
@@ -23,11 +24,11 @@ def _empty_registries() -> Iterator[None]:
 
 def test_action_fragments_join_in_registration_order() -> None:
     # Arrange
-    harness_providers.register_action_prompt_fragment(lambda: "FIRST")
-    harness_providers.register_action_prompt_fragment(lambda: "SECOND")
+    harness_providers.register_action_prompt_fragment(lambda _context: "FIRST")
+    harness_providers.register_action_prompt_fragment(lambda _context: "SECOND")
 
     # Act
-    joined = harness_providers.action_prompt_vendor_fragments()
+    joined = harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT)
 
     # Assert: order is registration order, separated by a blank line.
     assert joined == "FIRST\n\nSECOND"
@@ -45,9 +46,9 @@ def test_gather_fragments_join_with_single_newline() -> None:
 def test_empty_fragment_registries_render_empty_string() -> None:
     # Assert: a surface with no integrations wired must not raise.
     assert harness_providers.gather_prompt_vendor_fragments() == ""
-    assert harness_providers.action_prompt_vendor_fragments() == ""
+    assert harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT) == ""
     assert harness_providers.assistant_prompt_vendor_fragments() == ""
-    assert harness_providers.gateway_persona_fragments() == ""
+    assert harness_providers.gateway_persona_fragments(context=SLACK_PROMPT_CONTEXT) == ""
 
 
 def test_first_matching_context_stripper_wins() -> None:
@@ -97,3 +98,21 @@ def test_repo_scope_enrichment_without_providers_returns_a_copy() -> None:
     assert out == base
     out["injected_marker"] = {"leaked": True}
     assert "injected_marker" not in base
+
+
+def test_reset_clears_registered_fragments_and_message_context() -> None:
+    """Pin reset behavior before moving orchestration out of the facade."""
+    harness_providers.register_action_prompt_fragment(lambda _context: "action")
+    harness_providers.register_gather_prompt_fragment(lambda: "gather")
+    harness_providers.register_assistant_prompt_fragment(lambda: "assistant")
+    harness_providers.register_gateway_persona_fragment(lambda _context: "persona")
+    harness_providers.register_message_context_prefix_stripper(lambda _text: ("prefix", "body"))
+
+    harness_providers.reset_harness_providers()
+    harness_providers.reset_harness_providers()
+
+    assert harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT) == ""
+    assert harness_providers.gather_prompt_vendor_fragments() == ""
+    assert harness_providers.assistant_prompt_vendor_fragments() == ""
+    assert harness_providers.gateway_persona_fragments(context=SLACK_PROMPT_CONTEXT) == ""
+    assert harness_providers.strip_message_context_prefix("original") == ("", "original")

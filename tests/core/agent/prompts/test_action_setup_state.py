@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.agent_harness.prompts.action.assemble import build_action_system_prompt_envelope
 from core.agent_harness.prompts.kernel.envelope import PromptTier
 from core.agent_harness.turns.turn_snapshot import TurnSnapshot
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 
 _BLOCK_ID = "action-agent-setup-state"
 _MARKER = "Scheduled tasks: 23 configured, 23 able to deliver"
@@ -25,7 +26,9 @@ def _snapshot(setup_state: str) -> TurnSnapshot:
 
 def test_planner_prompt_carries_setup_state() -> None:
     # Arrange / Act
-    envelope = build_action_system_prompt_envelope(_snapshot(f"{_MARKER}\n"))
+    envelope = build_action_system_prompt_envelope(
+        _snapshot(f"{_MARKER}\n"), context=SHELL_PROMPT_CONTEXT
+    )
 
     # Assert: the planner decides whether to offer a schedule, so it has to know
     # whether any already exist.
@@ -34,7 +37,9 @@ def test_planner_prompt_carries_setup_state() -> None:
 
 def test_setup_state_sits_in_the_context_tier() -> None:
     # Arrange / Act
-    envelope = build_action_system_prompt_envelope(_snapshot(f"{_MARKER}\n"))
+    envelope = build_action_system_prompt_envelope(
+        _snapshot(f"{_MARKER}\n"), context=SHELL_PROMPT_CONTEXT
+    )
 
     # Assert
     block = next(b for b in envelope.blocks if b.id == _BLOCK_ID)
@@ -43,7 +48,7 @@ def test_setup_state_sits_in_the_context_tier() -> None:
 
 def test_absent_setup_state_adds_no_block() -> None:
     # Arrange / Act
-    envelope = build_action_system_prompt_envelope(_snapshot(""))
+    envelope = build_action_system_prompt_envelope(_snapshot(""), context=SHELL_PROMPT_CONTEXT)
 
     # Assert: an empty header would read as "nothing configured".
     assert all(block.id != _BLOCK_ID for block in envelope.blocks)

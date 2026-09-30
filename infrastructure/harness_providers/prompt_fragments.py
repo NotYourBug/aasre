@@ -1,26 +1,21 @@
-"""Vendor prompt fragments and gateway persona wording.
+"""Vendor factories render action recipes and personas from frozen turn facts.
 
-Vendor-specific prompt paragraphs (tool usage recipes for a particular
-integration) do not belong in core's prompt builders. Integrations register a
-zero-arg fragment factory here from ``integrations/harness_adapters.py``; core
-prompt builders append the joined fragments without naming any vendor.
-
-Gateway persona fragments are distinct: Slack/gateway teammate-persona wording
-that only applies when the turn's surface is ``"gateway"``, whereas the
-gather/action/assistant fragments join into the shared prompt regardless of
-surface.
+Historical gather/assistant factories retain their independent zero-argument API.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
+from infrastructure.harness_providers.prompt_context import ActionPromptContext
+
 PromptFragmentFn = Callable[[], str]
+ActionPromptFragmentFn = Callable[[ActionPromptContext], str]
 
 _gather_prompt_fragments: list[PromptFragmentFn] = []
-_action_prompt_fragments: list[PromptFragmentFn] = []
+_action_prompt_fragments: list[ActionPromptFragmentFn] = []
 _assistant_prompt_fragments: list[PromptFragmentFn] = []
-_gateway_persona_fragments: list[PromptFragmentFn] = []
+_gateway_persona_fragments: list[ActionPromptFragmentFn] = []
 
 
 def register_gather_prompt_fragment(fn: PromptFragmentFn) -> None:
@@ -35,12 +30,12 @@ def clear_gather_prompt_fragments() -> None:
     _gather_prompt_fragments.clear()
 
 
-def register_action_prompt_fragment(fn: PromptFragmentFn) -> None:
+def register_action_prompt_fragment(fn: ActionPromptFragmentFn) -> None:
     _action_prompt_fragments.append(fn)
 
 
-def action_prompt_vendor_fragments() -> str:
-    return "\n\n".join(fn() for fn in _action_prompt_fragments)
+def action_prompt_vendor_fragments(context: ActionPromptContext) -> str:
+    return "\n\n".join(filter(None, (fn(context) for fn in _action_prompt_fragments)))
 
 
 def clear_action_prompt_fragments() -> None:
@@ -59,12 +54,12 @@ def clear_assistant_prompt_fragments() -> None:
     _assistant_prompt_fragments.clear()
 
 
-def register_gateway_persona_fragment(fn: PromptFragmentFn) -> None:
+def register_gateway_persona_fragment(fn: ActionPromptFragmentFn) -> None:
     _gateway_persona_fragments.append(fn)
 
 
-def gateway_persona_fragments() -> str:
-    return "\n\n".join(fn() for fn in _gateway_persona_fragments)
+def gateway_persona_fragments(context: ActionPromptContext) -> str:
+    return "\n\n".join(filter(None, (fn(context) for fn in _gateway_persona_fragments)))
 
 
 def clear_gateway_persona_fragments() -> None:
@@ -80,6 +75,7 @@ def reset() -> None:
 
 
 __all__ = [
+    "ActionPromptFragmentFn",
     "PromptFragmentFn",
     "action_prompt_vendor_fragments",
     "assistant_prompt_vendor_fragments",

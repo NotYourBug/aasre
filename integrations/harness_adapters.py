@@ -40,6 +40,20 @@ def register_harness_adapters() -> None:
     _register_secondary_tool_sources()
     _register_gateway_persona()
     _register_preferred_evidence_sources()
+    _register_messaging_sources()
+
+
+def _register_messaging_sources() -> None:
+    from infrastructure.harness_providers.messaging_sources import register_messaging_source
+    from infrastructure.scheduling.scheduler.types import Provider
+    from integrations.messaging_security import MessagingPlatform
+
+    inbound = {platform.value for platform in MessagingPlatform}
+    delivery = {
+        provider.value for provider in Provider if provider is not Provider.INTERACTIVE_SHELL
+    }
+    for source in sorted(inbound | delivery):
+        register_messaging_source(source, inbound_platform=source if source in inbound else None)
 
 
 def _register_vcs_repo_scope_providers() -> None:
@@ -104,6 +118,7 @@ def _register_prompt_fragments() -> None:
         register_gather_prompt_fragment,
     )
     from integrations.buzz.action_prompt import buzz_action_prompt_fragment
+    from integrations.feishu.action_prompt import feishu_action_prompt_fragment
     from integrations.github.action_prompt import github_action_prompt_fragment
     from integrations.github.gather_prompt import github_gather_prompt_fragment
     from integrations.posthog.assistant_prompt import posthog_assistant_prompt_fragment
@@ -128,6 +143,7 @@ def _register_prompt_fragments() -> None:
     register_action_prompt_fragment(telegram_action_prompt_fragment)
     register_action_prompt_fragment(rocketchat_action_prompt_fragment)
     register_action_prompt_fragment(buzz_action_prompt_fragment)
+    register_action_prompt_fragment(feishu_action_prompt_fragment)
 
     clear_assistant_prompt_fragments()
     register_assistant_prompt_fragment(sentry_assistant_prompt_fragment)
@@ -188,10 +204,14 @@ def _register_gateway_persona() -> None:
         clear_gateway_persona_fragments,
         register_gateway_persona_fragment,
     )
+    from integrations.feishu.gateway_persona import (
+        gateway_persona_prompt_fragment as feishu_persona,
+    )
     from integrations.slack.gateway_persona import gateway_persona_prompt_fragment
 
     clear_gateway_persona_fragments()
     register_gateway_persona_fragment(gateway_persona_prompt_fragment)
+    register_gateway_persona_fragment(feishu_persona)
 
 
 def _register_preferred_evidence_sources() -> None:

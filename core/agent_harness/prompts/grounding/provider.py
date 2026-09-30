@@ -9,8 +9,10 @@ from core.agent_harness.grounding.investigation_flow_reference import (
     build_investigation_flow_reference_text,
 )
 from core.agent_harness.prompts.grounding.environment import build_environment_block
+from core.agent_harness.prompts.kernel.channel_context import build_action_prompt_context
 from core.agent_harness.prompts.kernel.surfaces import profile_for
 from core.llm.provider_models import resolve_provider_models
+from infrastructure.harness_providers.messaging_sources import inactive_messaging_sources
 from infrastructure.observability.trace.spans import component_span
 
 # Minimum retrieval score for a docs page to ground an assistant answer. A
@@ -57,15 +59,15 @@ class DefaultPromptContextProvider:
         return self._surface
 
     def _visible_integrations(self) -> tuple[str, ...]:
-        """Integration names to advertise, minus any the surface asked to hide.
-
-        The gateway injects ``_gateway_hidden_integrations`` (the inactive chat
-        transports) so a Slack teammate does not surface Telegram, and vice
-        versa. Core stays transport-agnostic — it only applies the injected set.
-        """
+        """Advertise integrations permitted by the surface's messaging-source policy."""
         names = tuple(self._session.configured_integrations)
         cache = getattr(self._session, "resolved_integrations_cache", None) or {}
-        hidden = {str(n).strip().lower() for n in (cache.get("_gateway_hidden_integrations") or ())}
+        context = build_action_prompt_context(
+            surface=self._surface, resolved_integrations=cache, offered_tool_names=frozenset()
+        )
+        hidden = inactive_messaging_sources(
+            surface=context.surface, active_platform=context.active_platform
+        )
         if not hidden:
             return names
         return tuple(name for name in names if name.strip().lower() not in hidden)

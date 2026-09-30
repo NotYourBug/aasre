@@ -22,6 +22,7 @@ from infrastructure.observability.render.progress import (
 )
 from integrations.tracer.integrations_adapter import fetch_tracer_remote_integrations
 from surfaces.shared.terminal.output import boundary as output_boundary
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT, SLACK_PROMPT_CONTEXT
 
 
 def _reset_all_providers() -> None:
@@ -142,8 +143,8 @@ def test_install_harness_providers_wires_soc_registries() -> None:
     assert secondary_tool_sources() == frozenset()
     assert "agent_hang" not in taxonomy_categories_for_alert_source("hermes")
     assert "kube_namespace" not in alert_detail_field_names()
-    assert harness_providers.action_prompt_vendor_fragments() == ""
-    assert harness_providers.gateway_persona_fragments() == ""
+    assert harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT) == ""
+    assert harness_providers.gateway_persona_fragments(context=SLACK_PROMPT_CONTEXT) == ""
     prefix, remainder = harness_providers.strip_message_context_prefix("[Slack channel_id=C1]\nyes")
     assert prefix == ""
     assert remainder.startswith("[Slack")
@@ -155,9 +156,15 @@ def test_install_harness_providers_wires_soc_registries() -> None:
     assert "knowledge" in secondary_tool_sources()
     assert "agent_hang" in taxonomy_categories_for_alert_source("hermes")
     assert "kube_namespace" in alert_detail_field_names()
-    assert "slack_send_message" in harness_providers.action_prompt_vendor_fragments()
-    assert "telegram_send_message" in harness_providers.action_prompt_vendor_fragments()
-    assert "colleague in Slack" in harness_providers.gateway_persona_fragments()
+    assert "slack_send_message" in harness_providers.action_prompt_vendor_fragments(
+        context=SHELL_PROMPT_CONTEXT
+    )
+    assert "telegram_send_message" in harness_providers.action_prompt_vendor_fragments(
+        context=SHELL_PROMPT_CONTEXT
+    )
+    assert "colleague in Slack" in harness_providers.gateway_persona_fragments(
+        context=SLACK_PROMPT_CONTEXT
+    )
     prefix, remainder = harness_providers.strip_message_context_prefix("[Slack channel_id=C1]\nyes")
     assert prefix.startswith("[Slack")
     assert remainder.strip() == "yes"
@@ -182,7 +189,8 @@ def test_install_harness_providers_wires_soc_registries() -> None:
             last_state=None,
             last_synthetic_observation_path=None,
             reasoning_effort=None,
-        )
+        ),
+        context=SHELL_PROMPT_CONTEXT,
     )
     assert "slack_send_message" in action_prompt
     assert "GITHUB CLI REQUESTS" in action_prompt
@@ -190,4 +198,4 @@ def test_install_harness_providers_wires_soc_registries() -> None:
     harness_providers.reset_harness_providers()
     assert alert_source_routing() == {}
     assert "agent_hang" not in taxonomy_categories_for_alert_source("hermes")
-    assert harness_providers.action_prompt_vendor_fragments() == ""
+    assert harness_providers.action_prompt_vendor_fragments(context=SHELL_PROMPT_CONTEXT) == ""

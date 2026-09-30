@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 from tools.interactive_shell.actions.skill_view import (
     execute_skill_view_tool,
     skill_view_tool,
@@ -15,14 +16,18 @@ def test_skill_view_tool_is_action_surface_read_only() -> None:
 
 
 def test_skill_view_loads_architecture_audit_skill() -> None:
-    result = execute_skill_view_tool({"name": "architecture-audit"}, ctx=None)  # type: ignore[arg-type]
+    result = execute_skill_view_tool(
+        {"name": "architecture-audit"}, ctx=None, prompt_context=SHELL_PROMPT_CONTEXT
+    )  # type: ignore[arg-type]
     assert result["ok"] is True
     assert "ARCHITECTURE AUDIT SKILL" in result["content"]
     assert "architecture_clone_repo" in result["content"]
 
 
 def test_skill_view_unknown_name_lists_available() -> None:
-    result = execute_skill_view_tool({"name": "no-such-skill"}, ctx=None)  # type: ignore[arg-type]
+    result = execute_skill_view_tool(
+        {"name": "no-such-skill"}, ctx=None, prompt_context=SHELL_PROMPT_CONTEXT
+    )  # type: ignore[arg-type]
     assert result["ok"] is False
     assert "morning-report" in result["available"]
     assert "architecture-audit" in result["available"]

@@ -19,7 +19,6 @@ from infrastructure.harness_providers.cli_llm import (
     cli_provider_registration,
     flatten_cli_messages_to_prompt,
 )
-from infrastructure.harness_providers.cli_llm import reset as _reset_cli_llm
 from infrastructure.harness_providers.evidence_sources import (
     MetricCohortResolvedFn,
     MetricQueryDraft,
@@ -37,7 +36,6 @@ from infrastructure.harness_providers.evidence_sources import (
     registered_discovery_targets,
     registered_metric_query_tools,
 )
-from infrastructure.harness_providers.evidence_sources import reset as _reset_evidence_sources
 from infrastructure.harness_providers.integration_resolution import (
     ClassifyIntegrationsFn,
     ConfiguredIntegrationServicesFn,
@@ -61,17 +59,15 @@ from infrastructure.harness_providers.integration_resolution import (
     resolve_integrations_with_metadata,
     setupable_integration_services,
 )
-from infrastructure.harness_providers.integration_resolution import (
-    reset as _reset_integration_resolution,
-)
+from infrastructure.harness_providers.lifecycle import reset_harness_providers
 from infrastructure.harness_providers.message_context import (
     MessageContextPrefixStripper,
     clear_message_context_prefix_strippers,
     register_message_context_prefix_stripper,
     strip_message_context_prefix,
 )
-from infrastructure.harness_providers.message_context import reset as _reset_message_context
 from infrastructure.harness_providers.prompt_fragments import (
+    ActionPromptFragmentFn,
     PromptFragmentFn,
     action_prompt_vendor_fragments,
     assistant_prompt_vendor_fragments,
@@ -86,20 +82,15 @@ from infrastructure.harness_providers.prompt_fragments import (
     register_gateway_persona_fragment,
     register_gather_prompt_fragment,
 )
-from infrastructure.harness_providers.prompt_fragments import reset as _reset_prompt_fragments
 from infrastructure.harness_providers.repo_scope import (
     VcsRepoScopeProvider,
     clear_vcs_repo_scope_providers,
     enrich_resolved_with_repo_scopes,
     register_vcs_repo_scope_provider,
 )
-from infrastructure.harness_providers.repo_scope import reset as _reset_repo_scope
 from infrastructure.harness_providers.subprocess_presenter import (
     SubprocessPresenterProvider,
     resolve_subprocess_presenter,
-)
-from infrastructure.harness_providers.subprocess_presenter import (
-    reset as _reset_subprocess_presenter,
 )
 from infrastructure.harness_providers.tool_registry import (
     InvestigationToolsFn,
@@ -108,49 +99,9 @@ from infrastructure.harness_providers.tool_registry import (
     resolve_surface_tool_map,
     resolve_surface_tools,
 )
-from infrastructure.harness_providers.tool_registry import reset as _reset_tool_registry
-
-
-def reset_harness_providers() -> None:
-    """Restore all harness providers to noop defaults (tests).
-
-    Also clears core leaf registries that integrations register through
-    :func:`integrations.harness_adapters.register_harness_adapters` (alert
-    routing, taxonomy profiles, anchor parsers, detail fields, …). Without
-    those clears, tests that call ``reset_harness_providers()`` mid-suite would
-    keep stale vendor registrations while VCS/prompt providers look empty — a
-    silent inconsistency.
-    """
-    _reset_integration_resolution()
-    _reset_tool_registry()
-    _reset_cli_llm()
-    _reset_repo_scope()
-    _reset_prompt_fragments()
-    _reset_message_context()
-    _reset_evidence_sources()
-    _reset_subprocess_presenter()
-
-    # Core leaf registries (populated by integrations/harness_adapters).
-    from core.domain.alerts.alert_source import (
-        clear_alert_source_detectors,
-        clear_alert_source_routing,
-        clear_secondary_tool_sources,
-        clear_source_aliases,
-    )
-    from core.domain.alerts.extraction import clear_alert_detail_fields
-    from core.domain.diagnosis.taxonomy_registry import clear_taxonomy_profiles
-    from core.domain.types.incident_anchors import clear_anchor_parsers
-
-    clear_alert_source_detectors()
-    clear_alert_source_routing()
-    clear_source_aliases()
-    clear_secondary_tool_sources()
-    clear_alert_detail_fields()
-    clear_taxonomy_profiles()
-    clear_anchor_parsers()
-
 
 __all__ = [
+    "ActionPromptFragmentFn",
     "BuildCliClientFn",
     "CliLlmAdapters",
     "ClassifyIntegrationsFn",

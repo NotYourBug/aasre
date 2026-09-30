@@ -22,12 +22,18 @@ chars). Full bodies load through the ``skill_view`` tool via
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import yaml
+
+from infrastructure.harness_providers.prompt_context import ActionPromptContext
+
+_LOCAL_CONTEXT = ActionPromptContext("interactive_shell", None, frozenset())
 
 __all__ = (
     "ActionSkill",
@@ -59,6 +65,7 @@ class ActionSkill:
     path: Path
     recurring: str | None = None
     demo: str | None = None
+    gateway_platforms: frozenset[str] | None = None
 
 
 def skills_dir() -> Path:
@@ -121,15 +128,17 @@ def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
         return {}, normalized.strip()
     end_index = normalized.find("\n---", 3)
     if end_index == -1:
-        return {}, normalized.strip()
+        return {"gateway_platforms": []}, normalized.strip()
     yaml_content = normalized[4:end_index]
     body = normalized[end_index + 4 :].strip()
     try:
-        loaded = yaml.safe_load(yaml_content) or {}
+        loaded = yaml.safe_load(yaml_content)
     except yaml.YAMLError:
-        return {}, normalized.strip()
-    if not isinstance(loaded, dict):
+        return {"gateway_platforms": []}, normalized.strip()
+    if loaded is None and not yaml_content.strip():
         return {}, body
+    if not isinstance(loaded, dict):
+        return {"gateway_platforms": []}, body
     return loaded, body
 
 
@@ -199,17 +208,26 @@ def _load_action_skill(skill_path: Path) -> ActionSkill | None:
     description = _string_field(frontmatter.get("description")) or _derive_description(body)
     recurring = _string_field(frontmatter.get("recurring")) or None
     demo = _string_field(frontmatter.get("demo")) or None
+    restriction: frozenset[str] | None = None
+    if "gateway_platforms" in frontmatter:
+        declared = frontmatter["gateway_platforms"]
+        restriction = frozenset()
+        if isinstance(declared, list) and all(
+            isinstance(item, str) and item.strip() for item in declared
+        ):
+            restriction = frozenset(item.strip().lower() for item in declared)
     return ActionSkill(
         name=name,
         description=description,
         path=skill_path,
         recurring=recurring,
         demo=demo,
+        gateway_platforms=restriction,
     )
 
 
 @lru_cache(maxsize=1)
-def list_action_skills() -> tuple[ActionSkill, ...]:
+def _discover_action_skills() -> tuple[ActionSkill, ...]:
     """Return discovered action skills in stable path order."""
     directory = skills_dir()
     if not directory.is_dir():
@@ -225,15 +243,52 @@ def list_action_skills() -> tuple[ActionSkill, ...]:
     return tuple(skills)
 
 
+@lru_cache(maxsize=1)
+def _skill_catalog() -> Mapping[str, ActionSkill]:
+    """Index discovered metadata once without exposing a mutable name map."""
+    return MappingProxyType({skill.name: skill for skill in _discover_action_skills()})
+
+
+def _view_key(context: ActionPromptContext) -> tuple[str, str | None]:
+    if context.surface == "interactive_shell":
+        return "interactive_shell", None
+    platform = context.active_platform
+    return "gateway", platform.strip().lower() if isinstance(platform, str) else None
+
+
+def _skill_visible(skill: ActionSkill, surface: str, platform: str | None) -> bool:
+    return (
+        surface == "interactive_shell"
+        or skill.gateway_platforms is None
+        or (platform is not None and platform in skill.gateway_platforms)
+    )
+
+
+@lru_cache(maxsize=32)
+def _visible_skills(surface: str, platform: str | None) -> tuple[ActionSkill, ...]:
+    return tuple(
+        skill for skill in _discover_action_skills() if _skill_visible(skill, surface, platform)
+    )
+
+
+def list_action_skills(context: ActionPromptContext = _LOCAL_CONTEXT) -> tuple[ActionSkill, ...]:
+    """Return the catalog visible on the explicit surface/platform."""
+    return _visible_skills(*_view_key(context))
+
+
 def _index_line(skill: ActionSkill) -> str:
     recurring = f" [recurring: {skill.recurring}]" if skill.recurring else ""
     return f"- {skill.name} — {skill.description}{recurring}"
 
 
-@lru_cache(maxsize=1)
-def load_skills_index() -> str:
-    """Return the compact SKILLS INDEX for the stable system prompt."""
-    skills = list_action_skills()
+def load_skills_index(context: ActionPromptContext = _LOCAL_CONTEXT) -> str:
+    """Return the compact SKILLS INDEX for the explicit surface/platform."""
+    return _render_skills_index(*_view_key(context))
+
+
+@lru_cache(maxsize=32)
+def _render_skills_index(surface: str, platform: str | None) -> str:
+    skills = _visible_skills(surface, platform)
     if not skills:
         return ""
     lines = [
@@ -265,10 +320,14 @@ _CAPABILITY_OVERVIEW_RULE = (
 )
 
 
-@lru_cache(maxsize=1)
-def load_skills_demo_block() -> str:
+def load_skills_demo_block(context: ActionPromptContext = _LOCAL_CONTEXT) -> str:
     """Return the capability-overview rule and copy-pasteable skill demos."""
-    demos = tuple(skill for skill in list_action_skills() if skill.demo)
+    return _render_skills_demo(*_view_key(context))
+
+
+@lru_cache(maxsize=32)
+def _render_skills_demo(surface: str, platform: str | None) -> str:
+    demos = tuple(skill for skill in _visible_skills(surface, platform) if skill.demo)
     if not demos:
         return ""
     lines = [_CAPABILITY_OVERVIEW_RULE, ""]
@@ -285,24 +344,26 @@ def load_skills_block() -> str:
     return load_skills_index()
 
 
-def load_skill_body(name: str) -> str:
+def load_skill_body(name: str, *, context: ActionPromptContext = _LOCAL_CONTEXT) -> str:
     """Return one skill's full body (+ report template), or ``\"\"`` if unknown."""
     needle = name.strip().lower().replace("_", "-")
     if not needle:
         return ""
-    for skill in list_action_skills():
-        if skill.name == needle:
-            raw = skill.path.read_text(encoding="utf-8")
-            _frontmatter, body = _parse_frontmatter(raw)
-            return _skill_body_with_optional_template(skill.path, body)
-    return ""
+    skill = _skill_catalog().get(needle)
+    if skill is None or not _skill_visible(skill, *_view_key(context)):
+        return ""
+    raw = skill.path.read_text(encoding="utf-8")
+    _frontmatter, body = _parse_frontmatter(raw)
+    return _skill_body_with_optional_template(skill.path, body)
 
 
 def clear_skills_caches() -> None:
     """Drop cached discovery/index (tests mutate on-disk skills)."""
-    list_action_skills.cache_clear()
-    load_skills_index.cache_clear()
-    load_skills_demo_block.cache_clear()
+    _discover_action_skills.cache_clear()
+    _skill_catalog.cache_clear()
+    _visible_skills.cache_clear()
+    _render_skills_index.cache_clear()
+    _render_skills_demo.cache_clear()
 
 
 # Back-compat for tests that call ``load_skills_block.cache_clear()``.

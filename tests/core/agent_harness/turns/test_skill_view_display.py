@@ -20,7 +20,11 @@ class _NoContext:
 
 
 def _skill_view_result() -> dict[str, object]:
-    return execute_skill_view_tool({"name": "morning-report"}, _NoContext())
+    from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
+
+    return execute_skill_view_tool(
+        {"name": "morning-report"}, _NoContext(), prompt_context=SHELL_PROMPT_CONTEXT
+    )
 
 
 def test_loading_a_skill_emits_nothing_from_the_generic_formatter() -> None:

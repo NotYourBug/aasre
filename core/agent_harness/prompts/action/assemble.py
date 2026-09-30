@@ -1,4 +1,4 @@
-"""Prompt context for the shell action core.agent_harness."""
+"""Action envelopes assembled from explicit frozen channel and tool facts."""
 
 from __future__ import annotations
 
@@ -21,11 +21,17 @@ from core.agent_harness.prompts.memory.conversation import (
 )
 from core.agent_harness.prompts.runtime_facts import render_static_runtime_facts
 from core.agent_harness.prompts.skills.loader import load_skills_demo_block, load_skills_index
+from core.agent_harness.prompts.system_prompt import load_gateway_system_prompt
 from core.agent_harness.task_plan.prompt import (
     ask_user_answered_block,
     current_task_plan_block,
 )
-from infrastructure.harness_providers import action_prompt_vendor_fragments
+from infrastructure.harness_providers import (
+    action_prompt_vendor_fragments,
+    gateway_persona_fragments,
+)
+from infrastructure.harness_providers.messaging_sources import inactive_messaging_sources
+from infrastructure.harness_providers.prompt_context import ActionPromptContext
 
 if TYPE_CHECKING:
     from core.agent_harness.turns.turn_snapshot import TurnSnapshot
@@ -52,8 +58,8 @@ def _runtime_facts_block() -> str:
         return ""
 
 
-def build_action_system_prompt(turn_snapshot: TurnSnapshot) -> str:
-    return build_action_system_prompt_envelope(turn_snapshot).render()
+def build_action_system_prompt(turn_snapshot: TurnSnapshot, *, context: ActionPromptContext) -> str:
+    return build_action_system_prompt_envelope(turn_snapshot, context=context).render()
 
 
 def _optional_block(
@@ -84,24 +90,40 @@ def _optional_block(
     ]
 
 
-def build_action_system_prompt_envelope(turn_snapshot: TurnSnapshot) -> PromptEnvelope:
-    blocks = [
-        PromptBlock(
-            id=PromptBlockId.ACTION_SYSTEM_BASE,
-            kind=PromptBlockKind.SYSTEM,
-            tier=PromptTier.STABLE,
-            # Trailing separators stay in the block; avoid ``base + "\n\n"`` which
-            # copies the entire stable prompt body on every turn.
-            content="".join((_SYSTEM_PROMPT_BASE, "\n\n")),
-            provenance="core.agent_harness.prompts.opensre_system_prompt.md",
-        ),
-    ]
-    vendor_fragments = action_prompt_vendor_fragments()
+def _system_base_block(context: ActionPromptContext) -> PromptBlock:
+    gateway = context.surface == "gateway"
+    base = load_gateway_system_prompt() if gateway else _SYSTEM_PROMPT_BASE
+    base_name = "gateway_system_prompt" if gateway else "opensre_system_prompt"
+    return PromptBlock(
+        id=PromptBlockId.ACTION_SYSTEM_BASE,
+        kind=PromptBlockKind.SYSTEM,
+        tier=PromptTier.STABLE,
+        content="".join((base, "\n\n")),
+        provenance=f"core.agent_harness.prompts.{base_name}.md",
+    )
+
+
+def build_action_system_prompt_envelope(
+    turn_snapshot: TurnSnapshot, *, context: ActionPromptContext
+) -> PromptEnvelope:
+    gateway = context.surface == "gateway"
+    blocks = [_system_base_block(context)]
+    blocks.extend(
+        _optional_block(
+            id=PromptBlockId.ACTION_GATEWAY_PERSONA,
+            kind=PromptBlockKind.RULE,
+            tier=PromptTier.CONTEXT,
+            content=gateway_persona_fragments(context) if gateway else "",
+            provenance="infrastructure.harness_providers.gateway_persona_fragments",
+            suffix="\n\n",
+        )
+    )
+    vendor_fragments = action_prompt_vendor_fragments(context)
     blocks.extend(
         _optional_block(
             id=PromptBlockId.ACTION_VENDOR_FRAGMENTS,
             kind=PromptBlockKind.RULE,
-            tier=PromptTier.STABLE,
+            tier=PromptTier.CONTEXT,
             content=vendor_fragments,
             provenance="infrastructure.harness_providers.action_prompt_vendor_fragments",
             suffix="\n\n",
@@ -118,17 +140,21 @@ def build_action_system_prompt_envelope(turn_snapshot: TurnSnapshot) -> PromptEn
             suffix="\n\n",
         )
     )
-    skills_index = "\n\n".join(filter(None, (load_skills_index(), load_skills_demo_block())))
+    skills_index = (
+        "\n\n".join(filter(None, (load_skills_index(context), load_skills_demo_block(context))))
+        if "skill_view" in context.offered_tool_names
+        else ""
+    )
     blocks.extend(
         _optional_block(
             id=PromptBlockId.ACTION_SKILLS,
             kind=PromptBlockKind.RULE,
-            tier=PromptTier.STABLE,
+            tier=PromptTier.CONTEXT,
             content=skills_index,
             provenance="core.agent_harness.prompts.skills",
         )
     )
-    if turn_snapshot.setup_state:
+    if not gateway and turn_snapshot.setup_state:
         blocks.append(
             PromptBlock(
                 id=PromptBlockId.ACTION_SETUP_STATE,
@@ -143,7 +169,7 @@ def build_action_system_prompt_envelope(turn_snapshot: TurnSnapshot) -> PromptEn
             id=PromptBlockId.CONNECTED_INTEGRATIONS,
             kind=PromptBlockKind.CONTEXT,
             tier=PromptTier.CONTEXT,
-            content=connected_integrations_block(turn_snapshot),
+            content=connected_integrations_block(turn_snapshot, context=context),
             provenance="core.agent_harness.turns.turn_snapshot",
         )
     )
@@ -186,7 +212,7 @@ def build_action_system_prompt_envelope(turn_snapshot: TurnSnapshot) -> PromptEn
             id=PromptBlockId.RECENT_CONVERSATION,
             kind=PromptBlockKind.CONVERSATION,
             tier=PromptTier.EPHEMERAL,
-            content=recent_conversation_block(turn_snapshot),
+            content=recent_conversation_block(turn_snapshot, context=context),
             provenance="core.agent_harness.turns.turn_snapshot",
         )
     )
@@ -234,10 +260,17 @@ def build_action_system_prompt_envelope(turn_snapshot: TurnSnapshot) -> PromptEn
     )
 
 
-def connected_integrations_block(turn_snapshot: TurnSnapshot) -> str:
-    """Render which integrations are connected for this shell action turn."""
+def connected_integrations_block(
+    turn_snapshot: TurnSnapshot, *, context: ActionPromptContext
+) -> str:
+    """Render connected integrations visible on this turn's channel."""
     known = turn_snapshot.configured_integrations_known
-    configured = turn_snapshot.configured_integrations
+    hidden = inactive_messaging_sources(
+        surface=context.surface, active_platform=context.active_platform
+    )
+    configured = tuple(
+        name for name in turn_snapshot.configured_integrations if name.strip().lower() not in hidden
+    )
     if known and configured:
         listing = ", ".join(sorted(str(name) for name in configured))
     elif known:
@@ -252,10 +285,17 @@ def connected_integrations_block(turn_snapshot: TurnSnapshot) -> str:
         "root-cause verbs → investigation_start ALWAYS (even when this line "
         "is none).\n"
     )
+    if "investigation_start" not in context.offered_tool_names:
+        gate_note = (
+            "Connected configuration does not grant a withheld tool. Use available evidence "
+            "tools for diagnostic questions; explain any unavailable investigation capability.\n"
+        )
     return f"CONNECTED INTEGRATIONS (this install, right now): {listing}\n{gate_note}\n"
 
 
-def recent_conversation_block(turn_snapshot: TurnSnapshot) -> str:
+def recent_conversation_block(
+    turn_snapshot: TurnSnapshot, *, context: ActionPromptContext | None = None
+) -> str:
     # Newest-first: this block rides after the literal user message, and
     # context_budget shrinks with text[:keep]. Chronological (oldest-first)
     # order put the latest turns at the truncated tail — follow-ups then saw
@@ -264,9 +304,15 @@ def recent_conversation_block(turn_snapshot: TurnSnapshot) -> str:
         list(turn_snapshot.conversation_messages),
         newest_first=True,
     )
+    if (
+        context is not None
+        and context.surface == "gateway"
+        and not turn_snapshot.conversation_messages
+    ):
+        history = "(no prior messages in this conversation)"
     return (
         "RECENT CONVERSATION (context only, newest first; previous assistant messages "
-        "may contain shell stdout, computed values, and prior tool inputs/results. Use "
+        "may contain computed values and prior tool inputs/results. Use "
         "these as facts when resolving follow-up references in the USER MESSAGE above "
         "and when composing later tool inputs. Do NOT re-run turns that already "
         f"completed):\n{history}\n\n"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from integrations.messaging_security import MessagingPlatform
+from infrastructure.harness_providers.messaging_sources import inactive_messaging_sources
 
 
 def _inactive_chat_transports(active_platform: str) -> tuple[str, ...]:
@@ -13,8 +13,9 @@ def _inactive_chat_transports(active_platform: str) -> tuple[str, ...]:
     Transport knowledge lives here in the gateway (which owns messaging), not in
     core: a Slack teammate should not advertise Telegram, and vice versa.
     """
-    active = active_platform.strip().lower()
-    return tuple(p.value for p in MessagingPlatform if p.value != active)
+    return tuple(
+        sorted(inactive_messaging_sources(surface="gateway", active_platform=active_platform))
+    )
 
 
 def inject_gateway_chat_context(
@@ -22,7 +23,7 @@ def inject_gateway_chat_context(
 ) -> dict[str, Any]:
     merged = dict(resolved)
     merged["_gateway_chat_id"] = chat_id
+    merged["_gateway_hidden_integrations"] = _inactive_chat_transports(platform)
     if platform:
         merged["_gateway_platform"] = platform
-        merged["_gateway_hidden_integrations"] = _inactive_chat_transports(platform)
     return merged

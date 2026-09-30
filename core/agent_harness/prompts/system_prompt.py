@@ -19,6 +19,12 @@ def load_opensre_system_prompt() -> str:
     return _PROMPT_PATH.read_text(encoding="utf-8")
 
 
+@lru_cache(maxsize=1)
+def load_gateway_system_prompt() -> str:
+    """Return the maintained neutral gateway base; missing data raises."""
+    return Path(__file__).with_name("gateway_system_prompt.md").read_text(encoding="utf-8")
+
+
 OPENSRE_SYSTEM_PROMPT = load_opensre_system_prompt()
 
 __all__ = (
@@ -26,4 +32,5 @@ __all__ = (
     "_PROMPT_FILENAME",
     "_PROMPT_PATH",
     "load_opensre_system_prompt",
+    "load_gateway_system_prompt",
 )

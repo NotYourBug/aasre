@@ -1,13 +1,8 @@
-"""Slack/gateway teammate persona prompt fragments.
-
-Registered with :func:`infrastructure.harness_providers.register_gateway_persona_fragment`
-from ``integrations/harness_adapters.py``. Applied by
-``core.agent_harness.prompts.assistant`` only when the turn's
-surface is ``"gateway"`` — core owns the CLI persona wording (see
-``core/agent_harness/prompts/rules.py``); this module owns the Slack wording.
-"""
+"""Slack teammate wording for action turns on the Slack gateway."""
 
 from __future__ import annotations
+
+from infrastructure.harness_providers.prompt_context import ActionPromptContext
 
 GATEWAY_TEAMMATE_PERSONA_RULE = (
     "You are OpenSRE, an AI production engineer on this team, talking with a "
@@ -58,8 +53,10 @@ GATEWAY_SETUP_GUIDANCE_RULE = (
 )
 
 
-def gateway_persona_prompt_fragment() -> str:
+def gateway_persona_prompt_fragment(context: ActionPromptContext) -> str:
     """Join the Slack/gateway persona rules into one prompt fragment."""
+    if context.surface != "gateway" or context.active_platform != "slack":
+        return ""
     return "\n\n".join(
         (
             GATEWAY_TEAMMATE_PERSONA_RULE,

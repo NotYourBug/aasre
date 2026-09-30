@@ -9,6 +9,7 @@ from core.agent_harness.prompts import build_action_system_prompt
 from core.agent_harness.session import InMemorySessionStore, SessionCore, SessionManager
 from core.agent_harness.turns.turn_snapshot import TurnSnapshot
 from gateway.core.storage import FileBindingStore, SessionResolver
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 
 
 @pytest.fixture
@@ -117,7 +118,8 @@ def test_resolved_telegram_context_is_visible_as_prior_action_facts(
             "No, compute those temperatures and send the nice comparison to Slack",
             resolved,
             surface="interactive_shell",
-        )
+        ),
+        context=SHELL_PROMPT_CONTEXT,
     )
 
     assert "PRIOR ACTION FACTS" in prompt

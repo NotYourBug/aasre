@@ -9,6 +9,7 @@ from core.agent_harness.prompts import (
 )
 from core.agent_harness.task_plan.plan import parse_task_plan
 from core.agent_harness.turns.turn_snapshot import TurnSnapshot
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 
 
 def _ctx(*, plan=None) -> TurnSnapshot:
@@ -27,11 +28,14 @@ def _ctx(*, plan=None) -> TurnSnapshot:
 def test_composed_prompt_omits_removed_planning_instructions_file() -> None:
     from core.agent_harness.prompts import build_action_system_prompt
 
-    prompt = build_action_system_prompt(_ctx())
+    prompt = build_action_system_prompt(_ctx(), context=SHELL_PROMPT_CONTEXT)
     assert "PLANNING — update_plan" not in prompt
     assert "ASK THEN PLAN" not in prompt
     assert "action-agent-planning-instructions" not in [
-        block.id for block in build_action_system_prompt_envelope(_ctx()).blocks
+        block.id
+        for block in build_action_system_prompt_envelope(
+            _ctx(), context=SHELL_PROMPT_CONTEXT
+        ).blocks
     ]
 
 
@@ -46,7 +50,7 @@ def test_current_plan_is_ephemeral_so_compaction_cannot_drop_it() -> None:
         }
     )
     assert error is None and plan is not None
-    envelope = build_action_system_prompt_envelope(_ctx(plan=plan))
+    envelope = build_action_system_prompt_envelope(_ctx(plan=plan), context=SHELL_PROMPT_CONTEXT)
     block = envelope.require_block(PromptBlockId.CURRENT_TASK_PLAN)
     assert block.tier == PromptTier.EPHEMERAL
     assert "Plan · 2/3" in block.content
@@ -80,14 +84,14 @@ def test_ask_user_answers_inject_start_now_block() -> None:
         last_synthetic_observation_path=None,
         reasoning_effort=None,
     )
-    envelope = build_action_system_prompt_envelope(snapshot)
+    envelope = build_action_system_prompt_envelope(snapshot, context=SHELL_PROMPT_CONTEXT)
     block = envelope.require_block(PromptBlockId.ASK_USER_ANSWERED)
     assert block.tier == PromptTier.EPHEMERAL
     assert ASK_USER_ANSWERED_GUIDANCE in block.content
     assert ASK_USER_ANSWERED_GUIDANCE not in envelope.render_cached()
     assert ASK_USER_ANSWERED_GUIDANCE in envelope.render()
     assert envelope.block(PromptBlockId.ASK_USER_ANSWERED) is not None
-    idle = build_action_system_prompt_envelope(_ctx())
+    idle = build_action_system_prompt_envelope(_ctx(), context=SHELL_PROMPT_CONTEXT)
     assert idle.block(PromptBlockId.ASK_USER_ANSWERED) is None
 
 
@@ -134,7 +138,7 @@ def test_ask_user_answers_preserve_original_repo_and_all_requested_metrics() -> 
         reasoning_effort=None,
     )
 
-    rendered = build_action_system_prompt_envelope(snapshot).render()
+    rendered = build_action_system_prompt_envelope(snapshot, context=SHELL_PROMPT_CONTEXT).render()
 
     assert original in rendered
     assert "preserve the original target repository" in rendered
@@ -166,7 +170,7 @@ def test_ask_user_answered_plan_only_guidance_does_not_authorize_execute() -> No
         reasoning_effort=None,
         plan_only_until_authorized=True,
     )
-    envelope = build_action_system_prompt_envelope(snapshot)
+    envelope = build_action_system_prompt_envelope(snapshot, context=SHELL_PROMPT_CONTEXT)
     block = envelope.require_block(PromptBlockId.ASK_USER_ANSWERED)
     assert ASK_USER_ANSWERED_PLAN_ONLY_GUIDANCE in block.content
     assert "do not pass plan_only=false" in block.content.lower()

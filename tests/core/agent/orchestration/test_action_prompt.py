@@ -25,6 +25,7 @@ from core.agent_harness.prompts.skills.loader import (
     load_skills_block as cached_load_skills_block,
 )
 from core.agent_harness.turns.turn_snapshot import TurnSnapshot
+from tests.shared.prompt_context import SHELL_PROMPT_CONTEXT
 
 
 def _ctx(
@@ -93,7 +94,7 @@ def test_system_prompt_slack_fragment_documents_roster_followup() -> None:
     # Slack-specific "Want me to" roster follow-up now lives in
     # integrations.slack.action_prompt and is appended to the composed action
     # prompt via the harness-ports fragment registry, not hardcoded in core.
-    prompt = build_action_system_prompt(_ctx()).lower()
+    prompt = build_action_system_prompt(_ctx(), context=SHELL_PROMPT_CONTEXT).lower()
     assert "want me to: offering more slack roster" in prompt
     assert "slack_list_team_members" in prompt
 
@@ -102,7 +103,7 @@ def test_system_prompt_routes_slack_teammate_reads_to_action_tools() -> None:
     # Vendor recipe now lives in integrations.slack.action_prompt and is
     # appended to the composed action prompt via the harness-ports fragment
     # registry (see integrations/harness_adapters.py), not hardcoded in core.
-    prompt = build_action_system_prompt(_ctx()).lower()
+    prompt = build_action_system_prompt(_ctx(), context=SHELL_PROMPT_CONTEXT).lower()
     compact = prompt.replace(" ", "")
     assert "slack teammate requests use slack tools" in prompt
     assert 'slack_read_messages(channel="#opensre-slack-testing"' in compact
@@ -115,7 +116,7 @@ def test_system_prompt_routes_github_cli_to_action_tools() -> None:
     # Vendor recipe now lives in integrations.github.action_prompt and is
     # appended to the composed action prompt via the harness-ports fragment
     # registry (see integrations/harness_adapters.py), not hardcoded in core.
-    prompt = build_action_system_prompt(_ctx()).lower()
+    prompt = build_action_system_prompt(_ctx(), context=SHELL_PROMPT_CONTEXT).lower()
     assert "github cli requests use github tools" in prompt
     assert "call github_cli directly" in prompt
     assert "from this info create an issue on github" in prompt
@@ -128,7 +129,7 @@ def test_system_prompt_slack_fragment_documents_invented_command_example() -> No
     # The Slack-specific invented-delivery-command example now lives in
     # integrations.slack.action_prompt, appended via the harness-ports
     # fragment registry, not hardcoded in core.
-    prompt = build_action_system_prompt(_ctx()).lower()
+    prompt = build_action_system_prompt(_ctx(), context=SHELL_PROMPT_CONTEXT).lower()
     compact_prompt = " ".join(prompt.split())
     assert "`/messaging send slack …` is not a real command" in compact_prompt
 
@@ -151,9 +152,11 @@ def test_morning_report_skill_closes_with_schedule_offer() -> None:
 
 
 def test_connected_integrations_block_renders_state() -> None:
-    assert "unknown" in connected_integrations_block(_ctx())
+    assert "unknown" in connected_integrations_block(_ctx(), context=SHELL_PROMPT_CONTEXT)
 
-    none_block = connected_integrations_block(_ctx(integrations=(), integrations_known=True))
+    none_block = connected_integrations_block(
+        _ctx(integrations=(), integrations_known=True), context=SHELL_PROMPT_CONTEXT
+    )
     assert "none" in none_block
     assert "does not gate diagnostic" in none_block.lower()
     assert "investigation_start always" in none_block.lower()
@@ -162,7 +165,8 @@ def test_connected_integrations_block_renders_state() -> None:
         _ctx(
             integrations=("sentry", "github", "posthog_mcp"),
             integrations_known=True,
-        )
+        ),
+        context=SHELL_PROMPT_CONTEXT,
     )
     assert "github, posthog_mcp, sentry" in listed
     # Connected listing still must not imply auto-investigate on diagnostic asks.
@@ -248,7 +252,7 @@ def test_skill_matches_take_priority_over_generic_docs_answer() -> None:
 
     index = load_skills_index()
     body = load_skill_body("github-ci-fix-onboarding")
-    prompt = build_action_system_prompt(_ctx())
+    prompt = build_action_system_prompt(_ctx(), context=SHELL_PROMPT_CONTEXT)
 
     assert "Skill matches outrank a generic docs/how-to answer" in index
     assert '"onboard me"' in index
@@ -265,7 +269,8 @@ def test_action_system_prompt_includes_context_blocks() -> None:
             messages=[("user", "hello")],
             integrations=("github",),
             integrations_known=True,
-        )
+        ),
+        context=SHELL_PROMPT_CONTEXT,
     )
     assert "CONNECTED INTEGRATIONS (this install, right now): github" in prompt
     assert "RECENT CONVERSATION" in prompt
@@ -294,7 +299,7 @@ def test_skills_index_is_thin_relative_to_full_bodies() -> None:
 
 
 def test_action_system_prompt_includes_skills_block() -> None:
-    prompt = build_action_system_prompt(_ctx())
+    prompt = build_action_system_prompt(_ctx(), context=SHELL_PROMPT_CONTEXT)
     assert SKILLS_HEADER in prompt
     assert "morning-report" in prompt
     assert "MORNING REPORT SKILL" not in prompt
@@ -322,7 +327,7 @@ def test_action_prompt_includes_long_term_memory_bodies(
         description="Name is Vaibhav",
         body="The user's name is Vaibhav on the platform team.",
     )
-    prompt = build_action_system_prompt(_ctx())
+    prompt = build_action_system_prompt(_ctx(), context=SHELL_PROMPT_CONTEXT)
     assert "LONG-TERM MEMORY" in prompt
     assert "user-profile" in prompt
     assert "platform team" in prompt
@@ -342,7 +347,9 @@ def test_scheduling_guidance_survives_prompt_assembly() -> None:
     snapshot = _ctx(messages=[("user", "give me a morning report")])
 
     # Act
-    cached, _ephemeral = build_action_system_prompt_envelope(snapshot).render_split()
+    cached, _ephemeral = build_action_system_prompt_envelope(
+        snapshot, context=SHELL_PROMPT_CONTEXT
+    ).render_split()
     assembled = " ".join(cached.lower().split())
     body = " ".join(load_skill_body("morning-report").lower().split())
 
@@ -465,8 +472,8 @@ def test_interrupted_turn_recovery_block_rides_the_ephemeral_tier() -> None:
     assert "INTERRUPTED-TURN RECOVERY" in block
     assert "shell_run step-2 >> /tmp/demo_state.json (step 2)" in block
 
-    envelope_with = build_action_system_prompt_envelope(with_note)
-    envelope_without = build_action_system_prompt_envelope(_ctx())
+    envelope_with = build_action_system_prompt_envelope(with_note, context=SHELL_PROMPT_CONTEXT)
+    envelope_without = build_action_system_prompt_envelope(_ctx(), context=SHELL_PROMPT_CONTEXT)
     assert envelope_with.render_cached() == envelope_without.render_cached()
     assert "INTERRUPTED-TURN RECOVERY" in envelope_with.render_ephemeral()
     assert "INTERRUPTED-TURN RECOVERY" not in envelope_without.render()
