@@ -294,8 +294,8 @@ provider, context and persona interfaces do not change. The existing final
 signature stays unchanged; the proposed design §12 extension adds a generic
 gateway-only tag predicate alongside its messaging-source predicate.
 
-- [ ] Add a single characterization test recording the current send/reply/both write-fragment views before editing them; run the existing prompt suite and this test to obtain GREEN. Store fixed pre-change expectations, not values recomputed from the function under test.
-- [ ] Add `test_read_only_feishu_prompt_declares_only_offered_read`: assert the assembled prompt includes known-ID/current-chat/untrusted/incomplete guidance, includes `feishu_get_message`, and does not claim send/reply/history/search/member/reaction capability. Write-only and unavailable views must not gain read promises.
+- [x] Add a single characterization test recording the current send/reply/both write-fragment views before editing them; run the existing prompt suite and this test to obtain GREEN. Store fixed pre-change expectations, not values recomputed from the function under test.
+- [x] Add `test_read_only_feishu_prompt_declares_only_offered_read`: assert the assembled prompt includes known-ID/current-chat/untrusted/incomplete guidance, includes `feishu_get_message`, and does not claim send/reply/history/search/member/reaction capability. Write-only and unavailable views must not gain read promises.
 
 ```python
 prompt = prompt_for("feishu", "feishu_get_message")
@@ -304,13 +304,13 @@ assert "feishu_send_message" not in prompt and "feishu_reply_message" not in pro
 assert "feishu_get_message" not in prompt_for("feishu", "feishu_send_message")
 ```
 
-- [ ] Add `test_discovery_and_provider_paths_enforce_read_scope`: use real `get_registered_tools(ToolSurface.ACTION)` discovery, proving ACTION-only registration and valid-current-scope availability through the normal runner. Through normal and custom/precomputed providers, prove the final tag gate excludes the real registered reader from shell views even when gateway markers remain, while existing untagged send/reply tools remain offered there. Other channels' final source gate excludes it, and an invalid current context cannot cause a GET even when a provider offers it. Assert both the actual offered names and prompt promises.
-- [ ] Add real runner coverage for a missing TurnPlan and a frozen snapshot with unknown surface carrying valid gateway markers: the reader is not offered and no GET occurs. At the assembly point require explicit frozen gateway host authority for tagged tools, preserving legacy inference and behavior for untagged tools.
-- [ ] Add `test_read_scope_is_frozen_across_session_reuse` and `test_concurrent_feishu_reads_do_not_share_bodies` to the real runner isolation suite. Use a test-local `ReadMessageLLM(message_id: str)` that emits one explicit read call and then stops, separate frozen `TurnPlan` views, intercepted SDK responses and captured tool results. Assert each chat receives only its own content despite shared registries/providers and session-cache mutations. Synchronize with events/barriers, finite timeouts and `finally` cleanup; do not use sleeps or merely prove task creation is nonblocking.
-- [ ] Run `uv run python -m pytest tests/core/agent/prompts/test_gateway_channel_prompt.py tests/core/agent_harness/test_gateway_channel_tools.py tests/core/agent_harness/test_channel_turn_isolation.py -q`; require behavioral RED for new read prompt/runtime contracts, keeping the write characterization GREEN.
-- [ ] Implement the proposed generic tag check in the existing final filter, retaining the existing source predicate and behavior of untagged tools. Use the shared tag constant; no Feishu/tool-name branch, registry or mutable host marker. Implement a separate read fragment conditional on gateway/Feishu context and the offered name. Preserve rendered write-only content byte-for-byte; use private module text constants for long list entries to avoid implicit string concatenation alerts. Keep resource-copy behavior intact.
-- [ ] Update the existing Feishu page with the required base/group permissions and publication/membership prerequisites, known-ID examples, current-chat-only scope, sanitized/truncated results and resource metadata-only limits. Explain that reads do not require a write approval; preserve all existing write-approval instructions. Omit internal SDK names/endpoints from user docs.
-- [ ] Run the task's suite plus `uv run python -m pytest tests/core/agent/prompts/test_channel_prompt_context.py tests/core/agent/prompts/test_skill_channel_visibility.py -q`; expect GREEN. Commit the listed files as `feat(feishu): describe and isolate available message reads`.
+- [x] Add `test_discovery_and_provider_paths_enforce_read_scope`: use real `get_registered_tools(ToolSurface.ACTION)` discovery, proving ACTION-only registration and valid-current-scope availability through the normal runner. Through normal and custom/precomputed providers, prove the final tag gate excludes the real registered reader from shell views even when gateway markers remain, while existing untagged send/reply tools remain offered there. Other channels' final source gate excludes it, and an invalid current context cannot cause a GET even when a provider offers it. Assert both the actual offered names and prompt promises.
+- [x] Add real runner coverage for a missing TurnPlan and a frozen snapshot with unknown surface carrying valid gateway markers: the reader is not offered and no GET occurs. At the assembly point require explicit frozen gateway host authority for tagged tools, preserving legacy inference and behavior for untagged tools.
+- [x] Add `test_read_scope_is_frozen_across_session_reuse` and `test_concurrent_feishu_reads_do_not_share_bodies` to the real runner isolation suite. Use a test-local `ReadMessageLLM(message_id: str)` that emits one explicit read call and then stops, separate frozen `TurnPlan` views, intercepted SDK responses and captured tool results. Assert each chat receives only its own content despite shared registries/providers and session-cache mutations. Synchronize with events/barriers, finite timeouts and `finally` cleanup; do not use sleeps or merely prove task creation is nonblocking.
+- [x] Run `uv run python -m pytest tests/core/agent/prompts/test_gateway_channel_prompt.py tests/core/agent_harness/test_gateway_channel_tools.py tests/core/agent_harness/test_channel_turn_isolation.py -q`; require behavioral RED for new read prompt/runtime contracts, keeping the write characterization GREEN.
+- [x] Implement the proposed generic tag check in the existing final filter, retaining the existing source predicate and behavior of untagged tools. Use the shared tag constant; no Feishu/tool-name branch, registry or mutable host marker. Implement a separate read fragment conditional on gateway/Feishu context and the offered name. Preserve rendered write-only content byte-for-byte; use private module text constants for long list entries to avoid implicit string concatenation alerts. Keep resource-copy behavior intact.
+- [x] Update the existing Feishu page with the required base/group permissions and publication/membership prerequisites, known-ID examples, current-chat-only scope, sanitized/truncated results and resource metadata-only limits. Explain that reads do not require a write approval; preserve all existing write-approval instructions. Omit internal SDK names/endpoints from user docs.
+- [x] Run the task's suite plus `uv run python -m pytest tests/core/agent/prompts/test_channel_prompt_context.py tests/core/agent/prompts/test_skill_channel_visibility.py -q`; expect GREEN. Commit the listed files as `feat(feishu): describe and isolate available message reads`.
 
 ## 3. Local validation and delivery checks
 
@@ -347,11 +347,12 @@ planned; do not rerun S7's wheel/frozen-resource work as a routine extra gate.
 If implementation evidence requires a new resource/packaging contract, revise
 the scope and plan before making that change.
 
-Current planning-stage validation is documentation-only under CI.md §0:
+The earlier planning-stage validation was documentation-only under CI.md §0:
 status/diff checks, relative-link checks, JSON-example checks and spec/plan
-coverage review. No product/test implementation checks have run yet.
+coverage review, before any product/test implementation checks.
 The saved documents passed the whitespace check, nine relative-link checks and
-one JSON-example parse; all six implementation tasks remain unchecked.
+one JSON-example parse. All six tasks are now implemented with focused checks;
+the complete final local gate and independent review are recorded separately.
 
 ## 4. Commit, review and rollback boundaries
 

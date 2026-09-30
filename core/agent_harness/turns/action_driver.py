@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
+from config.constants.tool_policy import GATEWAY_ONLY_TOOL_TAG
 from core.agent import Agent
 from core.agent.cancel import tool_resources_cancel_requested
 from core.agent.goals import Goal
@@ -1113,6 +1114,10 @@ def _run_action_turn(
         resolved_integrations=resolved_integrations,
         offered_tool_names=frozenset(),
     )
+    if turn_snapshot is None or turn_snapshot.prompt_surface != "gateway":
+        agent_tools = [
+            tool for tool in agent_tools if GATEWAY_ONLY_TOOL_TAG not in getattr(tool, "tags", ())
+        ]
     agent_tools = filter_action_tools_for_channel(agent_tools, channel_context)
     prompt_context = replace(
         channel_context, offered_tool_names=frozenset(tool.name for tool in agent_tools)

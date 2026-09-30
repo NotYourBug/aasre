@@ -3,7 +3,7 @@
 - Date: 2026-09-30
 - Status: Core design, §12 gate refinement, independent implementation plan and native execution approved by user (2026-09-30). Implementation in progress; live acceptance and merge remain unauthorized.
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
-- Implementation plan: [Independent plan](2026-09-30-feishu-s8b1-read-message-implementation-plan.md), awaiting separate approval
+- Implementation plan: [Independent plan](2026-09-30-feishu-s8b1-read-message-implementation-plan.md), approved for Native execution on 2026-09-30
 - Scope: One read-only ACTION tool, `feishu_get_message`, for a known message ID in the current Feishu chat
 - Scope decision: Current-chat-only first release, approved with this design on 2026-09-30
 
