@@ -1,7 +1,7 @@
 # 飞书通讯能力补全设计（Feishu Capability Completion）
 
 - Date: 2026-09-12（2026-09-18 修订后续路线）
-- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）已交付，S8a Spec 已批准、implementation plan 待批准
+- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）及 S8a 已交付，S7 设计及实施计划均已批准、待实现，S8b 未开始
 - 上游 spec: [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
@@ -211,13 +211,16 @@ S5c/S8b 需要独立核实 reaction 标识与客户端能力，不能假定 S5b 
 | **S6** | 告警与投递卡片化 | watchdog 告警、调查报告、定时投递改走 S3 渲染层 | S3 | 三条路径均以卡片保留 markdown/表格；超预算分页、卡片失败时兜底也不截断内容 | 已完成 |
 | **S5b** | 正式反馈（👀 已撤销） | 流式结束后追加 ✅采纳按钮；复用 transport-neutral feedback JSONL 存储 | S4、S5a | 仅原请求者可采纳；按最终 `message_id` + 操作者幂等记录 `good`，不保存回答正文、不启动新 turn | 已完成 |
 | **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CrossMark` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 已完成 |
-| **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 待实施 |
-| **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 重写 persona / action / gather / assistant 片段；只暴露当前渠道能力 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | 待实施 |
+| **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 已合并 PR #38；真实发送/回复/拒绝审批已验收，真实多页投递未验收（离线测试通过，用户同意带此限制合并） |
+| **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 生成实际运行的 action/persona 片段及能力视图；历史 gather/assistant 注册表保留且无新增消费者 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | 实现及离线验收完成；待 PR/CI/Greptile 闭环，未合并 |
 | **S8b** | Agent 读取类工具 | 读消息、搜消息、列成员、加 reaction 逐项调研、逐项 spec/PR，不以工具集合打包 | S1、S7；加 reaction 复用 S5b/S5c 客户端能力 | 每项工具分别定义权限、分页、目标范围与跨聊天授权；只注册已完成且可验收的能力 | 待实施 |
 
 **依赖与节奏**：S5a 只迁移审批；S6 不等待反馈状态机；S5b 不包含重试；S5c 才允许产生新 turn。
 S8a 先提供 prompt 可引用的最小工具面，S7 再按运行时 surface 暴露它，S8b 的研究型能力逐项推进。
 任何子项目都不得把后续项目作为“顺手补齐”并入同一个 PR。
+S7 草案复核当前代码后发现，聊天已由单一 action agent 直接回答；旧 gather/assistant vendor-fragment
+注册表没有运行时消费者。R34 的渠道隔离目标不变，S7 必须落在实际运行的 prompt/工具链路，
+不能仅修改无消费者的历史注册点。
 
 **S5a/S5b/S5c 的回调身份边界（2026-09-13 评审新增，2026-09-18 拆分）**：
 `card.action.trigger` 对审批或重试是**授权入口**，对采纳反馈是身份归属入口，不是单纯展示层。
@@ -279,7 +282,7 @@ R27 让卡片按钮取代文本审批，那就必须把文本审批的授权校�
 **→ S3 的退出标准“达到工程预算或平台拒绝时不丢内容”覆盖级 0–3；级 4 已由 S4 的纯文本
 分片补齐。**
 
-**当前顺序（R33）**：S1–S4、S5a–S5c、S6 已完成；后续为 **S8a → S7 → S8b**。
+**当前顺序（R33）**：S1–S4、S5a–S5c、S6、S8a 已完成；后续为 **S7 → S8b**。
 不得再以“S7/S8 无依赖、可随时插入”为由提前全局改 prompt 或一次性铺开未调研工具。
 
 ## 5. 明确排除（YAGNI）
@@ -398,9 +401,11 @@ transport 拉进 boot path」。R1 已为此把凭据抽成 `credentials.py` lea
 
 ## 8. 后续
 
-S1–S4、S5a–S5c、S6 已交付。本文只固定剩余子项目的边界、依赖、顺序与退出标准，**不作为一个跨项目实现计划**。
+S1–S4、S5a–S5c、S6、S8a 已交付。本文只固定剩余子项目的边界、依赖、顺序与退出标准，**不作为一个跨项目实现计划**。
 
-当前交付边界是 **S8a Agent 主动发送/回复工具的独立 spec 与 plan**。
+当前交付边界是 **S7 运行时渠道感知 prompt**，其设计及独立实施计划已分别获用户批准，实现及离线验收已完成，待 PR/CI/Greptile 闭环，未合并：
+[`S7 design`](2026-09-30-feishu-s7-runtime-channel-aware-prompts-design.md) /
+[`S7 implementation plan`](2026-09-30-feishu-s7-runtime-channel-aware-prompts-implementation-plan.md)。
 其余项目依 R33 顺序重复
 spec → plan → 实现 → PR 闭环。任何阶段发现需要改变相邻项目接口，先回写本文并重新取得用户确认。
 
