@@ -11,7 +11,7 @@
 **Spec:** [S8b-1 design](2026-09-30-feishu-s8b1-read-message-design.md): core design and §12 gate refinement, including explicit frozen runner host authority, approved by the user on 2026-09-30.
 
 - Date: 2026-09-30
-- Status: Plan, design §12 and the Task 6 runner supplement approved on 2026-09-30; native implementation in progress. Live acceptance and merge remain unauthorized.
+- Status: All six tasks implemented and independently reviewed on 2026-09-30; see the pre-PR checkpoint below. PR CI/Greptile follow-through is required. Live acceptance and merge remain unauthorized.
 - Worktree: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`
 - Branch: `codex/feishu-s8b1-read-message-spec`
 - Planning baseline: `7bd738090d98f20a8fbe39cedc0ece487d5a35ee`; clean before this plan/approval record
@@ -437,5 +437,50 @@ in the continuation on 2026-09-30. Execute natively and obtain one fresh
 independent whole-branch review after implementation. The earlier plan-only stop
 is superseded for these approved steps; do not request the same approval again.
 Plan approval does not authorize live operations, deployment or merging.
-Record only actual completed tasks and validation; all task boxes are pending
-at the start of this execution.
+Record only actual completed tasks and validation; all six task boxes are complete.
+
+## 7. Pre-PR implementation checkpoint (2026-09-30)
+
+The six task commits are `bf086fa`, `ba6deb1`, `a033e32`, `2e3b425`,
+`8c68f43` and `1339382`. New behavior was tested RED→GREEN; the scrubber move
+and write prompt preservation were characterized GREEN before changing code.
+There are no dependency, workflow, import-allowlist or live environment changes.
+
+Using the commands in §3 with the existing environment (`uv run --no-sync`,
+Python 3.14.5), lint, format and mypy passed; Feishu integrations **203**,
+masking **74**, runner/prompts **35**, and API/config border tests **21** passed.
+All three import checks passed. The gateway group initially returned 163 passed
+and two failures under parallel local validation. The timeout test then passed
+alone and in the complete sequential selection on both main and this branch.
+It remains evidence to watch under full CI load, not proof of load safety.
+The identical sequential gateway selection returned **164 passed / 1 failed**
+on both revisions: a pre-existing Windows path-separator comparison in
+`test_only_the_host_layer_drives_the_agent`. The main snapshot was
+`588fafb314069651dcbacd2da14ee92a8865989d`; the related test and product paths
+have no feature diff. No baseline test was skipped or allowlist expanded.
+
+One fresh read-only reviewer (`gpt-6-astra`) reviewed the entire
+`588fafb..1339382` branch using the approved spec/plan and execution ledger.
+The verdict was **ready to PR**, with no Critical/Important findings.
+Two non-blocking text suggestions are deferred: add later-retry guidance to
+the safe rate-limit error, and qualify the docs' credential-masking wording
+as known patterns. The independent review does not replace CI, Greptile or
+actual Feishu acceptance.
+
+Execution rulings, in order:
+
+1. Use repository-mandated focused local suites instead of generic skill
+   full-suite/setup commands; full PR CI must catch broader regressions.
+2. Preserve the unchanged Windows baseline border-test defect outside this
+   feature; the local Windows gate retains that failure, and CI remains required.
+3. Keep live app permissions, membership and text/card acceptance unverified
+   without fresh authorization; deployed permissions/payloads may need later fixes.
+4. Guard foreign-content release rather than guarantee it never enters SDK
+   memory, matching the approved API boundary; stronger privacy requires a
+   separate trusted-ID provenance design.
+5. Reuse finite known secret/PII rules, matching the approved sanitizer;
+   unrecognized secrets may remain and require reviewed additional patterns.
+
+This checkpoint precedes push, PR creation, CI and Greptile. Their actual
+results belong to the PR and continuation delivery report. No live operation,
+deployment or merge was performed.

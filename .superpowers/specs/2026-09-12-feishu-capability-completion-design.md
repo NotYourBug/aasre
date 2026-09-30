@@ -432,6 +432,11 @@ surface 过滤，运行时再复核既有 `ActionPromptContext`；现有未标�
 新鲜独立整分支审查。标记工具要求冻结快照明确为 gateway，未知 surface 不借残留
 渠道字段放行；未标记工具行为保持。真实 API 验收、运行环境操作及合并仍未授权。
 
+同日完成六项实现及独立整分支只读审查：已注册单条当前聊天读取工具、内容安全边界、
+通用 gateway-only 装配门禁与实际 offered-tools 提示词。离线检查与基线对照、审查裁定
+和两项非阻塞文案建议见实施计划的 pre-PR checkpoint；实际 PR、CI、Greptile 结果仍须
+按后续交付记录闭环，不能将此 checkpoint 当成已合并或现场验收通过。
+
 后续每个项目的现场验收除自身退出标准外，共用以下门禁：不提交 `.env` 或凭据；测试 chat 的外部发送
 必须取得当轮授权；PR 必须满足 `CI.md §8` 的绿色检查与 Greptile 5/5；合并后继续观察 main CI、
 CodeQL 与 release workflow。外部控制台配置属于验收前置，不能用 mock 成功替代。
