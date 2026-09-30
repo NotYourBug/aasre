@@ -579,7 +579,9 @@ Completed local evidence (2026-09-30):
   The rebuilt wheel again passed its runtime-data validator and isolated
   extracted-wheel import/read probe for both prompt bases.
 - CodeQL pre-S7 main baseline at `407a9b2baa527353195b8d16aa86cc9ba27d67ae`:
-  30 open alerts (#9–#38). No baseline alert was dismissed or batch-fixed here.
+  38 open alerts (#1–#38), verified before merge with `per_page=100`;
+  the earlier 30-alert count read only the API's default first page.
+  No baseline alert was dismissed or batch-fixed here.
   Full CodeQL/main/release post-merge checks remain conditional on a future
   authorized merge; none is claimed from this unmerged PR.
 
