@@ -437,6 +437,12 @@ surface 过滤，运行时再复核既有 `ActionPromptContext`；现有未标�
 和两项非阻塞文案建议见实施计划的 pre-PR checkpoint；实际 PR、CI、Greptile 结果仍须
 按后续交付记录闭环，不能将此 checkpoint 当成已合并或现场验收通过。
 
+同日，[S8b-1 PR #44](https://github.com/NotYourBug/aasre/pull/44) 的产品提交 `6d609e0`
+完成 CI 与 Greptile **5/5**，四条审核线程全部解决。CI 揭示的工具发现声明、用途元数据
+和遥测覆盖缺口已按真实失败修复；设计与计划记录了验证及裁定。该记录更新推送后仍需
+检查最终 HEAD，不能复用旧提交的绿色结果。真实飞书验收、部署和合并保持未执行，
+后续 S8b 子项及其他路线项目不自动启动。
+
 后续每个项目的现场验收除自身退出标准外，共用以下门禁：不提交 `.env` 或凭据；测试 chat 的外部发送
 必须取得当轮授权；PR 必须满足 `CI.md §8` 的绿色检查与 Greptile 5/5；合并后继续观察 main CI、
 CodeQL 与 release workflow。外部控制台配置属于验收前置，不能用 mock 成功替代。

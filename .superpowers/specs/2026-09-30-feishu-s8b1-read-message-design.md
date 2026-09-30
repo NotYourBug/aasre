@@ -1,7 +1,7 @@
 # Feishu S8b-1 Single-Message Read Design
 
 - Date: 2026-09-30
-- Status: Approved and implemented; offline whole-branch review checkpoint recorded in the plan (2026-09-30). PR CI/Greptile follow-through is required; live acceptance and merge remain unauthorized.
+- Status: Approved and implemented; product commit `6d609e0` passed PR CI and Greptile 5/5 with zero unresolved threads (2026-09-30). Final delivery records require latest-head rechecks; live acceptance and merge remain unauthorized.
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
 - Implementation plan: [Independent plan](2026-09-30-feishu-s8b1-read-message-implementation-plan.md), approved for Native execution on 2026-09-30
 - Scope: One read-only ACTION tool, `feishu_get_message`, for a known message ID in the current Feishu chat

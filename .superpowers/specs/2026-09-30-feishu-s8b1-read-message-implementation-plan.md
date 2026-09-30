@@ -545,3 +545,21 @@ CI and Greptile still must complete after this update.
    existing contract is required for a newly discovered tool. This adds coverage
    rather than an exemption. Incorrect classification could hide a future loss
    of sanitized error reporting.
+
+## 9. Product-head PR readiness checkpoint (2026-09-30)
+
+[PR #44](https://github.com/NotYourBug/aasre/pull/44) product commit
+`6d609e0b01f10526d002625cca555922735cc2a5` passed
+[CI run 36738607970](https://github.com/NotYourBug/aasre/actions/runs/36738607970):
+static checks, typechecking, every test shard and CI Gate succeeded. The matching
+offline synthetic and interactive checks succeeded; live/Windows jobs were
+skipped by existing workflow conditions. Greptile's updated summary identifies
+that exact commit and reports **5/5**. All four review threads were verified
+resolved, and `gh pr checks --watch` completed successfully.
+
+The unchanged local Windows baseline defect in §7 remains disclosed; passing
+Linux PR CI does not mean that Windows test was repaired. No live credentials,
+real message reads, gateway operations, deployment or merge occurred. There is
+no merge authorization and therefore no merge-commit/main/CodeQL/release result
+for this feature. This record is a docs-only update; after pushing it, recheck
+CI and Greptile on the final HEAD rather than reusing this product-head result.
