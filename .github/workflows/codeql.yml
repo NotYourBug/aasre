@@ -33,7 +33,7 @@ concurrency:
 jobs:
   analyze-full:
     if: >-
-      github.repository == 'Tracer-Cloud/opensre' &&
+      (github.repository == 'Tracer-Cloud/opensre' || github.repository == 'NotYourBug/aasre') &&
       (github.event_name != 'workflow_dispatch' || inputs.profile == 'full')
     name: Analyze full (${{ matrix.language }})
     runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner_label || 'ubuntu-latest' }}
