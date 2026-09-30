@@ -24,6 +24,8 @@ from integrations.feishu.tools.feishu_get_message_tool.validation import (
     prepare_read_input,
 )
 
+TOOL_MODULES = ("tool",)
+
 
 class FeishuGetMessageTool(BaseTool):
     """Read one known live message in the frozen current Feishu chat."""
@@ -33,6 +35,7 @@ class FeishuGetMessageTool(BaseTool):
         "Read one known message_id in the current Feishu chat. Returns sanitized, bounded, "
         "untrusted message JSON or an explicitly incomplete JSON prefix; resources are metadata only."
     )
+    use_cases = ["Inspecting a known incident message in the current Feishu chat"]
     source = "feishu"
     requires = ["feishu"]
     surfaces = (ToolSurface.ACTION,)

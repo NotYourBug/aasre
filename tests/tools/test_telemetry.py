@@ -778,6 +778,40 @@ def _x_mcp_call_tool_case() -> ToolFailureCase:
     )
 
 
+def _feishu_read_case() -> ToolFailureCase:
+    def patch(mp: pytest.MonkeyPatch) -> None:
+        from integrations.feishu.credentials import FeishuChatCredentials
+        from integrations.feishu.tools.feishu_get_message_tool import tool as read_module
+
+        def credentials() -> FeishuChatCredentials:
+            raise RuntimeError("PRIVATE-READ-CANARY")
+
+        mp.setattr(read_module, "load_chat_credentials_from_env", credentials)
+
+    def invoke() -> dict[str, Any]:
+        from core.tool import AgentToolContext
+        from infrastructure.harness_providers.prompt_context import (
+            ACTION_PROMPT_CONTEXT_RESOURCE,
+            ActionPromptContext,
+        )
+        from integrations.feishu.tools.feishu_get_message_tool.tool import feishu_get_message
+        from tests.integrations.test_feishu_read_scope import valid_view
+
+        context = AgentToolContext(
+            valid_view(),
+            {
+                ACTION_PROMPT_CONTEXT_RESOURCE: ActionPromptContext(
+                    "gateway", "feishu", frozenset({"feishu_get_message"})
+                )
+            },
+        )
+        result = feishu_get_message.run(message_id="om_known", context=context)
+        assert "PRIVATE-READ-CANARY" not in repr(result)
+        return json.loads(result.content)
+
+    return ToolFailureCase("feishu_get_message", patch, invoke, "feishu_get_message", "feishu")
+
+
 def _feishu_write_case(*, reply: bool) -> ToolFailureCase:
     tool_name = "feishu_reply_message" if reply else "feishu_send_message"
 
@@ -830,6 +864,7 @@ def _feishu_write_case(*, reply: bool) -> ToolFailureCase:
 
 
 _TOOL_FAILURE_CASES: list[ToolFailureCase] = [
+    _feishu_read_case(),
     _feishu_write_case(reply=False),
     _feishu_write_case(reply=True),
     _azure_case(),
@@ -895,6 +930,9 @@ def test_tool_reports_exactly_one_sentry_event(
     assert event.extras["tag.source"] == case.expected_source
     if case.id.startswith("feishu_"):
         assert "private outbound body" not in str(event.exc)
+    if case.id == "feishu_get_message":
+        assert event.exc.args == ("RuntimeError",)
+        assert event.exc.__context__ is None
 
     # Guard against a future regression where a tool migrates to the helper
     # but passes a ``tool_name=`` / ``source=`` that no longer matches its
@@ -1035,7 +1073,8 @@ _MIGRATED_TOOL_NAMES: frozenset[str] = frozenset(
         "create_google_docs_incident_report",
         "get_github_repository",
         "get_github_star_history",
-        # Feishu writes capture a sanitized exception when delivery raises.
+        # Feishu tools capture sanitized exceptions on unexpected failures.
+        "feishu_get_message",
         "feishu_reply_message",
         "feishu_send_message",
         # EKS — enumerated in #1463

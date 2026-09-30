@@ -332,6 +332,8 @@ uv run python -m pytest tests/masking/ -q
 uv run python -m pytest gateway/tests/ -k 'attachment or approval or package_border or harness_behaviour_border or harness_api_border' -q
 uv run python -m pytest tests/core/agent/prompts/test_gateway_channel_prompt.py tests/core/agent/prompts/test_channel_prompt_context.py tests/core/agent/prompts/test_skill_channel_visibility.py tests/core/agent_harness/test_gateway_channel_tools.py tests/core/agent_harness/test_channel_turn_isolation.py -q
 uv run python -m pytest tests/shared/test_integrations_api_border.py tests/shared/test_tool_api_border.py tests/tools/test_harness_api_border.py tests/config/test_feishu_card_constants.py -q
+uv run python -m pytest tests/tools/test_registry_index.py tests/tools/test_telemetry.py -q
+uv run python -m pytest tests/tools/test_description_contract.py -q -k 'feishu_get_message or allowlist_ratchets or registry_floor'
 uv run python .github/ci/check_imports.py
 ```
 
@@ -511,7 +513,9 @@ Additional execution rulings, following the five in §7:
 
 6. Add the established package discovery manifest despite Task 5's narrow
    export wording; real full-registry evidence requires it for the approved
-   discovery contract. Incorrect metadata would make the tool unavailable.
+   discovery contract. Its final owner is `tool.py`, re-exported by the facade
+   using imports and `__all__` only. Incorrect metadata would make the tool
+   unavailable.
 7. Address the two initially deferred text findings in the explicitly approved
    PR/Greptile loop, which takes precedence over generic skill deferral advice;
    these are user-facing guidance corrections, with no retry or masking-rule
@@ -519,3 +523,25 @@ Additional execution rulings, following the five in §7:
 
 The two original deferred minors are now fixed, with none remaining from that
 review. Live acceptance, deployment and merge are still unperformed.
+
+The second CI run `36736549758` passed static checks but exposed two remaining
+tool contracts after full discovery was restored: missing `use_cases` and
+missing telemetry classification. The description checks reproduced **2 failed**,
+then **3 passed** after adding the current-chat inspection use case. The telemetry
+classification reproduced **1 failed**; the new real failure case already proved
+exactly one sanitized Sentry event before classification was added. The tool is
+now in the migrated coverage catalog, with its required failure case; the
+exception-exemption set and all boundary allowlists remain unchanged. Combined
+registry/telemetry/reader/runner checks passed **57/57**, and lint, format and
+mypy passed. The focused local gate above now includes these existing contracts.
+
+Greptile's second review of `81a2970` remained **4/5**, requesting an imports-only
+facade and removal of the tool name from user docs. Both are corrected. These
+are PR feedback fixes; no extra independent review was dispatched. Latest-head
+CI and Greptile still must complete after this update.
+
+8. Extend the task file map to the owning `tests/tools/test_telemetry.py`
+   coverage catalog and its actual Sentry failure case; CI demonstrated this
+   existing contract is required for a newly discovered tool. This adds coverage
+   rather than an exemption. Incorrect classification could hide a future loss
+   of sanitized error reporting.
