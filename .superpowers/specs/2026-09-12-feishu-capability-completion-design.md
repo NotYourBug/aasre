@@ -1,7 +1,7 @@
 # 飞书通讯能力补全设计（Feishu Capability Completion）
 
 - Date: 2026-09-12（2026-09-18 修订后续路线）
-- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）、S8a 及 S7 已交付；S7 经 PR #41（d03ddad）及告警修复 PR #42（1cee42f）完成合并后验收，main CI 与完整 CodeQL 成功、新增告警归零，Release 按原 guard 跳过；S8b-1 单条消息读取独立 design 已批准（2026-09-30），implementation plan 待批准，尚未实现
+- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）、S8a 及 S7 已交付；S7 经 PR #41（d03ddad）及告警修复 PR #42（1cee42f）完成合并后验收，main CI 与完整 CodeQL 成功、新增告警归零，Release 按原 guard 跳过；S8b-1 单条消息读取 design、implementation plan、§12 与 Task 6 宿主补充已批准（2026-09-30），按 Native 开始实现，真实验收及合并未授权
 - 上游 spec: [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
@@ -213,7 +213,7 @@ S5c/S8b 需要独立核实 reaction 标识与客户端能力，不能假定 S5b 
 | **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CrossMark` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 已完成 |
 | **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 已合并 PR #38；真实发送/回复/拒绝审批已验收，真实多页投递未验收（离线测试通过，用户同意带此限制合并） |
 | **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 生成实际运行的 action/persona 片段及能力视图；历史 gather/assistant 注册表保留且无新增消费者 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | 已交付：PR #41（d03ddad）及修复 PR #42（1cee42f）；main CI、完整 Python/JS CodeQL 成功，Greptile 5/5，无新增告警；Release 按原 guard 跳过；未做真实飞书验收 |
-| **S8b** | Agent 读取类工具 | 读消息、搜消息、列成员、加 reaction 逐项调研、逐项 spec/PR，不以工具集合打包 | S1、S7；加 reaction 复用 S5b/S5c 客户端能力 | 每项工具分别定义权限、分页、目标范围与跨聊天授权；只注册已完成且可验收的能力 | S8b-1 design 已批准，独立 plan 待批准；其余待逐项调研 |
+| **S8b** | Agent 读取类工具 | 读消息、搜消息、列成员、加 reaction 逐项调研、逐项 spec/PR，不以工具集合打包 | S1、S7；加 reaction 复用 S5b/S5c 客户端能力 | 每项工具分别定义权限、分页、目标范围与跨聊天授权；只注册已完成且可验收的能力 | S8b-1 design、plan 及 gateway-only 宿主补充已批准，Native 实现中；其余待逐项调研 |
 
 **依赖与节奏**：S5a 只迁移审批；S6 不等待反馈状态机；S5b 不包含重试；S5c 才允许产生新 turn。
 S8a 先提供 prompt 可引用的最小工具面，S7 再按运行时 surface 暴露它，S8b 的研究型能力逐项推进。
@@ -426,6 +426,11 @@ spec → plan → 实现 → PR 闭环。任何阶段发现需要改变相邻项
 surface 过滤，运行时再复核既有 `ActionPromptContext`；现有未标记工具行为保持。
 该共享门禁扩展属于相邻契约调整，未来执行前须随计划明确批准。
 用户随后要求「计划写好就行，先不要执行」；本轮止于计划保存与文档校验。
+
+2026-09-30 的续接只读审阅确认原工作树与 HEAD 未变；用户随后明确「完全批准」，
+批准独立实施计划、§12 及 Task 6 宿主来源补充，采用推荐的 Native 实现与完成后的
+新鲜独立整分支审查。标记工具要求冻结快照明确为 gateway，未知 surface 不借残留
+渠道字段放行；未标记工具行为保持。真实 API 验收、运行环境操作及合并仍未授权。
 
 后续每个项目的现场验收除自身退出标准外，共用以下门禁：不提交 `.env` 或凭据；测试 chat 的外部发送
 必须取得当轮授权；PR 必须满足 `CI.md §8` 的绿色检查与 Greptile 5/5；合并后继续观察 main CI、

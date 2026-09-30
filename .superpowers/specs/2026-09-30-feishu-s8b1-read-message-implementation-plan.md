@@ -1,6 +1,6 @@
 # Feishu S8b-1 Single-Message Read Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Recommended for this plan: native execution in the current session, followed by one independent whole-branch review; execution choice and plan approval are still pending.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The user approved native execution in the current session, followed by one independent whole-branch review, on 2026-09-30.
 
 **Goal:** Let the Feishu action agent inspect one known message in its current chat without releasing foreign-chat or unsanitized content.
 
@@ -8,10 +8,10 @@
 
 **Tech Stack:** Existing Python/uv environment, lark-oapi 1.7.3, pytest, Ruff and mypy; no dependency additions.
 
-**Spec:** [S8b-1 design](2026-09-30-feishu-s8b1-read-message-design.md): core design approved by the user on 2026-09-30; the narrow §12 gate refinement remains unapproved.
+**Spec:** [S8b-1 design](2026-09-30-feishu-s8b1-read-message-design.md): core design and §12 gate refinement, including explicit frozen runner host authority, approved by the user on 2026-09-30.
 
 - Date: 2026-09-30
-- Status: Plan prepared for review only; design §12 gate refinement and execution remain unapproved. User requested no execution on 2026-09-30.
+- Status: Plan, design §12 and the Task 6 runner supplement approved on 2026-09-30; native implementation in progress. Live acceptance and merge remain unauthorized.
 - Worktree: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`
 - Branch: `codex/feishu-s8b1-read-message-spec`
 - Planning baseline: `7bd738090d98f20a8fbe39cedc0ece487d5a35ee`; clean before this plan/approval record
@@ -19,7 +19,7 @@
 ## Global Constraints
 
 - Current-chat-only access: exact `_gateway_platform == "feishu"` and a non-empty string `_gateway_chat_id` from `AgentToolContext.resolved_integrations`, plus the existing frozen runtime `ActionPromptContext` identifying a Feishu gateway; never infer from text, default targets, outbound allowlists or a mutable session cache.
-- Tool name `feishu_get_message`, `source="feishu"`, `requires=["feishu"]`, `surfaces=(ToolSurface.ACTION,)`, `side_effect_level=SideEffectLevel.READ_ONLY`, `requires_approval=False`, `accepts_runtime_context=True`, `parallel_safe=True`, `log_omitted_input_fields=("message_id",)`. Proposed design §12 refinement adds `tags=(GATEWAY_ONLY_TOOL_TAG,)` and a generic final tag gate; approval is pending.
+- Tool name `feishu_get_message`, `source="feishu"`, `requires=["feishu"]`, `surfaces=(ToolSurface.ACTION,)`, `side_effect_level=SideEffectLevel.READ_ONLY`, `requires_approval=False`, `accepts_runtime_context=True`, `parallel_safe=True`, `log_omitted_input_fields=("message_id",)`. Approved design §12 adds `tags=(GATEWAY_ONLY_TOOL_TAG,)` and a generic final tag gate. Tagged tools require an explicitly frozen gateway snapshot; legacy metadata-based surface inference grants no read authority.
 - Only public input: `message_id`, stripped, non-empty, maximum 256 characters; reject additional properties.
 - At most one message GET; `user_id_type="open_id"`, `card_msg_content_type="user_card_content"`, a 10-second per-HTTP-request timeout, existing chat-app tenant-token identity.
 - Require one item, exact message/chat IDs and `deleted is False` before touching its body. Reject merge-forward/multi-item expansion. Cancelled reads do not release content.
@@ -57,6 +57,7 @@ These concrete input classes supplement the design's broader contracts and are a
 | `integrations/feishu/tools/feishu_get_message_tool/{__init__,tool,validation,results}.py` (new) | Public tool contract, validation, orchestration and read-only result mapping |
 | `integrations/feishu/action_prompt.py` | Separate offered read guidance from existing extra-write guidance |
 | `core/agent_harness/tools/action_tools.py` | Proposed opt-in generic final gateway-only tag check, preserving the source check and untagged behavior |
+| `core/agent_harness/turns/action_driver.py` | Require explicit frozen gateway host authority for tagged tools before final assembly; preserve untagged tools and existing context inference |
 | `docs/messaging/feishu.mdx` | User-facing permissions, known-ID usage and content/resource limitations |
 | `.superpowers/specs/2026-09-12-feishu-capability-completion-design.md` and the S8b-1 design/plan | Truthful approval, implementation and delivery records |
 
@@ -76,10 +77,14 @@ Existing attachment/approval, masking, Feishu and border suites supply regressio
 Do not add a generic registry root, change `INTEGRATION_TOOL_PACKAGES`, or grow the
 existing write-only `integrations/feishu/tools/results.py`.
 
-**Approval delta:** Design §12 documents why existing S7 shell behavior requires
-the opt-in tag check. Availability returns integration-scope candidacy only;
-the final filter has the actual frozen host surface. This is the sole proposed
-adjacent contract extension, explicitly awaiting future approval with this plan.
+**Approval record:** The user fully approved this plan, design §12 and the
+continuation review's Task 6 supplement on 2026-09-30. Native execution is selected.
+Availability returns integration-scope candidacy only; tagged tools require
+explicit frozen gateway host authority at the runner and final tag filter.
+Missing snapshots and unknown surfaces fail closed even when gateway metadata
+remains. No new context interface or signature changes are authorized; all
+untagged tools retain their current behavior. Live acceptance and merge are
+separate and remain unauthorized.
 
 The shared leaf `read_types.py` defines:
 
@@ -275,6 +280,7 @@ assert "sent" not in result.details and "certainty" not in result.details
 
 **Files:** Modify `integrations/feishu/action_prompt.py`,
 `core/agent_harness/tools/action_tools.py`,
+`core/agent_harness/turns/action_driver.py`,
 `tests/core/agent/prompts/test_gateway_channel_prompt.py`,
 `tests/core/agent_harness/test_gateway_channel_tools.py`,
 `tests/core/agent_harness/test_channel_turn_isolation.py` and
@@ -299,6 +305,7 @@ assert "feishu_get_message" not in prompt_for("feishu", "feishu_send_message")
 ```
 
 - [ ] Add `test_discovery_and_provider_paths_enforce_read_scope`: use real `get_registered_tools(ToolSurface.ACTION)` discovery, proving ACTION-only registration and valid-current-scope availability through the normal runner. Through normal and custom/precomputed providers, prove the final tag gate excludes the real registered reader from shell views even when gateway markers remain, while existing untagged send/reply tools remain offered there. Other channels' final source gate excludes it, and an invalid current context cannot cause a GET even when a provider offers it. Assert both the actual offered names and prompt promises.
+- [ ] Add real runner coverage for a missing TurnPlan and a frozen snapshot with unknown surface carrying valid gateway markers: the reader is not offered and no GET occurs. At the assembly point require explicit frozen gateway host authority for tagged tools, preserving legacy inference and behavior for untagged tools.
 - [ ] Add `test_read_scope_is_frozen_across_session_reuse` and `test_concurrent_feishu_reads_do_not_share_bodies` to the real runner isolation suite. Use a test-local `ReadMessageLLM(message_id: str)` that emits one explicit read call and then stops, separate frozen `TurnPlan` views, intercepted SDK responses and captured tool results. Assert each chat receives only its own content despite shared registries/providers and session-cache mutations. Synchronize with events/barriers, finite timeouts and `finally` cleanup; do not use sleeps or merely prove task creation is nonblocking.
 - [ ] Run `uv run python -m pytest tests/core/agent/prompts/test_gateway_channel_prompt.py tests/core/agent_harness/test_gateway_channel_tools.py tests/core/agent_harness/test_channel_turn_isolation.py -q`; require behavioral RED for new read prompt/runtime contracts, keeping the write characterization GREEN.
 - [ ] Implement the proposed generic tag check in the existing final filter, retaining the existing source predicate and behavior of untagged tools. Use the shared tag constant; no Feishu/tool-name branch, registry or mutable host marker. Implement a separate read fragment conditional on gateway/Feishu context and the offered name. Preserve rendered write-only content byte-for-byte; use private module text constants for long list entries to avoid implicit string concatenation alerts. Keep resource-copy behavior intact.
@@ -424,13 +431,10 @@ data or substituting another operation.
 | §11 independent approval, one PR and post-merge closure | This section and §4 |
 | Proposed §12 generic gateway-only gate and runtime surface proof | Tasks 2, 5, 6; approval delta above |
 
-Design approval is already recorded and must not be requested again. This plan
-and its narrowly scoped design §12 gate refinement require future explicit
-approval and an execution-method choice before product, test or runtime edits.
-The user requested plan preparation only and no execution on 2026-09-30; stop
-after saving and validating these planning documents. Do not request immediate
-execution approval or start a worker/reviewer during this planning turn.
-Recommended future method: native execution plus independent
-whole-branch review. Plan approval does not authorize live operations, deployment
-or merging. No implementation, product tests, push, PR or live operation has been
-performed during this planning stage.
+The user fully approved the plan, design §12 and the Task 6 runner supplement
+in the continuation on 2026-09-30. Execute natively and obtain one fresh
+independent whole-branch review after implementation. The earlier plan-only stop
+is superseded for these approved steps; do not request the same approval again.
+Plan approval does not authorize live operations, deployment or merging.
+Record only actual completed tasks and validation; all task boxes are pending
+at the start of this execution.

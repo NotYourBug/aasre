@@ -1,7 +1,7 @@
 # Feishu S8b-1 Single-Message Read Design
 
 - Date: 2026-09-30
-- Status: Core design approved by user (2026-09-30); §12 gate refinement and independent implementation plan await approval. User requested plan preparation only, with no execution.
+- Status: Core design, §12 gate refinement, independent implementation plan and native execution approved by user (2026-09-30). Implementation in progress; live acceptance and merge remain unauthorized.
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
 - Implementation plan: [Independent plan](2026-09-30-feishu-s8b1-read-message-implementation-plan.md), awaiting separate approval
 - Scope: One read-only ACTION tool, `feishu_get_message`, for a known message ID in the current Feishu chat
@@ -331,7 +331,7 @@ separate work. Follow the PR template, AI disclosure, checks after every push,
 Greptile 5/5, an explicit merge instruction and post-merge main CI/full CodeQL/
 release closure. Preserve S8a's previously recorded live multipage limitation.
 
-## 12. Planning refinement awaiting approval: gateway-only enforcement
+## 12. Approved planning refinement: gateway-only enforcement
 
 The approved access scope remains current-chat-only. Plan review found that
 S7's `filter_action_tools_for_channel` deliberately preserves messaging tools
@@ -340,7 +340,7 @@ Normal availability receives integration sources, not the host's surface;
 those markers alone cannot prove this turn actually came from a gateway.
 
 The independent implementation plan therefore proposes one narrow adjacent
-contract extension, still awaiting approval:
+contract extension, approved by the user on 2026-09-30:
 
 - Add the shared `GATEWAY_ONLY_TOOL_TAG = "gateway_only"` in
   `config/constants/tool_policy.py`, re-export it, and opt only the new
@@ -357,6 +357,16 @@ contract extension, still awaiting approval:
   integration scope only; the final host filter and runtime check enforce the
   actual surface.
 
+The approval also includes enforcing explicit frozen host authority at the action
+runner's assembly point. The legacy context builder can infer gateway from
+metadata when surface is unknown; this fallback must not admit gateway-only
+tools. Require a frozen snapshot whose prompt_surface is exactly gateway for
+tagged tools, preserving all untagged tools and existing channel inference.
+Cover missing snapshots and unknown surfaces with real runner tests proving no
+offered reader and zero GETs. Keep function signatures and the existing context
+resource interface unchanged.
+
 This refinement enforces the approved no-shell contract without broadening
-access. Future implementation-plan approval must explicitly include this shared
-gate extension; the earlier design approval alone does not authorize it.
+access. The user explicitly approved the plan, this gate extension and the
+runner supplement in this continuation. Live operations and merging remain
+subject to separate authorization.
