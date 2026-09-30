@@ -23,6 +23,49 @@ def test_missing_credentials_report_missing_without_a_network_call(monkeypatch) 
     }
 
 
+def test_malformed_outbound_targets_fail_before_network_probe(monkeypatch) -> None:
+    def _explode(**_kwargs):
+        raise AssertionError("invalid config must not trigger a token probe")
+
+    monkeypatch.setattr("lark_oapi.Client.builder", _explode)
+
+    verified = verify_feishu(
+        "local store",
+        {
+            "app_id": "cli_1",
+            "app_secret": "secret",
+            "allowed_outbound_targets": "chat_id:oc_ops,invalid",
+        },
+    )
+
+    assert verified["status"] == "failed"
+    assert "invalid" not in verified["detail"]
+
+
+def test_default_target_type_is_validated_before_network_probe(monkeypatch) -> None:
+    probed: list[bool] = []
+
+    def _explode(**_kwargs):
+        probed.append(True)
+        raise AssertionError("invalid default target must not trigger a token probe")
+
+    monkeypatch.setattr("lark_oapi.Client.builder", _explode)
+
+    verified = verify_feishu(
+        "local store",
+        {
+            "app_id": "cli_1",
+            "app_secret": "secret",
+            "receive_id": "oc_ops",
+            "receive_id_type": "chatid",
+        },
+    )
+
+    assert verified["status"] == "failed"
+    assert "oc_ops" not in verified["detail"]
+    assert probed == []
+
+
 def test_a_good_token_reports_passed(monkeypatch) -> None:
     def _noop(_config):
         return "t-123"

@@ -40,13 +40,16 @@ opensre integrations verify feishu
 ```
 
 The setup asks for the app ID (`cli_…`), app secret, optional default destination,
-and the comma-separated Open IDs allowed to talk to the bot. To configure the
-gateway directly, set:
+and the comma-separated Open IDs allowed to talk to the bot. The optional
+outbound destinations control where agent send/reply tools may write. To
+configure the gateway directly, set:
 
 ```bash
 FEISHU_APP_ID=cli_...
 FEISHU_APP_SECRET=...
 FEISHU_ALLOWED_OPEN_IDS=ou_alice,ou_bob
+# Optional: exact outbound destinations for agent send/reply tools
+FEISHU_ALLOWED_OUTBOUND_TARGETS=chat_id:oc_ops,open_id:ou_owner
 ORGANIZATION_ID=org_...
 ```
 
@@ -71,6 +74,13 @@ opensre messaging status -p feishu
 
 Treat the app secret like a password and keep it out of source control.
 
+Agent send and reply tools require a separate approval for every call. They can
+target the current Feishu chat, the configured default destination, or an exact
+entry in `FEISHU_ALLOWED_OUTBOUND_TARGETS`. This outbound list is separate from
+`FEISHU_ALLOWED_OPEN_IDS`, which controls who can talk to the bot. Replies require
+an authorized `chat_id`; OpenSRE checks the parent message's chat before replying
+and does not turn a failed reply into a new message.
+
 ## Start the gateway
 
 ```bash
@@ -91,8 +101,10 @@ documents across ordered cards. If card delivery cannot continue, it sends the
 remaining original Markdown as ordered plain-text chunks without truncating the
 content.
 
-When the network result for the current card is uncertain, the plain-text
-fallback may repeat that current page so content is not silently omitted.
+For background delivery, an uncertain card response may cause the plain-text
+fallback to repeat that page rather than silently omit it. Agent send/reply
+tools instead stop on an uncertain write, report that it may have been sent,
+and do not automatically retry or send a duplicate.
 
 ## Approve write tools
 

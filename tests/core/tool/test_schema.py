@@ -176,6 +176,20 @@ def test_non_nullable_rejects_none() -> None:
     assert _value_matches_schema(None, {"type": "string"}) is False
 
 
+def test_min_length_rejects_empty_string() -> None:
+    assert _value_matches_schema("", {"type": "string", "minLength": 1}) is False
+    assert _value_matches_schema("x", {"type": "string", "minLength": 1}) is True
+
+
+def test_min_length_also_applies_outside_one_of() -> None:
+    schema: dict[str, Any] = {
+        "minLength": 1,
+        "oneOf": [{"type": "string"}, {"type": "integer"}],
+    }
+
+    assert _value_matches_schema("", schema) is False
+
+
 def test_enum_accepts_valid_value() -> None:
     assert _value_matches_schema("foo", {"enum": ["foo", "bar"]}) is True
 

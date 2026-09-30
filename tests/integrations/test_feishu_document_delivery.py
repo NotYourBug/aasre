@@ -123,7 +123,9 @@ def _install_pages(monkeypatch: pytest.MonkeyPatch, pages: list[CardPage]) -> No
 
 
 def _deliver(markdown: str) -> delivery.FeishuDocumentDeliveryResult:
-    return delivery.deliver_feishu_document(**_INPUT, markdown=markdown)
+    return delivery.deliver_feishu_document(
+        **_INPUT, markdown=markdown, stop_on_ambiguous_write=True
+    )
 
 
 def test_blank_body_is_skipped_without_constructing_clients(
@@ -197,7 +199,123 @@ def test_all_cards_confirmed_is_success(monkeypatch: pytest.MonkeyPatch) -> None
     assert result.error == ""
 
 
-def test_first_card_success_then_fallback_failure_is_whole_failure(
+def test_ambiguous_partial_card_send_stops_without_text_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markdown = "first\n\nsecond"
+    _install_pages(
+        monkeypatch,
+        [CardPage("first", 1, 0, 5), CardPage("\n\nsecond", 2, 5, len(markdown))],
+    )
+    _install_card_client(
+        monkeypatch,
+        create_outcomes=["c_1", "c_2"],
+        send_outcomes=["om_first", ConnectionError("write outcome unknown")],
+    )
+    captured = _install_text_sender(monkeypatch, [])
+
+    result = _deliver(markdown)
+
+    assert result.status is FeishuDeliveryStatus.PARTIAL
+    assert result.confirmed_message_ids == ("om_first",)
+    assert result.error_category is FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN
+    assert result.successful is False
+    assert captured == []
+
+
+def test_background_delivery_keeps_legacy_uncertain_card_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_pages(monkeypatch, [CardPage("body", 1, 0, 4)])
+    _install_card_client(
+        monkeypatch,
+        create_outcomes=["c_1"],
+        send_outcomes=[ConnectionError("unknown write outcome")],
+    )
+    captured = _install_text_sender(monkeypatch, [_sent("om_text")])
+
+    result = delivery.deliver_feishu_document(**_INPUT, markdown="body")
+
+    assert result.status is FeishuDeliveryStatus.DEGRADED_SUCCESS
+    assert captured == ["body"]
+
+
+def test_reply_card_rejection_falls_back_only_to_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_pages(monkeypatch, [CardPage("reply body", 1, 0, 10)])
+    observed: list[tuple[str, bool]] = []
+
+    class _ReplyCardClient:
+        def __init__(
+            self,
+            _app_id: str,
+            _app_secret: str,
+            *,
+            reply_to_message_id: str,
+            reply_in_thread: bool,
+        ) -> None:
+            observed.append((reply_to_message_id, reply_in_thread))
+
+        def create_card(self, _spec: dict[str, object]) -> str:
+            return "c_1"
+
+        def send_card(self, _chat: str, _card: str, *, receive_id_type: str = "chat_id") -> str:
+            assert receive_id_type == "chat_id"
+            raise FeishuCardCallError(code=230020, stage=FeishuCardCallStage.SEND_CARD)
+
+    def _reply_text(
+        _app_id: str,
+        _app_secret: str,
+        _chat: str,
+        _kind: str,
+        _text: str,
+        *,
+        reply_to_message_id: str,
+        reply_in_thread: bool,
+    ) -> FeishuMessageSendResult:
+        observed.append((reply_to_message_id, reply_in_thread))
+        return _sent("om_reply")
+
+    monkeypatch.setattr(delivery, "FeishuCardClient", _ReplyCardClient)
+    monkeypatch.setattr(delivery, "post_feishu_message", _reply_text)
+
+    result = delivery.deliver_feishu_document(
+        **_INPUT,
+        markdown="reply body",
+        reply_to_message_id="om_parent",
+        reply_in_thread=True,
+    )
+
+    assert result.status is FeishuDeliveryStatus.DEGRADED_SUCCESS
+    assert observed == [("om_parent", True), ("om_parent", True)]
+
+
+def test_cancel_between_confirmed_pages_is_partial(monkeypatch: pytest.MonkeyPatch) -> None:
+    markdown = "first\n\nsecond"
+    _install_pages(
+        monkeypatch,
+        [CardPage("first", 1, 0, 5), CardPage("\n\nsecond", 2, 5, len(markdown))],
+    )
+    client = _install_card_client(
+        monkeypatch,
+        create_outcomes=["c_1"],
+        send_outcomes=["om_first"],
+    )
+
+    result = delivery.deliver_feishu_document(
+        **_INPUT,
+        markdown=markdown,
+        cancel_requested=lambda: len(client.sent) >= 1,
+    )
+
+    assert result.status is FeishuDeliveryStatus.PARTIAL
+    assert result.confirmed_message_ids == ("om_first",)
+    assert result.error_category is FeishuDeliveryErrorCategory.CANCELLED
+    assert len(client.sent) == 1
+
+
+def test_first_card_success_then_fallback_failure_is_partial(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     markdown = "x" * 12_500
@@ -223,7 +341,7 @@ def test_first_card_success_then_fallback_failure_is_whole_failure(
 
     result = _deliver(markdown)
 
-    assert result.status is FeishuDeliveryStatus.FAILED
+    assert result.status is FeishuDeliveryStatus.PARTIAL
     assert result.attempted is True
     assert result.successful is False
     assert result.delivery_mode is FeishuDeliveryMode.TEXT_FALLBACK
@@ -287,7 +405,10 @@ def test_structured_page_failure_falls_back_from_original_source_range(
     _install_card_client(
         monkeypatch,
         create_outcomes=["c_1", "c_2"],
-        send_outcomes=["om_1", RuntimeError("send failed")],
+        send_outcomes=[
+            "om_1",
+            FeishuCardCallError(code=230020, stage=FeishuCardCallStage.SEND_CARD),
+        ],
     )
     remainder = markdown[pages[1].source_start :]
     chunk_count = (len(remainder) + 4_095) // 4_096
@@ -327,10 +448,15 @@ def test_card_success_without_required_id_does_not_advance(
 
     result = _deliver(markdown)
 
-    assert result.status is FeishuDeliveryStatus.DEGRADED_SUCCESS
+    if expected_category is FeishuDeliveryErrorCategory.DELIVERY_UNCERTAIN:
+        assert result.status is FeishuDeliveryStatus.FAILED
+        assert result.confirmed_message_ids == ()
+        assert captured == []
+    else:
+        assert result.status is FeishuDeliveryStatus.DEGRADED_SUCCESS
+        assert result.confirmed_message_ids == ("om_text",)
+        assert captured == [markdown]
     assert result.error_category is expected_category
-    assert result.confirmed_message_ids == ("om_text",)
-    assert captured == [markdown]
     assert len(client.sent) == (1 if create_outcome else 0)
 
 
@@ -406,8 +532,8 @@ def test_malicious_visible_send_exception_never_reaches_result_or_logs(
 
     messages = [record.getMessage() for record in caplog.records]
     assert messages.count("Feishu document delivery summary") == 1
-    assert messages.count("Feishu document delivery degraded to text") == 1
-    assert messages.count("Feishu document delivery failed") == 1
+    assert messages.count("Feishu document delivery degraded to text") == 0
+    assert messages.count("Feishu document delivery failed") == 0
     assert all(
         getattr(record, field) >= 1
         for record in caplog.records

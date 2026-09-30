@@ -34,6 +34,7 @@ def test_classifies_chat_app_credentials() -> None:
         "receive_id": "oc_1",
         "receive_id_type": "chat_id",
         "allowed_open_ids": "ou_1,ou_2",
+        "allowed_outbound_targets": "",
     }
 
 

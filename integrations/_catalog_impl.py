@@ -76,6 +76,7 @@ from config.constants.discord import (
 )
 from config.constants.feishu import (
     FEISHU_ALLOWED_OPEN_IDS_ENV,
+    FEISHU_ALLOWED_OUTBOUND_TARGETS_ENV,
     FEISHU_APP_ID_ENV,
     FEISHU_APP_SECRET_ENV,
     FEISHU_CHAT_RECEIVE_ID_ENV,
@@ -1465,6 +1466,7 @@ def load_env_integrations() -> list[dict[str, Any]]:
             "receive_id": os.getenv(FEISHU_CHAT_RECEIVE_ID_ENV, "").strip(),
             "receive_id_type": os.getenv(FEISHU_CHAT_RECEIVE_ID_TYPE_ENV, "").strip(),
             "allowed_open_ids": os.getenv(FEISHU_ALLOWED_OPEN_IDS_ENV, "").strip(),
+            "allowed_outbound_targets": os.getenv(FEISHU_ALLOWED_OUTBOUND_TARGETS_ENV, "").strip(),
         }
         feishu_view, _feishu_key = _classify_feishu(feishu_credentials, record_id="env:feishu")
         if feishu_view is not None:

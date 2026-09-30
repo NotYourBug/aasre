@@ -30,3 +30,10 @@ def test_arguments_preview_scrubs_bearer_tokens_under_neutral_keys() -> None:
 
     assert "abcdefghijklmnopqrstuvwxyz012345" not in preview
     assert "Bearer" in preview or "REDACTED" in preview or "redacted" in preview
+
+
+def test_feishu_target_stays_visible_before_long_message_is_truncated() -> None:
+    preview = arguments_preview({"target": "chat_id:oc_ops", "message": "x" * 2_000})
+
+    assert '"target": "chat_id:oc_ops"' in preview
+    assert len(preview) <= 400

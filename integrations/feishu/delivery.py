@@ -9,9 +9,15 @@ owns only the throttling + dispatch policy.
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 
 import lark_oapi as lark
-from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+from lark_oapi.api.im.v1 import (
+    CreateMessageRequest,
+    CreateMessageRequestBody,
+    ReplyMessageRequest,
+    ReplyMessageRequestBody,
+)
 
 from integrations.feishu.delivery_types import (
     FeishuDeliveryErrorCategory,
@@ -27,26 +33,48 @@ def post_feishu_message(
     receive_id: str,
     receive_id_type: str,
     text: str,
+    *,
+    reply_to_message_id: str = "",
+    reply_in_thread: bool = False,
+    uuid: str | None = None,
 ) -> FeishuMessageSendResult:
-    """Send one text message via the pinned lark-oapi SDK.
+    """Create or reply with one text message via the pinned lark-oapi SDK.
 
     The result contains only stable fields. Client/request construction and the
     visible transport call have separate certainty boundaries.
     """
     try:
         client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
-        request = (
-            CreateMessageRequest.builder()
-            .receive_id_type(receive_id_type)
-            .request_body(
-                CreateMessageRequestBody.builder()
-                .receive_id(receive_id)
-                .msg_type("text")
-                .content(json.dumps({"text": text}))
+        content = json.dumps({"text": text})
+        request_uuid = uuid or str(uuid4())
+        if reply_to_message_id:
+            request = (
+                ReplyMessageRequest.builder()
+                .message_id(reply_to_message_id)
+                .request_body(
+                    ReplyMessageRequestBody.builder()
+                    .msg_type("text")
+                    .content(content)
+                    .reply_in_thread(reply_in_thread)
+                    .uuid(request_uuid)
+                    .build()
+                )
                 .build()
             )
-            .build()
-        )
+        else:
+            request = (
+                CreateMessageRequest.builder()
+                .receive_id_type(receive_id_type)
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(receive_id)
+                    .msg_type("text")
+                    .content(content)
+                    .uuid(request_uuid)
+                    .build()
+                )
+                .build()
+            )
     except Exception:
         return FeishuMessageSendResult(
             accepted=False,
@@ -56,7 +84,11 @@ def post_feishu_message(
         )
 
     try:
-        response = client.im.v1.message.create(request)
+        response = (
+            client.im.v1.message.reply(request)
+            if reply_to_message_id
+            else client.im.v1.message.create(request)
+        )
     except Exception:
         return FeishuMessageSendResult(
             accepted=False,

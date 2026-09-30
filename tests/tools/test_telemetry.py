@@ -18,6 +18,7 @@ Direct ``report_run_error`` helper tests live in
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from collections.abc import Callable, Iterator
@@ -777,7 +778,60 @@ def _x_mcp_call_tool_case() -> ToolFailureCase:
     )
 
 
+def _feishu_write_case(*, reply: bool) -> ToolFailureCase:
+    tool_name = "feishu_reply_message" if reply else "feishu_send_message"
+
+    def patch(mp: pytest.MonkeyPatch) -> None:
+        from integrations.feishu.credentials import FeishuChatCredentials
+        from integrations.feishu.message_lookup import FeishuMessageMetadata
+        from integrations.feishu.tools.feishu_reply_message_tool import tool as reply_module
+        from integrations.feishu.tools.feishu_send_message_tool import tool as send_module
+
+        module = reply_module if reply else send_module
+        credentials = FeishuChatCredentials(
+            app_id="cli_test", app_secret="secret", receive_id="oc_approved"
+        )
+        mp.setattr(module, "load_chat_credentials_from_env", lambda: credentials)
+        mp.setattr(
+            module,
+            "deliver_feishu_document",
+            MagicMock(side_effect=RuntimeError("private outbound body")),
+        )
+        if reply:
+            mp.setattr(
+                reply_module,
+                "lookup_reply_parent",
+                MagicMock(return_value=FeishuMessageMetadata("om_parent", "oc_approved")),
+            )
+
+    def invoke() -> dict[str, Any]:
+        from core.tool import AgentToolContext
+        from integrations.feishu.tools.feishu_reply_message_tool.tool import feishu_reply_message
+        from integrations.feishu.tools.feishu_send_message_tool.tool import feishu_send_message
+
+        context = AgentToolContext(resolved_integrations={})
+        result = (
+            feishu_reply_message.run(
+                target="chat_id:oc_approved",
+                message_id="om_parent",
+                message="test reply",
+                reply_in_thread=False,
+                context=context,
+            )
+            if reply
+            else feishu_send_message.run(
+                target="chat_id:oc_approved", message="test send", context=context
+            )
+        )
+        assert isinstance(result.content, str)
+        return json.loads(result.content)
+
+    return ToolFailureCase(tool_name, patch, invoke, tool_name, "feishu")
+
+
 _TOOL_FAILURE_CASES: list[ToolFailureCase] = [
+    _feishu_write_case(reply=False),
+    _feishu_write_case(reply=True),
     _azure_case(),
     _openobserve_case(),
     _snowflake_case(),
@@ -839,6 +893,8 @@ def test_tool_reports_exactly_one_sentry_event(
     assert event.extras["tag.surface"] == "tool"
     assert event.extras["tag.tool_name"] == case.expected_tool_name
     assert event.extras["tag.source"] == case.expected_source
+    if case.id.startswith("feishu_"):
+        assert "private outbound body" not in str(event.exc)
 
     # Guard against a future regression where a tool migrates to the helper
     # but passes a ``tool_name=`` / ``source=`` that no longer matches its
@@ -979,6 +1035,9 @@ _MIGRATED_TOOL_NAMES: frozenset[str] = frozenset(
         "create_google_docs_incident_report",
         "get_github_repository",
         "get_github_star_history",
+        # Feishu writes capture a sanitized exception when delivery raises.
+        "feishu_reply_message",
+        "feishu_send_message",
         # EKS — enumerated in #1463
         "list_eks_clusters",
         "describe_eks_cluster",

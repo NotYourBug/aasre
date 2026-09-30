@@ -199,13 +199,14 @@ def test_send_card_replies_to_the_inbound_thread_when_configured(
     _stub_lark(monkeypatch, module, impl=lambda _r: _ok(message_id="om_reply"), calls=calls)
     client = FeishuCardClient("a", "s", reply_to_message_id="om_root", reply_in_thread=True)
 
-    message_id = client.send_card("oc_chat", "c_1")
+    message_id = client.send_card("oc_chat", "c_1", uuid="logical-card-page")
 
     assert message_id == "om_reply"
     assert calls[0][0] == "message.reply"
     request = calls[0][1]
     assert request.message_id == "om_root"
     assert request.request_body.reply_in_thread is True
+    assert request.request_body.uuid == "logical-card-page"
     assert request.request_body.msg_type == "interactive"
 
 

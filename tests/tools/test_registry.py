@@ -621,6 +621,17 @@ def test_real_registry_discovers_honeycomb_and_coralogix_tools() -> None:
     assert {"query_honeycomb_traces", "query_coralogix_logs"} <= action_names
 
 
+def test_real_registry_discovers_feishu_write_tools_only_on_action_surface() -> None:
+    names = {tool_def.name for tool_def in registry_module.get_registered_tools(ToolSurface.ACTION)}
+    investigation = {
+        tool_def.name
+        for tool_def in registry_module.get_registered_tools(ToolSurface.INVESTIGATION)
+    }
+
+    assert {"feishu_send_message", "feishu_reply_message"} <= names
+    assert {"feishu_send_message", "feishu_reply_message"}.isdisjoint(investigation)
+
+
 def test_real_registry_preserves_existing_chat_tool_surface() -> None:
     chat_names = {tool_def.name for tool_def in registry_module.get_registered_tools("chat")}
     assert {"fetch_failed_run", "get_tracer_run", "search_github_code"} <= chat_names

@@ -32,6 +32,10 @@ def _stub_lark(monkeypatch: pytest.MonkeyPatch, *, create_impl: Any) -> list[Any
             captured.append(request)
             return create_impl(request)
 
+        def reply(self, request: Any) -> Any:
+            captured.append(request)
+            return create_impl(request)
+
     class _V1:
         def __init__(self) -> None:
             self.message = _Message()
@@ -90,6 +94,28 @@ def test_post_feishu_message_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert request.request_body.receive_id == _RECEIVE_ID
     assert request.request_body.msg_type == "text"
     assert request.request_body.content == json.dumps({"text": "hello"})
+
+
+def test_reply_payload_uses_parent_thread_flag_and_uuid(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _stub_lark(monkeypatch, create_impl=lambda _req: _response(ok=True))
+
+    result = post_feishu_message(
+        _APP_ID,
+        _APP_SECRET,
+        _RECEIVE_ID,
+        "chat_id",
+        "reply text",
+        reply_to_message_id="om_parent",
+        reply_in_thread=True,
+        uuid="logical-chunk",
+    )
+
+    assert result.accepted is True
+    request = captured[0]
+    assert request.message_id == "om_parent"
+    assert request.request_body.reply_in_thread is True
+    assert request.request_body.uuid == "logical-chunk"
+    assert request.request_body.content == json.dumps({"text": "reply text"})
 
 
 def test_rejected_text_send_returns_only_fixed_fields(monkeypatch: pytest.MonkeyPatch) -> None:

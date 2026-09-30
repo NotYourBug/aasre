@@ -33,6 +33,9 @@ def classify(
                 "receive_id": str(credentials.get("receive_id") or "").strip(),
                 "receive_id_type": receive_id_type,
                 "allowed_open_ids": str(credentials.get("allowed_open_ids") or "").strip(),
+                "allowed_outbound_targets": str(
+                    credentials.get("allowed_outbound_targets") or ""
+                ).strip(),
             }
         )
     except Exception as exc:

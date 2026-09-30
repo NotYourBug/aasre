@@ -42,3 +42,13 @@ def test_effective_view_carries_the_feishu_config(monkeypatch) -> None:
     entry = effective.get("feishu")
     assert entry is not None, "feishu was not published as an effective integration"
     assert entry["config"]["app_id"] == "cli_1"
+
+
+def test_env_view_carries_outbound_targets(monkeypatch) -> None:
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_1")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "secret")
+    monkeypatch.setenv("FEISHU_ALLOWED_OUTBOUND_TARGETS", "chat_id:oc_ops")
+
+    effective = resolve_effective_integrations(store_integrations=[])
+
+    assert effective["feishu"]["config"]["allowed_outbound_targets"] == "chat_id:oc_ops"

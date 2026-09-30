@@ -192,6 +192,42 @@ def test_before_hook_receives_executed_tools_source() -> None:
     assert captured["source"] == "datadog"
 
 
+def test_prepared_arguments_are_approved_and_executed_unchanged() -> None:
+    observed: list[str] = []
+
+    def prepare(
+        args: dict[str, Any], _resolved: dict[str, Any]
+    ) -> tuple[dict[str, Any], str | None]:
+        return {"value": "chat_id:oc_exact"}, None
+
+    def run(value: str) -> dict[str, str]:
+        observed.append(value)
+        return {"value": value}
+
+    def before(request: ToolExecutionRequest) -> BeforeToolCallResult:
+        assert request.arguments == {"value": "chat_id:oc_exact"}
+        assert request.tool_call.input == request.arguments
+        return BeforeToolCallResult(approved=True)
+
+    registered = RegisteredTool.from_function(
+        run,
+        name="send_exact",
+        source="feishu",
+        input_schema=_schema(["value"]),
+        prepare_public_input=prepare,
+        requires_approval=True,
+    )
+    result = execute_tool_calls(
+        [_call("send_exact", "default")],
+        [registered],
+        {},
+        hooks=ToolExecutionHooks(before_tool_call=before),
+    )[0]
+
+    assert result.is_error is False
+    assert observed == ["chat_id:oc_exact"]
+
+
 def test_after_hook_can_patch_result_and_terminate() -> None:
     def after(
         _request: ToolExecutionRequest,

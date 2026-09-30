@@ -23,6 +23,7 @@ from config.constants.feishu import (
     FEISHU_ALARM_RECEIVE_ID_ENV,
     FEISHU_ALARM_RECEIVE_ID_TYPE_ENV,
     FEISHU_ALLOWED_OPEN_IDS_ENV,
+    FEISHU_ALLOWED_OUTBOUND_TARGETS_ENV,
     FEISHU_APP_ID_ENV,
     FEISHU_APP_SECRET_ENV,
     FEISHU_CHAT_RECEIVE_ID_ENV,
@@ -48,6 +49,7 @@ class FeishuChatCredentials(StrictConfigModel):
     # The gateway transport reads the allowlist through this leaf, so it travels
     # with the chat credentials. The alert-push app has no inbound path.
     allowed_open_ids: str = ""
+    allowed_outbound_targets: str = ""
 
 
 def _feishu_store_config() -> dict[str, object]:
@@ -79,6 +81,13 @@ def _resolve_chat_receive_id_type(store_config: dict[str, object]) -> str:
     return os.environ.get(FEISHU_CHAT_RECEIVE_ID_TYPE_ENV, "").strip() or "chat_id"
 
 
+def _store_text_or_env(store_config: dict[str, object], key: str, env_name: str) -> str:
+    """Preserve an explicitly cleared stored authority instead of reviving stale env."""
+    if key in store_config:
+        return str(store_config[key] or "").strip()
+    return os.environ.get(env_name, "").strip()
+
+
 def load_chat_credentials_from_env() -> FeishuChatCredentials:
     """Resolve chat-app credentials: store → env, secret → credentials file/keyring.
 
@@ -93,11 +102,13 @@ def load_chat_credentials_from_env() -> FeishuChatCredentials:
         or os.environ.get(FEISHU_APP_ID_ENV, ""),
         app_secret=str(store_config.get("app_secret") or "").strip()
         or resolve_env_credential(FEISHU_APP_SECRET_ENV),
-        receive_id=str(store_config.get("receive_id") or "").strip()
-        or os.environ.get(FEISHU_CHAT_RECEIVE_ID_ENV, ""),
+        receive_id=_store_text_or_env(store_config, "receive_id", FEISHU_CHAT_RECEIVE_ID_ENV),
         receive_id_type=_resolve_chat_receive_id_type(store_config),
         allowed_open_ids=str(store_config.get("allowed_open_ids") or "").strip()
         or os.environ.get(FEISHU_ALLOWED_OPEN_IDS_ENV, ""),
+        allowed_outbound_targets=_store_text_or_env(
+            store_config, "allowed_outbound_targets", FEISHU_ALLOWED_OUTBOUND_TARGETS_ENV
+        ),
     )
 
 
