@@ -460,6 +460,7 @@ from config.constants.tenancy import (
     INTEGRATIONS_SECRET_ARN_ENV,
     INTEGRATIONS_STORE_PATH_ENV,
 )
+from config.constants.tool_policy import GATEWAY_ONLY_TOOL_TAG
 from config.constants.tracer import (
     TRACER_BASE_URL_DEV,
     TRACER_BASE_URL_ENV,
@@ -495,6 +496,7 @@ from config.constants.yandex_cloud import (
 )
 
 __all__ = [
+    "GATEWAY_ONLY_TOOL_TAG",
     "FEISHU_INTERACTION_HTTP_TIMEOUT_SECONDS",
     "FEISHU_FEEDBACK_FILENAME",
     "FEISHU_FEEDBACK_QUEUE_LIMIT",
