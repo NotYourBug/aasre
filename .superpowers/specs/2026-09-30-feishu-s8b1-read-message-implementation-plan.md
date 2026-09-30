@@ -484,3 +484,38 @@ Execution rulings, in order:
 This checkpoint precedes push, PR creation, CI and Greptile. Their actual
 results belong to the PR and continuation delivery report. No live operation,
 deployment or merge was performed.
+
+## 8. PR feedback and CI correction (2026-09-30)
+
+Implementation PR [#44](https://github.com/NotYourBug/aasre/pull/44) was
+created and attached to the continuation chat. The first CI run
+`36734107539` passed every test shard and typechecking, but `quality-static`
+failed its registry-index contract. Full dynamic discovery omitted the reader
+because its package lacked the existing `TOOL_MODULES = ("tool",)` manifest.
+The eight registry tests reproduced **4 failed / 4 passed** before the fix.
+Adding the same package metadata used by sibling tools made all eight pass;
+the combined registry, reader and real-runner selection then passed **27/27**.
+No discovery root, index, dependency or allowlist was changed.
+
+Greptile's first completed review of `0eec4c1` scored **4/5** and repeated
+the two text findings originally deferred by the independent review.
+The approved PR feedback loop now addresses both: rate-limit errors advise
+trying again later, and the guide promises masking only known patterns.
+The existing real-executor error contract failed on the missing retry guidance
+before the fix and then passed, also verifying one GET and a safe error without
+the provider canary. Lint, format and mypy passed after these fixes; the
+API/config borders passed **21/21**, and all three import checks passed again.
+Latest-head CI and Greptile re-review remain required after the next push.
+
+Additional execution rulings, following the five in §7:
+
+6. Add the established package discovery manifest despite Task 5's narrow
+   export wording; real full-registry evidence requires it for the approved
+   discovery contract. Incorrect metadata would make the tool unavailable.
+7. Address the two initially deferred text findings in the explicitly approved
+   PR/Greptile loop, which takes precedence over generic skill deferral advice;
+   these are user-facing guidance corrections, with no retry or masking-rule
+   change. Incorrect wording could promise behavior the implementation lacks.
+
+The two original deferred minors are now fixed, with none remaining from that
+review. Live acceptance, deployment and merge are still unperformed.

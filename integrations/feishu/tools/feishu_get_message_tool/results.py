@@ -13,7 +13,7 @@ _ERRORS = {
     FeishuReadErrorCode.UNSUPPORTED_CONTENT: "Feishu message content is unsupported",
     FeishuReadErrorCode.CONTENT_TOO_LARGE: "Feishu message content exceeds the read limit",
     FeishuReadErrorCode.CONTENT_TOO_COMPLEX: "Feishu message content exceeds the complexity limit",
-    FeishuReadErrorCode.RATE_LIMITED: "Feishu read was rate limited",
+    FeishuReadErrorCode.RATE_LIMITED: "Feishu read was rate limited; try again later",
     FeishuReadErrorCode.UPSTREAM_ERROR: "Feishu read could not be completed",
 }
 

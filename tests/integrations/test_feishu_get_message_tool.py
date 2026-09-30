@@ -10,6 +10,7 @@ from lark_oapi.api.im.v1 import GetMessageRequest
 from config.constants.feishu import (
     FEISHU_MESSAGE_READ_MAX_ID_CHARS,
     FEISHU_MESSAGE_READ_MAX_OUTPUT_CHARS,
+    FEISHU_RATE_LIMIT_ERROR_CODES,
 )
 from config.constants.tool_policy import GATEWAY_ONLY_TOOL_TAG
 from core.llm.types import ToolCall
@@ -154,11 +155,17 @@ def test_error_and_truncated_details_cannot_retain_original_body(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     foreign = False
+    rate_limited = False
 
     def credentials() -> FeishuChatCredentials:
         return FeishuChatCredentials(app_id="cli_test", app_secret="fake-secret", receive_id="")
 
     def respond(_request: GetMessageRequest) -> dict[str, Any]:
+        if rate_limited:
+            return {
+                "code": next(iter(FEISHU_RATE_LIMIT_ERROR_CODES)),
+                "msg": "PROVIDER-CANARY oc_foreign",
+            }
         return message_payload(
             chat_id="oc_foreign" if foreign else "oc_current",
             body={
@@ -192,6 +199,17 @@ def test_error_and_truncated_details_cannot_retain_original_body(
     assert "oc_foreign" not in repr(rejected) and "CANARY" not in repr(rejected)
     assert not reports and len(probe.requests) == 2
 
+    rate_limited = True
+    rejected = _execute()
+    assert rejected.is_error and json.loads(rejected.content) == rejected.details
+    assert rejected.details == {
+        "source": "feishu",
+        "status": "failed",
+        "error_type": "rate_limited",
+        "error": "Feishu read was rate limited; try again later",
+    }
+    assert not reports and len(probe.requests) == 3
+
     def broken_credentials() -> FeishuChatCredentials:
         raise RuntimeError("CREDENTIAL-CANARY")
 
@@ -203,4 +221,4 @@ def test_error_and_truncated_details_cannot_retain_original_body(
     cancelled = read_resources()
     cancelled["cancel"] = SimpleNamespace(console=SimpleNamespace(cancel_requested=True))
     result = _execute(resources=cancelled)
-    assert result.details["error_type"] == "cancelled" and len(probe.requests) == 2
+    assert result.details["error_type"] == "cancelled" and len(probe.requests) == 3
