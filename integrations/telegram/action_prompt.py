@@ -12,9 +12,9 @@ def telegram_action_prompt_fragment(context: ActionPromptContext) -> str:
     lines = [
         "TELEGRAM DELIVERY:",
         "telegram_send_message — send only when the user explicitly asks for an extra "
-        "TELEGRAM send, post, notification or message. Use the requested message body as message. Do not deliver generic alerts or investigations unless explicitly requested.",
+        + "TELEGRAM send, post, notification or message. Use the requested message body as message. Do not deliver generic alerts or investigations unless explicitly requested.",
         "The gateway delivers ordinary answers automatically. Do not duplicate them with "
-        "an extra send. Do not invent delivery commands or substitute another channel.",
+        + "an extra send. Do not invent delivery commands or substitute another channel.",
     ]
     if context.surface == "interactive_shell" and "slash_invoke" in context.offered_tool_names:
         lines.append(

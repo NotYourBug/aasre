@@ -93,11 +93,11 @@ def slack_action_prompt_fragment(context: ActionPromptContext) -> str:
         "SLACK TEAMMATE REQUESTS USE SLACK TOOLS:",
         *recipes,
         "After each tool returns, answer from its output. Ordinary gateway answers are "
-        "delivered automatically; extra delivery follows an explicit additional send/reply "
-        "or required delivery in a user-requested visible skill, using offered tools "
-        "and normal approval. Never duplicate an ordinary answer.",
+        + "delivered automatically; extra delivery follows an explicit additional send/reply "
+        + "or required delivery in a user-requested visible skill, using offered tools "
+        + "and normal approval. Never duplicate an ordinary answer.",
         "Do NOT invent a delivery command: `/messaging send slack …` is NOT a real command. "
-        "Do not substitute a different channel when the requested tool is unavailable.",
+        + "Do not substitute a different channel when the requested tool is unavailable.",
     ]
     if context.surface == "interactive_shell" and "slash_invoke" in context.offered_tool_names:
         guidance.append(
