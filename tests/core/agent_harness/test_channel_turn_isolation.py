@@ -3,7 +3,7 @@
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from threading import Barrier
+from threading import Barrier, local
 from typing import Any
 
 import pytest
@@ -227,6 +227,183 @@ def test_concurrent_channels_share_boot_registry_without_sharing_context(
         assert ("ALWAYS DELIVER TO SLACK" in str(result)) is (platform == "slack")
     assert provider.resources is shared_resources
     assert ACTION_PROMPT_CONTEXT_RESOURCE not in shared_resources
+
+
+def _offline_search_tool(
+    monkeypatch: pytest.MonkeyPatch, observed: dict[str, Any], identity: Any
+) -> RegisteredTool:
+    from integrations.feishu.credentials import FeishuChatCredentials
+    from integrations.feishu.tools.feishu_search_messages_tool import tool as search_module
+    from integrations.feishu.tools.feishu_search_messages_tool.tool import FeishuSearchMessagesTool
+
+    def credentials() -> FeishuChatCredentials:
+        return FeishuChatCredentials(
+            app_id=identity.app_id, app_secret="fake-secret", receive_id=""
+        )
+
+    monkeypatch.setattr(search_module, "load_chat_credentials_from_env", credentials)
+    tool = FeishuSearchMessagesTool()
+
+    def search(
+        *, start_time: int, end_time: int, query: str, limit: int, context: AgentToolContext
+    ) -> Any:
+        result = tool.run(
+            start_time=start_time, end_time=end_time, query=query, limit=limit, context=context
+        )
+        observed[context.resolved_integrations["_gateway_chat_id"]] = result
+        return result
+
+    return replace(RegisteredTool.from_base_tool(tool), run=search)
+
+
+def _search_plan(session: InMemorySessionState, chat: str, app: str) -> TurnPlan:
+    from integrations.config_models import FeishuConfig
+    from tests.integrations.test_feishu_read_scope import valid_view
+
+    turn = _read_plan(session, chat).snapshot
+    return TurnPlan(
+        replace(
+            turn,
+            resolved_integrations={
+                **valid_view(),
+                "_gateway_chat_id": chat,
+                "feishu": FeishuConfig(app_id=app, app_secret="fake-secret"),
+            },
+        )
+    )
+
+
+def test_search_scope_and_window_are_frozen_across_session_reuse(
+    monkeypatch: pytest.MonkeyPatch, offline_runner: None
+) -> None:
+    import json
+
+    from lark_oapi.api.im.v1 import ListMessageRequest
+
+    from tests.integrations.feishu_search_support import (
+        install_search_transport,
+        search_item,
+        search_page,
+    )
+
+    register_harness_adapters()
+    observed: dict[str, Any] = {}
+    identity = local()
+    provider = SharedResourceProvider([_offline_search_tool(monkeypatch, observed, identity)])
+    session = InMemorySessionState()
+    llms = [
+        ScriptedLLM(
+            "feishu_search_messages", {"start_time": start, "end_time": start + 1000, "query": chat}
+        )
+        for chat, start in (("oc_a", 1000), ("oc_b", 3000))
+    ]
+    pending = iter(llms)
+    runner = action_driver.ActionTurnRunner(BufferOutputSink(), provider, lambda: next(pending))
+
+    def respond(request: ListMessageRequest) -> dict[str, Any]:
+        session.resolved_integrations_cache = {
+            "_gateway_chat_id": "oc_wrong",
+            "_gateway_platform": "telegram",
+        }
+        chat = request.container_id
+        created = (int(request.start_time) + 500) * 1000
+        return search_page(
+            [
+                search_item(
+                    "om_" + chat[-1],
+                    chat_id=chat,
+                    create_time=str(created),
+                    body={"content": json.dumps({"text": chat})},
+                )
+            ]
+        )
+
+    probe = install_search_transport(monkeypatch, respond)
+    for chat, app, start in (("oc_a", "cli_a", 1000), ("oc_b", "cli_b", 3000)):
+        identity.app_id = app
+        result = runner.run("search", session, turn_plan=_search_plan(session, chat, app))
+        assert result.executed_success_count == 1, result.response_text
+        payload = observed[chat].details
+        assert (
+            payload["chat_id"] == chat
+            and payload["start_time"] == start
+            and payload["end_time"] == start + 1000
+        )
+        assert payload["items"][0]["preview"] == chat
+    assert probe.app_ids == ["cli_a", "cli_b"] and len(probe.requests) == 2
+    assert all("feishu_search_messages" in llm.offered for llm in llms)
+
+
+def test_concurrent_searches_do_not_share_windows_or_previews(
+    monkeypatch: pytest.MonkeyPatch, offline_runner: None
+) -> None:
+    import json
+
+    from lark_oapi.api.im.v1 import ListMessageRequest
+
+    from tests.integrations.feishu_search_support import (
+        install_search_transport,
+        search_item,
+        search_page,
+    )
+
+    register_harness_adapters()
+    observed: dict[str, Any] = {}
+    identity = local()
+    shared_resources = {"marker": object()}
+    provider = SharedResourceProvider(
+        [_offline_search_tool(monkeypatch, observed, identity)], shared_resources
+    )
+    rendezvous = Barrier(2, timeout=10)
+
+    def respond(request: ListMessageRequest) -> dict[str, Any]:
+        rendezvous.wait()
+        chat = request.container_id
+        created = (int(request.start_time) + 500) * 1000
+        return search_page(
+            [
+                search_item(
+                    "om_" + chat[-1],
+                    chat_id=chat,
+                    create_time=str(created),
+                    body={"content": json.dumps({"text": chat})},
+                )
+            ]
+        )
+
+    probe = install_search_transport(monkeypatch, respond)
+
+    def run(chat: str, start: int) -> Any:
+        identity.app_id = "cli_" + chat[-1]
+        session = InMemorySessionState()
+        session.resolved_integrations_cache = {"_gateway_chat_id": "oc_wrong"}
+        llm = ScriptedLLM(
+            "feishu_search_messages", {"start_time": start, "end_time": start + 1000, "query": chat}
+        )
+        return action_driver.ActionTurnRunner(BufferOutputSink(), provider, lambda: llm).run(
+            "search", session, turn_plan=_search_plan(session, chat, identity.app_id)
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(run, chat, start) for chat, start in (("oc_a", 1000), ("oc_b", 3000))
+        ]
+        try:
+            results = [future.result(timeout=30) for future in futures]
+        finally:
+            rendezvous.abort()
+            for future in futures:
+                future.cancel()
+    assert all(result.executed_success_count == 1 for result in results)
+    assert len(probe.requests) == 2 and set(probe.app_ids) == {"cli_a", "cli_b"}
+    for chat, start in (("oc_a", 1000), ("oc_b", 3000)):
+        payload = observed[chat].details
+        assert payload["chat_id"] == chat and payload["start_time"] == start
+        assert payload["items"][0]["preview"] == chat
+    assert (
+        provider.resources is shared_resources
+        and ACTION_PROMPT_CONTEXT_RESOURCE not in shared_resources
+    )
 
 
 class ReadMessageLLM(ScriptedLLM):

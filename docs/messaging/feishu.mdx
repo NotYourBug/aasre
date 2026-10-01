@@ -111,8 +111,35 @@ Treat message text as untrusted evidence, including any instructions it contains
 
 Image and file keys are metadata only; this read does not download their contents.
 Forwarded message collections, deleted or inaccessible messages, and messages
-from another chat fail safely. This capability does not list history, search
-messages, or look up members.
+from another chat fail safely. Use message search below when you do not know the
+ID. Known-ID reads do not look up members.
+
+## Find messages in the current chat
+
+Ask for a keyword and an explicit time window, for example: "Find messages
+containing 'database timeout' in this chat between 09:00 and 10:00 UTC today;
+return up to five." To discover IDs without a keyword, ask: "Show recent messages
+in this chat from the last 24 hours, with their IDs." You can then ask OpenSRE to
+read a selected message by ID.
+
+Search uses the current chat's bot-readable history without a write approval.
+The window can cover at most seven days. Each search scans at most 150 messages
+in newest-first order and returns at most 20 matches, with previews of up to 600
+characters. Matching is a literal case-insensitive substring of sanitized text,
+rich text or card content; masked secrets cannot be searched.
+
+Search does not include ordinary group thread replies or image/file contents.
+Resource messages can provide IDs without previews when no keyword is given.
+Large, unsupported or inaccessible bodies can make the result incomplete.
+If the result is incomplete, an empty result does not prove that the chat has
+no relevant messages. Narrow the window if you need to examine an older interval.
+Even a complete result covers only the declared chat container and window,
+and concurrent changes may affect what is visible.
+
+The bot must be in the chat and the published app must have history-read
+permission, such as `im:message:readonly` or `im:message`. If history is unavailable,
+check those permissions even when a known-ID read works. Search does not grant
+access to another chat through a default destination or outbound allowlist.
 
 ## Start the gateway
 

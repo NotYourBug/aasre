@@ -129,6 +129,7 @@ def test_discovery_and_provider_paths_enforce_read_scope(monkeypatch: pytest.Mon
     from lark_oapi.api.im.v1 import GetMessageRequest
 
     from integrations.feishu.tools.feishu_get_message_tool import tool as read_module
+    from integrations.feishu.tools.feishu_search_messages_tool import tool as search_module
     from tests.integrations.feishu_read_support import install_read_transport
     from tests.integrations.test_feishu_read_scope import valid_view
     from tools.registry import get_registered_tools
@@ -141,7 +142,12 @@ def test_discovery_and_provider_paths_enforce_read_scope(monkeypatch: pytest.Mon
     assert all(tool.name != reader.name for tool in get_registered_tools(ToolSurface.INVESTIGATION))
     candidates = [
         discovered[name]
-        for name in ("feishu_get_message", "feishu_send_message", "feishu_reply_message")
+        for name in (
+            "feishu_get_message",
+            "feishu_search_messages",
+            "feishu_send_message",
+            "feishu_reply_message",
+        )
     ]
 
     def never_get(_request: GetMessageRequest) -> dict[str, Any]:
@@ -152,6 +158,12 @@ def test_discovery_and_provider_paths_enforce_read_scope(monkeypatch: pytest.Mon
 
     probe = install_read_transport(monkeypatch, never_get)
     monkeypatch.setattr(read_module, "load_chat_credentials_from_env", never_load)
+    monkeypatch.setattr(search_module, "load_chat_credentials_from_env", never_load)
+    searcher = discovered["feishu_search_messages"]
+    assert searcher.is_available(valid_view()) and not searcher.is_available({})
+    assert all(
+        tool.name != searcher.name for tool in get_registered_tools(ToolSurface.INVESTIGATION)
+    )
 
     class OfflineRegistry:
         def tools_for_surface(self, _surface: ToolSurface) -> list[RegisteredTool]:
@@ -195,6 +207,12 @@ def test_discovery_and_provider_paths_enforce_read_scope(monkeypatch: pytest.Mon
                 surface == "gateway" and platform == "feishu"
             )
             assert ("feishu_get_message" in llm.systems[0]) is ("feishu_get_message" in names)
+            assert ("feishu_search_messages" in names) is (
+                surface == "gateway" and platform == "feishu"
+            )
+            assert ("feishu_search_messages" in llm.systems[0]) is (
+                "feishu_search_messages" in names
+            )
             if surface == "interactive_shell":
                 assert {"feishu_send_message", "feishu_reply_message"} <= names
             if platform == "slack":
@@ -213,6 +231,16 @@ def test_discovery_and_provider_paths_enforce_read_scope(monkeypatch: pytest.Mon
     ActionTurnRunner(
         BufferOutputSink(), CustomProvider(invalid_session, None), lambda: forced_llm
     ).run("read", invalid_session, turn_plan=TurnPlan(invalid_turn))
+    forced_search = _StaticToolCallLLM(
+        [
+            ToolCall(
+                id="forced-search", name=searcher.name, input={"start_time": 1000, "end_time": 2000}
+            )
+        ]
+    )
+    ActionTurnRunner(
+        BufferOutputSink(), CustomProvider(invalid_session, None), lambda: forced_search
+    ).run("search", invalid_session, turn_plan=TurnPlan(invalid_turn))
     assert not probe.requests
 
 
@@ -258,6 +286,9 @@ def test_reader_requires_explicit_frozen_gateway_surface(monkeypatch: pytest.Mon
                 )
             return super().invoke(messages, system=system, tools=tools)
 
+    from integrations.feishu.tools.feishu_search_messages_tool.tool import FeishuSearchMessagesTool
+
+    searcher = replace(RegisteredTool.from_base_tool(FeishuSearchMessagesTool()), run=record_read)
     for has_plan in (False, True):
         session = InMemorySessionState()
         turn = replace(
@@ -267,10 +298,13 @@ def test_reader_requires_explicit_frozen_gateway_surface(monkeypatch: pytest.Mon
         )
         plan = TurnPlan(turn) if has_plan else None
         llm = ForcedReadLLM()
-        provider = DefaultToolProvider(session, None, precomputed_action_tools=[reader, write])
+        provider = DefaultToolProvider(
+            session, None, precomputed_action_tools=[reader, searcher, write]
+        )
         ActionTurnRunner(BufferOutputSink(), provider, lambda llm=llm: llm).run(
             "read", session, turn_plan=plan
         )
         assert llm.offered == ["feishu_send_message"]
         assert "feishu_get_message" not in llm.systems[0]
+        assert "feishu_search_messages" not in llm.systems[0]
     assert not calls

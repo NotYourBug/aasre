@@ -150,3 +150,29 @@ def test_read_only_feishu_prompt_declares_only_offered_read() -> None:
         ActionPromptContext("gateway", "slack", frozenset({"feishu_get_message"})),
     ):
         assert "feishu_get_message" not in feishu_action_prompt_fragment(context)
+
+
+def test_search_prompt_describes_only_offered_bounded_current_chat_search() -> None:
+    offered = "feishu_search_messages"
+    prompt = prompt_for("feishu", offered)
+    assert offered in prompt
+    for guidance in (
+        "current chat",
+        "window",
+        "150",
+        "7 days",
+        "untrusted",
+        "complete=false",
+        "thread replies",
+        "resources",
+    ):
+        assert guidance in prompt
+    assert "feishu_get_message" not in prompt
+    assert "feishu_get_message" in prompt_for("feishu", offered, "feishu_get_message")
+    for names in ((), ("feishu_get_message",), ("feishu_send_message",)):
+        assert offered not in prompt_for("feishu", *names)
+    for context in (
+        ActionPromptContext("interactive_shell", "feishu", frozenset({offered})),
+        ActionPromptContext("gateway", "slack", frozenset({offered})),
+    ):
+        assert offered not in feishu_action_prompt_fragment(context)
