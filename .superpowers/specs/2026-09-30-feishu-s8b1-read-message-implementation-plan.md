@@ -11,7 +11,7 @@
 **Spec:** [S8b-1 design](2026-09-30-feishu-s8b1-read-message-design.md): core design and §12 gate refinement, including explicit frozen runner host authority, approved by the user on 2026-09-30.
 
 - Date: 2026-09-30
-- Status: All six tasks implemented and independently reviewed; PR #44 HEAD `57762cd` passed CI and Greptile 5/5. Separately authorized current-chat text acceptance passed on 2026-10-01; see §10 for actual scope and remaining live cases. This record update requires latest-head CI/Greptile follow-through. Merge remains unauthorized.
+- Status: All six tasks implemented and independently reviewed; PR #44 HEAD `970dbff` passed CI and Greptile 5/5. Separately authorized current-chat text, original-card and recalled-message acceptance passed on 2026-10-01; see §§10–11. Controlled foreign-chat rejection remains unverified live, without an accepted waiver. This evidence-only update requires latest-head CI/Greptile follow-through before merge.
 - Worktree: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`
 - Branch: `codex/feishu-s8b1-read-message-spec`
 - Planning baseline: `7bd738090d98f20a8fbe39cedc0ece487d5a35ee`; clean before this plan/approval record
@@ -608,3 +608,46 @@ The spec/plan/roadmap and PR description are updated with this evidence. Only
 non-runtime records change, so CI.md §0 permits the docs-only local check;
 latest-head PR CI, review-thread inspection, and Greptile 5/5 remain required
 after this push. No merge authorization or post-merge validation result exists.
+
+## 11. Bounded card and recalled-message checkpoint (2026-10-01)
+
+Following the concrete fixed-card proposal and its additional-write approval
+request, the user instructed the agent to continue. The local authorization
+record fixed the configured app/current chat, reviewed card payload, and
+14:42:41–15:02:41 Asia/Shanghai window. Budgets were two message GETs, one card
+creation, one current-chat send, one recall of that newly sent message, and
+three tenant-token attempts. No second chat, replacement read or automatic
+retry was included. A single human participant sufficed.
+
+At clean HEAD `970dbffe7e65750d7eb55ceaaf33927a37289ad1`, the cycle exited 0 with
+all stages passing. The existing CardKit client created and sent the fixed
+test card; the actual successful send response bound its ID to the current
+chat. The real registered tool and normal executor's first GET preserved the
+original 2.0 structure and both test texts in a 268-character JSON body, with
+no truncation, redaction or resource content and untrusted-content labeling.
+
+After that read passed, exactly that newly sent card was recalled. DELETE
+acknowledged success before the second GET of the same ID. The latter returned
+only the safe `message_unavailable` failure; the SDK item had `deleted=true`.
+The spent records match the budgets: **two message GETs, three data writes,
+three tenant-token attempts, zero list calls**, no retry, redirect or proxy.
+Only checks, lengths, counters and test IDs remain in local records; no body,
+raw SDK/provider response, credentials or test identifiers are committed.
+
+The new card-cycle tests cover pre-credential expiry/tamper/replay rejection,
+real SDK/executor ordering and deleted-body isolation, and an unverifiable send
+response stopping before reads or recalls. All 19 temporary guard/receiver/card
+tests passed together, with card-script Ruff/format/mypy passing. These files
+remain outside the product tree. No product code changed during acceptance.
+
+No ordinary gateway/model turn, approval, reaction, resource download,
+permission change, app publication, deployment or merge occurred. The executor
+result does not establish deployed-gateway loading. Text, original-card and
+recalled-message live cases now pass; **controlled foreign-chat rejection
+remains unverified**, with no designated second chat or SDK-memory grant and
+no accepted waiver. Complete that case or obtain explicit acceptance of its
+limitation before merging. Post-merge main CI/full CodeQL/release have not run.
+
+This update changes only non-executable design/plan/roadmap records, so the
+CI.md §0 local shortcut applies. After pushing, follow the exact new PR HEAD's
+CI, all review threads and Greptile 5/5; do not reuse `970dbff`'s green result.

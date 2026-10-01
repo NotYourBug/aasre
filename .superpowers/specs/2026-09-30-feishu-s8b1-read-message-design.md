@@ -1,7 +1,7 @@
 # Feishu S8b-1 Single-Message Read Design
 
 - Date: 2026-09-30
-- Status: Approved and implemented; PR #44 HEAD `57762cd` passed CI and Greptile 5/5. Separately authorized current-chat text acceptance passed on 2026-10-01; see §13 for scope and untested cases. This record update requires latest-head rechecks. Merge remains unauthorized.
+- Status: Approved and implemented; PR #44 HEAD `970dbff` passed CI and Greptile 5/5. Separately authorized current-chat text, original-card and recalled-message acceptance passed on 2026-10-01; see §§13–14. Controlled foreign-chat rejection remains unverified live, without an accepted waiver. This evidence-only update requires latest-head rechecks before merge.
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
 - Implementation plan: [Independent plan](2026-09-30-feishu-s8b1-read-message-implementation-plan.md), approved for Native execution on 2026-09-30
 - Scope: One read-only ACTION tool, `feishu_get_message`, for a known message ID in the current Feishu chat
@@ -407,4 +407,38 @@ remain untested live; their offline results are not promoted to live results.
 No chat reply, approval, reaction, resource download, permission modification,
 application publishing, deployment, or merge occurred. The original ID-only
 API and finite-secret-detection limitations still apply. See implementation
-plan §10 for delivery follow-through.
+plan §10 for delivery follow-through. These were the remaining cases at the
+text checkpoint; §14 records the subsequent card and recalled-message results.
+
+## 14. Bounded card and recalled-message acceptance (2026-10-01)
+
+After seeing the fixed test card and bounded create/send/read/recall proposal,
+the user instructed the agent to continue. This authorized that current-chat
+cycle within 14:42:41–15:02:41 Asia/Shanghai, using the configured `.env` app and
+chat. It did not authorize a second chat or waive the remaining foreign-chat
+acceptance. Only one human participant was required.
+
+At clean HEAD `970dbffe7e65750d7eb55ceaaf33927a37289ad1`, the existing CardKit
+client created and sent one test card. The real registered reader and normal
+executor then made one GET with frozen Feishu gateway authority. The safe
+result retained the original 2.0 structure and both fixed test texts:
+`body_format="json"`, 268 characters, no truncation or redaction, no resource
+content, and `content_trust="untrusted"`.
+
+Only after that result passed, the harness recalled the exact newly sent
+message. After the DELETE succeeded, a second independent GET of the same ID
+returned the safe `message_unavailable` result; the SDK item was marked deleted.
+Totals were **two message GETs, three data writes and three tenant-token
+attempts**, with zero list calls and no retries. The process exited 0. Local
+reports contain checks, lengths, counters and test identity metadata only;
+no body, raw response, credentials or test IDs are committed.
+
+The three card-cycle offline tests and existing thirteen guard/three receiver
+tests passed together (19 tests); temporary-script Ruff and mypy checks passed.
+This acceptance changed no product code and did not run a normal gateway or
+model turn, operate approvals/reactions, download resources, change permissions,
+publish the app, deploy or merge. The isolated executor still does not prove
+that a deployed gateway loaded this branch. Controlled foreign-chat rejection
+remains unverified live and must be completed or explicitly accepted as a
+limitation before merge. The upstream SDK-memory and finite-masking limits
+remain unchanged. See implementation plan §11 for delivery follow-through.

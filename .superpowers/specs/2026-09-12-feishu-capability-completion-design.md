@@ -1,7 +1,7 @@
 # 飞书通讯能力补全设计（Feishu Capability Completion）
 
 - Date: 2026-09-12（2026-09-18 修订后续路线）
-- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）、S8a 及 S7 已交付；S7 经 PR #41（d03ddad）及告警修复 PR #42（1cee42f）完成合并后验收，main CI 与完整 CodeQL 成功、新增告警归零，Release 按原 guard 跳过；S8b-1 已按批准计划实现并独立审查，PR #44 HEAD 57762cd 的 CI 与 Greptile 5/5 通过；2026-10-01 单独授权的当前聊天文本单条读取现场通过，其他 live 用例未验证，合并未授权，本次记录更新须复核最新 HEAD
+- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）、S8a 及 S7 已交付；S7 经 PR #41（d03ddad）及告警修复 PR #42（1cee42f）完成合并后验收，main CI 与完整 CodeQL 成功、新增告警归零，Release 按原 guard 跳过；S8b-1 已按批准计划实现并独立审查，PR #44 HEAD 970dbff 的 CI 与 Greptile 5/5 通过；2026-10-01 单独授权的当前聊天文本、原始卡片、撤回后不可用读取现场通过；受控跨聊天仍未现场验证且未获豁免，未合并，本次记录更新须复核最新 HEAD
 - 上游 spec: [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
@@ -213,7 +213,7 @@ S5c/S8b 需要独立核实 reaction 标识与客户端能力，不能假定 S5b 
 | **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CrossMark` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 已完成 |
 | **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 已合并 PR #38；真实发送/回复/拒绝审批已验收，真实多页投递未验收（离线测试通过，用户同意带此限制合并） |
 | **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 生成实际运行的 action/persona 片段及能力视图；历史 gather/assistant 注册表保留且无新增消费者 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | 已交付：PR #41（d03ddad）及修复 PR #42（1cee42f）；main CI、完整 Python/JS CodeQL 成功，Greptile 5/5，无新增告警；Release 按原 guard 跳过；未做真实飞书验收 |
-| **S8b** | Agent 读取类工具 | 读消息、搜消息、列成员、加 reaction 逐项调研、逐项 spec/PR，不以工具集合打包 | S1、S7；加 reaction 复用 S5b/S5c 客户端能力 | 每项工具分别定义权限、分页、目标范围与跨聊天授权；只注册已完成且可验收的能力 | S8b-1 已实现、独立审查，PR #44 HEAD 57762cd 的 CI 与 Greptile 5/5 通过；当前聊天文本现场读取通过，其他 live 用例未验证，未合并；其余待逐项调研 |
+| **S8b** | Agent 读取类工具 | 读消息、搜消息、列成员、加 reaction 逐项调研、逐项 spec/PR，不以工具集合打包 | S1、S7；加 reaction 复用 S5b/S5c 客户端能力 | 每项工具分别定义权限、分页、目标范围与跨聊天授权；只注册已完成且可验收的能力 | S8b-1 已实现、独立审查，PR #44 HEAD 970dbff 的 CI 与 Greptile 5/5 通过；当前聊天文本、原始卡片、撤回后不可用现场读取通过；受控跨聊天未现场验证且未获豁免，未合并；其余待逐项调研 |
 
 **依赖与节奏**：S5a 只迁移审批；S6 不等待反馈状态机；S5b 不包含重试；S5c 才允许产生新 turn。
 S8a 先提供 prompt 可引用的最小工具面，S7 再按运行时 surface 暴露它，S8b 的研究型能力逐项推进。
@@ -452,6 +452,19 @@ surface 过滤，运行时再复核既有 `ActionPromptContext`；现有未标�
 该结果不证明普通已部署网关加载了本分支。两次顺序临时连接均已退出，未改权限、发布
 应用、部署或合并。详细计数与边界见 S8b-1 design §13 / implementation plan §10。
 本次仅更新记录，推送后继续核对最新 HEAD 的 CI、评审线程及 Greptile 5/5。
+
+同日后续，用户在已展示固定测试卡片及有界创建/发送/读取/撤回方案后指示继续。
+在 14:42:41–15:02:41（Asia/Shanghai）窗口及干净 `970dbff` 上，既有 CardKit
+客户端创建并发送一张卡片，真实注册读取工具与执行器的第一次 GET 保留原始 2.0
+结构及两个测试文本，返回 268 字符安全 JSON。仅在读取成功后撤回本轮发送的卡片；
+DELETE 明确成功后，第二次 GET 同一 ID 得到安全 `message_unavailable`，SDK 项
+标记已删除。总计两次消息 GET、三次数据写请求、三次 token 尝试，零列表请求、无重试，
+进程退出 0；没有运行普通网关或模型 turn。19 项临时离线验收测试及 Ruff/mypy 通过。
+本次验收不改产品代码，不提交测试 ID、正文、原始响应或凭据。只需一位用户参与。
+当前聊天文本、原始卡片及撤回后不可用三项现已现场通过；受控跨聊天仍缺指定第二测试群
+和 SDK 内存访问授权，保持未验证，未获豁免。需补验或明确接受该限制后才能合并；本次
+非运行记录更新推送后仍须完成最新 HEAD 的 CI、评审线程及 Greptile 5/5。未部署、
+未合并，合并后 main CI、完整 CodeQL 和 release 尚未执行。详见 design §14 / plan §11。
 
 后续每个项目的现场验收除自身退出标准外，共用以下门禁：不提交 `.env` 或凭据；测试 chat 的外部发送
 必须取得当轮授权；PR 必须满足 `CI.md §8` 的绿色检查与 Greptile 5/5；合并后继续观察 main CI、
