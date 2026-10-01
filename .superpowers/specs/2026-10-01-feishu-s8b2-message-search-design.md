@@ -39,8 +39,9 @@
 | [成员列表](https://open.feishu.cn/document/server-docs/group/chat-member/get) | 支持 tenant 身份，返回用户成员，不包含机器人；同批加入成员可能造成结果多于 page_size。留给 S8b-3 单独设计。 |
 | [添加 reaction](https://open.feishu.cn/document/server-docs/im-v1/message-reaction/create) | 支持 tenant 身份；操作者须在消息所在会话，撤回消息和系统消息不支持。留给 S8b-4 单独设计。 |
 
-历史读取所列权限为 `im:message`、`im:message:readonly` 或历史版
-`im:message.history:readonly`。此前 S8b-1 验收中的一次 history 请求返回 `230027`；
+历史读取所列基础权限为 `im:message`、`im:message:readonly` 或历史版
+`im:message.history:readonly`；以应用身份读取群聊历史还必须开启 `im:message.group_msg`。
+仅接收 @机器人的群消息权限不满足这个额外前置。此前 S8b-1 验收中的一次 history 请求返回 `230027`；
 该历史记录只能证明那次请求被拒绝，不能据此认定具体缺少哪个权限，也不能证明本次可用。
 单条消息 GET 成功不替代本接口权限验收。
 
@@ -265,6 +266,14 @@ S8b-1 公共输入、输出和单次 GET 预算保持；S8a 的审批、父消�
 需要在应用权限管理中核对历史读取权限及生效状态后，另行批准新的只读验收窗口。
 真实分页、跨聊天、跨操作者和普通部署网关仍未现场验证；本次安全停止不替代这些成功路径。
 
+用户随后批准只读核对后台，并自行完成登录。核对应用身份与批准的 `.env` 一致：
+`im:message:readonly` 已开通，最初精确筛选 `im:message.group_msg` 无结果，且显示当前修改均已发布。
+直接读取上述官方文档确认群聊额外要求，因而找到了一个真实必要权限缺口；不能因此断言所有其他前置已满足。
+用户随后自行开通相关权限。刷新后台已确认 `im:message.group_msg` 为应用身份、已开通，
+并显示“当前修改均已发布”；相关 `im:message.group_msg.include_bot:read` 也由用户自行开通。
+Agent 没有开通、关闭权限或发布应用，本次核对没有验收脚本的 token POST 或群消息 GET。
+后台权限状态不替代真实搜索成功；需另行授权新的有限窗口后验收。用户说明中已补齐群历史权限前置。
+
 零网络预检发现全局有效 catalog 未提供 Feishu 配置，但批准的 `.env` 应用/群与真实凭据加载器一致。
 受控执行器通过真实 catalog 的显式 env record 输入建立本轮冻结配置，未修改全局 store、`.env` 或权限。
 这不证明普通网关可以解析当前本机配置；该部署前置保持待验，按用户优先级不在本 PR 修复无关配置瑕疵。
@@ -299,5 +308,6 @@ S8 结束需要所有选定能力实际交付、准确提交检查完成、真�
 独立整分支审查完成，无 Critical/Important 运行时问题；两处文档事实纠正随计划内状态更新完成。
 Greptile 对 56ae02a 发现的正文内提及元数据 P1 已经 RED→GREEN 修复并完成上述全套本地复验。
 [PR #45](https://github.com/NotYourBug/aasre/pull/45) 已创建；必需检查、Greptile 和未解决 review threads 按最新准确 HEAD 跟进。
-真实只读验收已单独获准并执行一次，首次历史 GET 被拒绝后停止，结果见 §11；尚未授权合并。运行配置和应用权限未修改。
+真实只读验收已单独获准并执行一次，首次历史 GET 被拒绝后停止，结果见 §11；尚未授权合并。
+Agent 未修改运行配置和应用权限；用户随后自行补齐群历史权限，后台已核对开通及发布状态，真实成功路径仍待新授权验收。
 设计主体保持不变，执行和验证记录见实施计划。

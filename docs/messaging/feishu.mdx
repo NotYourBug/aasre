@@ -139,9 +139,12 @@ Even a complete result covers only the declared chat container and window,
 and concurrent changes may affect what is visible.
 
 The bot must be in the chat and the published app must have history-read
-permission, such as `im:message:readonly` or `im:message`. If history is unavailable,
-check those permissions even when a known-ID read works. Search does not grant
-access to another chat through a default destination or outbound allowlist.
+permission, such as `im:message:readonly` or `im:message`. Group-history searches
+also require `im:message.group_msg` (all group messages); mention-only permission
+does not grant this access. Publish a new app version after changing permissions.
+If history is unavailable, check these permissions even when a known-ID read
+works. Search does not grant access to another chat through a default destination
+or outbound allowlist.
 
 ## Start the gateway
 
