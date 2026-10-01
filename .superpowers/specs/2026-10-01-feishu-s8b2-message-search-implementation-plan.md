@@ -92,6 +92,7 @@ pytest、Ruff、mypy；PowerShell，Python 通过 uv run。
 | FEISHU_SEARCH_TEXT_TYPES | frozenset({"text", "post", "interactive"}) |
 | FEISHU_SEARCH_METADATA_TYPES | frozenset({"image", "file", "audio", "media", "sticker", "share_chat", "share_user", "merge_forward", "system"}) |
 | FEISHU_SEARCH_RESOURCE_KEYS | frozenset({"image_key", "file_key", "audio_key", "video_key", "media_key"}) |
+| FEISHU_SEARCH_METADATA_KEYS（PR review 补强） | frozenset({"tag", "user_id", "user_name", "open_id", "union_id", "tenant_key", "sender", "mentions"}) |
 | FEISHU_HISTORY_UNAVAILABLE_ERROR_CODES | FEISHU_AUTHORIZATION_ERROR_CODES \| FEISHU_MESSAGE_READ_UNAVAILABLE_ERROR_CODES \| {230073, 231203, 231204} |
 
 复用 FEISHU_MESSAGE_READ_MAX_ID_CHARS、正文/深度/节点/安全 JSON 上限、10 秒 timeout 和
@@ -408,7 +409,7 @@ uv run --no-sync python .github/ci/check_imports.py
 避免客户端反向导入会注册 tool 的 package。
 
 用户已选择 Native；Task 1–5 分别提交为 22bfb14、eaf6d19、1ec6c32、0b76821、168ea94。
-最终 focused 检查为 662 passed、41 skipped（既有描述契约隔离项 #5498）；lint、格式及导入边界通过。
+最新 focused 检查为 663 passed、41 skipped（既有描述契约隔离项 #5498）；lint、格式及导入边界通过。
 mypy 初次报告两处 Any | None 不能传入 str 的错误，显式类型收窄后复验 2014 个源文件通过。
 账户额度曾阻止 GitHub 只读查询和独立审查启动；用户指示继续后额度恢复，main 仍为 837124a。
 独立整分支审查覆盖 837124a..6879e27，未发现 Critical/Important 运行时问题。
@@ -419,3 +420,9 @@ mypy 初次报告两处 Any | None 不能传入 str 的错误，显式类型收�
 审查暂未判断的边界已裁决：真实权限与部署只能现场建立；SDK 解析前的响应分配不受本项正文预算限制；
 全局搜索/OAuth/索引/话题展开/成员/reaction 继续留给独立子项；既有同聊天进度提示可能显示关键词，
 本项省略 query 的契约适用于工具结果、日志和错误，不扩展修改通用 observer。
+
+PR #45 的 Greptile 对 56ae02a 给出 4/5，并发现富文本提及 ID/姓名进入匹配和预览的有效 P1。
+test_rich_text_mentions_cannot_match_or_enter_search_previews 已在修复前 RED，
+证明身份/提及 canary 可匹配并输出；跳过 at 节点和元数据键后 GREEN，投影与既有脱敏合计 11 项通过。
+修复后的完整 lint/格式/mypy（2014 个源文件）通过；focused groups 为 263 + 38 + 21 + 341，
+合计 663 passed、41 既有描述契约隔离项跳过；三个 import 检查通过。准确新 HEAD 的 CI/Greptile 继续按 PR 跟进。

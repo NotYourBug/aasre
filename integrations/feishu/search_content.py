@@ -5,6 +5,7 @@ from typing import Any
 
 from config.constants.feishu import (
     FEISHU_SEARCH_MAX_PREVIEW_CHARS,
+    FEISHU_SEARCH_METADATA_KEYS,
     FEISHU_SEARCH_PREVIEW_LEAD_CHARS,
     FEISHU_SEARCH_RESOURCE_KEYS,
 )
@@ -28,10 +29,12 @@ def normalize_search_content(raw_content: str) -> FeishuSearchContent:
         if isinstance(value, str):
             parts.append(value)
         elif isinstance(value, dict):
+            if value.get("tag") == "at":
+                continue
             stack.extend(
                 child
                 for key, child in reversed(list(value.items()))
-                if key not in FEISHU_SEARCH_RESOURCE_KEYS
+                if key not in FEISHU_SEARCH_RESOURCE_KEYS and key not in FEISHU_SEARCH_METADATA_KEYS
             )
         elif isinstance(value, list):
             stack.extend(reversed(value))

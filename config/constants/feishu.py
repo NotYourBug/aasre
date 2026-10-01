@@ -55,6 +55,9 @@ FEISHU_SEARCH_METADATA_TYPES = frozenset(
 FEISHU_SEARCH_RESOURCE_KEYS = frozenset(
     {"image_key", "file_key", "audio_key", "video_key", "media_key"}
 )
+FEISHU_SEARCH_METADATA_KEYS = frozenset(
+    {"tag", "user_id", "user_name", "open_id", "union_id", "tenant_key", "sender", "mentions"}
+)
 
 FEISHU_APP_ID_ENV = "FEISHU_APP_ID"
 FEISHU_APP_SECRET_ENV = "FEISHU_APP_SECRET"
@@ -224,6 +227,7 @@ __all__ = [
     "FEISHU_SEARCH_TEXT_TYPES",
     "FEISHU_SEARCH_METADATA_TYPES",
     "FEISHU_SEARCH_RESOURCE_KEYS",
+    "FEISHU_SEARCH_METADATA_KEYS",
     "FEISHU_MESSAGE_READ_MAX_ID_CHARS",
     "FEISHU_MESSAGE_READ_MAX_INPUT_BYTES",
     "FEISHU_MESSAGE_READ_MAX_OUTPUT_CHARS",

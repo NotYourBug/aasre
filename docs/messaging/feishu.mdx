@@ -127,6 +127,8 @@ The window can cover at most seven days. Each search scans at most 150 messages
 in newest-first order and returns at most 20 matches, with previews of up to 600
 characters. Matching is a literal case-insensitive substring of sanitized text,
 rich text or card content; masked secrets cannot be searched.
+Use words from the message text as keywords; mention metadata is excluded from
+matching and previews.
 
 Search does not include ordinary group thread replies or image/file contents.
 Resource messages can provide IDs without previews when no keyword is given.

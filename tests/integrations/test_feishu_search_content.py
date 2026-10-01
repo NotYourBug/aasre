@@ -36,6 +36,44 @@ def test_casefold_preview_keeps_the_original_unicode_match() -> None:
     assert make_search_preview(normalize_search_content('{"text":"故障"}'), "") == ("故障", False)
 
 
+def test_rich_text_mentions_cannot_match_or_enter_search_previews() -> None:
+    raw = json.dumps(
+        {
+            "title": "故障",
+            "content": [
+                [
+                    {
+                        "tag": "at",
+                        "user_id": "ou_ID_CANARY",
+                        "user_name": "NAME-CANARY",
+                        "text": "NODE-MENTION-CANARY",
+                    },
+                    {"tag": "text", "text": "database timeout resolved"},
+                ]
+            ],
+            "nested": {
+                "user_id": "ou_NESTED_CANARY",
+                "user_name": "NESTED-NAME-CANARY",
+                "mentions": [{"text": "MENTIONS-CANARY"}],
+            },
+        },
+        ensure_ascii=False,
+    )
+    safe = normalize_search_content(raw)
+    for query in (
+        "ou_ID_CANARY",
+        "NAME-CANARY",
+        "NODE-MENTION-CANARY",
+        "ou_NESTED_CANARY",
+        "NESTED-NAME-CANARY",
+        "MENTIONS-CANARY",
+    ):
+        assert make_search_preview(safe, query) is None
+    preview = make_search_preview(safe, "timeout")
+    assert preview is not None and "database timeout resolved" in preview[0]
+    assert "CANARY" not in preview[0]
+
+
 @pytest.mark.parametrize(
     "raw",
     [
