@@ -1,12 +1,13 @@
 # 飞书 S8b-2 当前聊天有界消息搜索设计
 
 - Date: 2026-10-01
-- Status: Draft for written-spec review；用户已选择推荐的机器人有界搜索方式，书面 spec、实施计划和执行方式尚待审阅。
+- Status: Written spec approved by user（2026-10-01）；独立实施计划和执行方式尚待确认，产品未实现。
 - Parent roadmap: [飞书能力补强路线](2026-09-12-feishu-capability-completion-design.md)
 - Baseline: `origin/main` / GitHub main `837124ae5ee83b51b6e70e90ba38b891dff4cf3f`；S8b-1 已通过 PR #44 交付。
 - Worktree: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`
 - Branch: `codex/feishu-s8b2-search-spec`，从上述 main 新建；保留 S8b-1 分支。
-- Scope: 一个只读 ACTION 工具 `feishu_search_messages`，用于当前聊天的有界历史发现和关键词匹配；方式已选定，详细契约仍待书面审阅。
+- Scope: 一个只读 ACTION 工具 `feishu_search_messages`，用于当前聊天的有界历史发现和关键词匹配；书面契约已批准。
+- Implementation plan: [独立实施计划](2026-10-01-feishu-s8b2-message-search-implementation-plan.md)，待单独审阅并选择执行方式。
 - Authorization: 用户要求继续完成 S8b 剩余范围，S8 完成后再处理项目瑕疵。该要求授权调研和设计；本稿不记录尚未发生的具体方案批准或真实验收授权。
 
 ## 1. 目标和成功标准
@@ -22,7 +23,7 @@
 无关重构、已存在 CodeQL 告警清理、旧传输删除和部署整顿不并入本 PR。
 
 本稿采用 architectural 路径：新工具有新的检索接口、分页和数据释放契约，需要独立 written spec、
-实施计划、实现、验证和 PR。文档中的详细契约尚待用户审阅。
+实施计划、实现、验证和 PR。用户于 2026-10-01 批准本文书面契约；下一步为独立实施计划。
 
 ## 2. 只读调研和可信来源
 
@@ -258,7 +259,7 @@ reaction、权限变更、普通网关部署/重启或 OAuth 登录授权。
 | 子项 | 当前状态 | 本项退出后下一步 |
 | --- | --- | --- |
 | S8b-1 已知 ID 读取 | PR #44 已合并、合并后验证完成；保留已接受现场限制 | 不重做已完成实现 |
-| S8b-2 消息发现/有界搜索 | 方式已选定，详细设计待书面审阅 | 独立 plan → 实现 → 验证 → PR → 用户批准合并后的验证 |
+| S8b-2 消息发现/有界搜索 | 书面设计已批准，独立 plan 与执行方式待确认 | 独立 plan → 实现 → 验证 → PR → 用户批准合并后的验证 |
 | S8b-3 当前群用户成员列表 | 仅完成 API 初步调研，尚未写独立 spec/plan | 明确分页、响应超页、名称脱敏与群/成员边界 |
 | S8b-4 Agent 添加 reaction | 仅完成 API 初步调研，尚未写独立 spec/plan | 明确审批、目标预检、表情、重放和机器人事件不启动新 turn |
 
@@ -273,5 +274,6 @@ S8 结束需要所有选定能力实际交付、准确提交检查完成、真�
 搜索数据的关键词过滤位于用户明确调用的工具内部，不是绕过 action agent 的意图路由。
 
 已选定：推荐的当前聊天机器人有界搜索方式，用户于 2026-10-01 明确回复。
-尚未批准：本书面 spec、独立实施计划、执行方式、真实验收及合并。
+用户随后于同日明确回复“批准”，批准本书面 spec；已进入独立实施计划编写。
+尚未批准：独立实施计划、执行方式、真实验收及合并。设计主体保持不变。
 本稿未修改产品代码、测试、运行配置或应用权限；未运行产品测试，未 push、创建 PR 或合并。
