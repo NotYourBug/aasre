@@ -426,3 +426,8 @@ test_rich_text_mentions_cannot_match_or_enter_search_previews 已在修复前 RE
 证明身份/提及 canary 可匹配并输出；跳过 at 节点和元数据键后 GREEN，投影与既有脱敏合计 11 项通过。
 修复后的完整 lint/格式/mypy（2014 个源文件）通过；focused groups 为 263 + 38 + 21 + 341，
 合计 663 passed、41 既有描述契约隔离项跳过；三个 import 检查通过。准确新 HEAD 的 CI/Greptile 继续按 PR 跟进。
+
+对 c255bba 的 CI 已全部通过。Greptile 确认提及边界修复后，仅剩新包 facade 的模块 docstring 规范项。
+Ruling: 采用根 AGENTS 的 imports/__all__ only 规则，移除 docstring，而不采用添加工具指南允许 docstring 的较宽表述；
+代价仅为少一行模块说明，工具导出/真实发现路径通过现有测试验证。没有为此添加镜像规范断言。
+该修正后完整 lint/format/mypy 通过；Feishu 263、registry/index 50、gateway discovery 6 项通过。
