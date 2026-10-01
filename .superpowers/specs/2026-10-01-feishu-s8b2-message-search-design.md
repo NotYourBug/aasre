@@ -1,7 +1,7 @@
 # 飞书 S8b-2 当前聊天有界消息搜索设计
 
 - Date: 2026-10-01
-- Status: 书面 spec 与实施计划已批准，用户选择 Native（2026-10-01）；五个实施任务、本地验证和独立整分支审查完成，PR 门禁待完成。
+- Status: 书面 spec 与实施计划已批准，用户选择 Native（2026-10-01）；实施、本地验证和独立整分支审查完成；已创建 [PR #45](https://github.com/NotYourBug/aasre/pull/45)，准确 HEAD 的 CI/Greptile 状态以 PR 为准。
 - Parent roadmap: [飞书能力补强路线](2026-09-12-feishu-capability-completion-design.md)
 - Baseline: `origin/main` / GitHub main `837124ae5ee83b51b6e70e90ba38b891dff4cf3f`；S8b-1 已通过 PR #44 交付。
 - Worktree: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`
@@ -259,7 +259,7 @@ reaction、权限变更、普通网关部署/重启或 OAuth 登录授权。
 | 子项 | 当前状态 | 本项退出后下一步 |
 | --- | --- | --- |
 | S8b-1 已知 ID 读取 | PR #44 已合并、合并后验证完成；保留已接受现场限制 | 不重做已完成实现 |
-| S8b-2 消息发现/有界搜索 | 实施、本地验证和独立审查完成；PR 门禁待完成 | PR/CI → 真实验收或接受限制 → 用户批准合并后的验证 |
+| S8b-2 消息发现/有界搜索 | 实施、本地验证和独立审查完成；PR #45 已创建、门禁按准确 HEAD 跟进 | 真实验收或接受限制 → 用户批准合并后的验证 |
 | S8b-3 当前群用户成员列表 | 仅完成 API 初步调研，尚未写独立 spec/plan | 明确分页、响应超页、名称脱敏与群/成员边界 |
 | S8b-4 Agent 添加 reaction | 仅完成 API 初步调研，尚未写独立 spec/plan | 明确审批、目标预检、表情、重放和机器人事件不启动新 turn |
 
@@ -277,5 +277,6 @@ S8 结束需要所有选定能力实际交付、准确提交检查完成、真�
 用户随后于同日明确回复“批准”，批准本书面 spec；又选择 Native，授权执行独立实施计划。
 五个实施任务已提交，662 项 focused 测试通过、41 项既有描述契约隔离项（#5498）跳过；静态检查与导入边界通过。
 独立整分支审查完成，无 Critical/Important 运行时问题；两处文档事实纠正随计划内状态更新完成。
-PR 门禁尚待完成。真实验收及合并尚未授权、未执行；运行配置和应用权限未修改。
+[PR #45](https://github.com/NotYourBug/aasre/pull/45) 已创建；必需检查、Greptile 和未解决 review threads 按最新准确 HEAD 跟进。
+真实验收及合并尚未授权、未执行；运行配置和应用权限未修改。
 设计主体保持不变，执行和验证记录见实施计划。
