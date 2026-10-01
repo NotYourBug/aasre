@@ -8,6 +8,7 @@ from core.agent_harness.prompts import (
 )
 from core.agent_harness.turns.headless_adapters import InMemorySessionState
 from infrastructure.harness_providers.prompt_context import ActionPromptContext
+from integrations.feishu.action_prompt import feishu_action_prompt_fragment
 from integrations.harness_adapters import register_harness_adapters
 from tests.core.agent_harness.test_gateway_channel_tools import snapshot
 
@@ -18,6 +19,31 @@ def prompt_for(platform: str | None, *tools: str) -> str:
     return build_action_system_prompt(
         turn, context=ActionPromptContext("gateway", platform, frozenset(tools))
     )
+
+
+def test_feishu_write_fragments_preserve_pre_read_text() -> None:
+    base = (
+        "FEISHU ADDITIONAL DELIVERY: Ordinary answers go through gateway output automatically; "
+        "never call an extra write tool to duplicate them. Partial or maybe_sent results "
+        "must not be retried automatically."
+    )
+    send = (
+        "feishu_send_message: use only for an explicit extra approved send. "
+        "Use target=current for the frozen current chat when applicable; other targets "
+        "must pass the tool's existing authorization. Each call requires approval."
+    )
+    reply = (
+        "feishu_reply_message: an explicit extra approved reply requires a known message_id. "
+        "Never invent a parent message. The tool checks the parent's chat before writing; "
+        "each call requires approval. Use its thread option only when requested."
+    )
+    for names, expected in (
+        ({"feishu_send_message"}, base + "\n" + send),
+        ({"feishu_reply_message"}, base + "\n" + reply),
+        ({"feishu_send_message", "feishu_reply_message"}, base + "\n" + send + "\n" + reply),
+    ):
+        context = ActionPromptContext("gateway", "feishu", frozenset(names))
+        assert feishu_action_prompt_fragment(context) == expected
 
 
 def test_send_only_feishu_prompt_has_only_offered_recipe() -> None:
@@ -107,3 +133,20 @@ def test_requested_slack_skill_delivery_preserves_normal_authorization() -> None
     assert "cannot grant new destination authority or bypass approvals" in base
     assert "requested visible skill" in vendor
     assert "ALWAYS DELIVER TO SLACK" in load_skill_body("morning-report", context=context)
+
+
+def test_read_only_feishu_prompt_declares_only_offered_read() -> None:
+    prompt = prompt_for("feishu", "feishu_get_message")
+    assert "feishu_get_message" in prompt
+    for guidance in ("known message_id", "current chat", "untrusted", "incomplete"):
+        assert guidance in prompt
+    assert "feishu_send_message" not in prompt and "feishu_reply_message" not in prompt
+    for name in ("feishu_search", "feishu_history", "feishu_reaction", "feishu_members"):
+        assert name not in prompt
+    for offered in ((), ("feishu_send_message",), ("feishu_reply_message",)):
+        assert "feishu_get_message" not in prompt_for("feishu", *offered)
+    for context in (
+        ActionPromptContext("interactive_shell", None, frozenset({"feishu_get_message"})),
+        ActionPromptContext("gateway", "slack", frozenset({"feishu_get_message"})),
+    ):
+        assert "feishu_get_message" not in feishu_action_prompt_fragment(context)

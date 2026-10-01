@@ -227,3 +227,130 @@ def test_concurrent_channels_share_boot_registry_without_sharing_context(
         assert ("ALWAYS DELIVER TO SLACK" in str(result)) is (platform == "slack")
     assert provider.resources is shared_resources
     assert ACTION_PROMPT_CONTEXT_RESOURCE not in shared_resources
+
+
+class ReadMessageLLM(ScriptedLLM):
+    def __init__(self, message_id: str) -> None:
+        super().__init__("feishu_get_message", {"message_id": message_id})
+
+
+def _read_plan(session: InMemorySessionState, chat: str) -> TurnPlan:
+    from tests.integrations.test_feishu_read_scope import valid_view
+
+    return TurnPlan(
+        replace(
+            snapshot(session, surface="gateway", platform="feishu"),
+            resolved_integrations={**valid_view(), "_gateway_chat_id": chat},
+        )
+    )
+
+
+def _offline_read_tool(monkeypatch: pytest.MonkeyPatch, observed: dict[str, Any]) -> RegisteredTool:
+    from integrations.feishu.credentials import FeishuChatCredentials
+    from integrations.feishu.tools.feishu_get_message_tool import tool as read_module
+    from integrations.feishu.tools.feishu_get_message_tool.tool import FeishuGetMessageTool
+
+    def credentials() -> FeishuChatCredentials:
+        return FeishuChatCredentials(app_id="cli_test", app_secret="fake-secret", receive_id="")
+
+    monkeypatch.setattr(read_module, "load_chat_credentials_from_env", credentials)
+    tool = FeishuGetMessageTool()
+
+    def read(*, message_id: str, context: AgentToolContext) -> Any:
+        result = tool.run(message_id=message_id, context=context)
+        observed[message_id] = result
+        return result
+
+    return replace(RegisteredTool.from_base_tool(tool), run=read)
+
+
+def test_read_scope_is_frozen_across_session_reuse(
+    monkeypatch: pytest.MonkeyPatch, offline_runner: None
+) -> None:
+    import json
+
+    from lark_oapi.api.im.v1 import GetMessageRequest
+
+    from tests.integrations.feishu_read_support import install_read_transport, message_payload
+
+    register_harness_adapters()
+    observed: dict[str, Any] = {}
+    tool = _offline_read_tool(monkeypatch, observed)
+    session = InMemorySessionState()
+    provider = DefaultToolProvider(session, None, precomputed_action_tools=[tool])
+    llms = [ReadMessageLLM("om_a"), ReadMessageLLM("om_b")]
+    pending = iter(llms)
+    runner = action_driver.ActionTurnRunner(BufferOutputSink(), provider, lambda: next(pending))
+
+    def respond(request: GetMessageRequest) -> dict[str, Any]:
+        chat = "oc_a" if request.message_id == "om_a" else "oc_b"
+        session.resolved_integrations_cache = {
+            "_gateway_platform": "feishu",
+            "_gateway_chat_id": "oc_wrong",
+        }
+        return message_payload(
+            message_id=request.message_id,
+            chat_id=chat,
+            body={"content": json.dumps({"text": chat})},
+        )
+
+    probe = install_read_transport(monkeypatch, respond)
+    for message_id, chat in (("om_a", "oc_a"), ("om_b", "oc_b")):
+        result = runner.run("read known message", session, turn_plan=_read_plan(session, chat))
+        assert result.executed_success_count == 1, result.response_text
+        assert not observed[message_id].is_error
+        assert json.loads(observed[message_id].details["body_content"]) == {"text": chat}
+        assert observed[message_id].details["chat_id"] == chat
+    assert len(probe.requests) == 2
+    assert all("feishu_get_message" in llm.offered for llm in llms)
+
+
+def test_concurrent_feishu_reads_do_not_share_bodies(
+    monkeypatch: pytest.MonkeyPatch, offline_runner: None
+) -> None:
+    import json
+
+    from lark_oapi.api.im.v1 import GetMessageRequest
+
+    from tests.integrations.feishu_read_support import install_read_transport, message_payload
+
+    register_harness_adapters()
+    observed: dict[str, Any] = {}
+    shared_resources = {"marker": object()}
+    provider = SharedResourceProvider([_offline_read_tool(monkeypatch, observed)], shared_resources)
+    rendezvous = Barrier(2)
+
+    def respond(request: GetMessageRequest) -> dict[str, Any]:
+        rendezvous.wait(timeout=10)
+        chat = "oc_a" if request.message_id == "om_a" else "oc_b"
+        return message_payload(
+            message_id=request.message_id,
+            chat_id=chat,
+            body={"content": json.dumps({"text": chat})},
+        )
+
+    probe = install_read_transport(monkeypatch, respond)
+
+    def run(chat: str) -> Any:
+        session = InMemorySessionState()
+        llm = ReadMessageLLM("om_" + chat[-1])
+        session.resolved_integrations_cache = {"_gateway_chat_id": "oc_wrong"}
+        return action_driver.ActionTurnRunner(BufferOutputSink(), provider, lambda: llm).run(
+            "read known message", session, turn_plan=_read_plan(session, chat)
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(run, chat) for chat in ("oc_a", "oc_b")]
+        try:
+            results = [future.result(timeout=30) for future in futures]
+        finally:
+            rendezvous.abort()
+            for future in futures:
+                future.cancel()
+    assert all(result.executed_success_count == 1 for result in results)
+    assert len(probe.requests) == 2 and set(observed) == {"om_a", "om_b"}
+    for message_id, chat in (("om_a", "oc_a"), ("om_b", "oc_b")):
+        assert json.loads(observed[message_id].details["body_content"]) == {"text": chat}
+        assert observed[message_id].details["chat_id"] == chat
+    assert provider.resources is shared_resources
+    assert ACTION_PROMPT_CONTEXT_RESOURCE not in shared_resources

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any, Protocol
 
+from config.constants.tool_policy import GATEWAY_ONLY_TOOL_TAG
 from core.domain.types.tools import ToolSurface
 from core.tool.contracts import RegisteredTool
 from core.tool.execution import availability_view
@@ -89,11 +90,12 @@ def action_tool_names(tools: Iterable[RegisteredTool]) -> tuple[str, ...]:
 
 
 def filter_action_tools_for_channel(tools: list[Any], context: ActionPromptContext) -> list[Any]:
-    """Apply the final messaging-source gate after normal tool availability."""
+    """Apply final host-tag and messaging-source gates after availability."""
     return [
         tool
         for tool in tools
-        if messaging_source_allowed(
+        if (context.surface == "gateway" or GATEWAY_ONLY_TOOL_TAG not in getattr(tool, "tags", ()))
+        and messaging_source_allowed(
             getattr(tool, "source", ""),
             surface=context.surface,
             active_platform=context.active_platform,

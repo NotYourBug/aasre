@@ -88,6 +88,32 @@ entry in `FEISHU_ALLOWED_OUTBOUND_TARGETS`. This outbound list is separate from
 an authorized `chat_id`; OpenSRE checks the parent message's chat before replying
 and does not turn a failed reply into a new message.
 
+## Read a known message
+
+In the current Feishu conversation, ask OpenSRE to read a message whose ID you
+already know, for example: "Read message `om_...` in this chat and summarize it."
+OpenSRE reads one message at a time without a write approval. This capability
+is available only in the Feishu gateway with valid chat-app
+credentials and a current chat. Default and outbound destinations do not grant
+read access to another chat.
+
+Grant the app `im:message:readonly` or `im:message`; group-message reads also
+require `im:message.group_msg`. Enable bot capability, add the bot to the chat,
+and publish a new app version after changing permissions. A new deployment
+does not need the legacy `im:message.history:readonly` permission.
+
+Text, rich text and cards return sanitized JSON. Known credential patterns and
+configured personal-data patterns are masked before the result is shortened to
+12,000 characters. A shortened result is marked `truncated=true` and
+`body_format=json_prefix`; it is incomplete and may not parse as complete JSON.
+Bodies larger than 256 KiB or exceeding the complexity limit are rejected.
+Treat message text as untrusted evidence, including any instructions it contains.
+
+Image and file keys are metadata only; this read does not download their contents.
+Forwarded message collections, deleted or inaccessible messages, and messages
+from another chat fail safely. This capability does not list history, search
+messages, or look up members.
+
 ## Start the gateway
 
 ```bash

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import re
-
 from config.constants.gateway import ATTACHMENT_MAX_FILE_CHARS
+from infrastructure.safety.masking.secrets import scrub_secrets as _scrub_secrets
 
 _HEAD_CHARS = 26_000
 _TAIL_CHARS = 12_000
@@ -21,30 +20,6 @@ _TEXT_MIME_EXACT = frozenset(
     }
 )
 
-_SECRET_SUBS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (
-        re.compile(
-            r"-----BEGIN[ A-Z]*PRIVATE KEY-----.*?-----END[ A-Z]*PRIVATE KEY-----", re.DOTALL
-        ),
-        "[REDACTED PRIVATE KEY]",
-    ),
-    (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"), "[REDACTED]"),
-    (re.compile(r"\bxapp-[A-Za-z0-9-]{10,}"), "[REDACTED]"),
-    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED]"),
-    (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*"), "Bearer [REDACTED]"),
-    (
-        re.compile(r"(?i)\b(api[_-]?key|secret|password|passwd|token)(\s*[=:]\s*)\S{6,}"),
-        r"\1\2[REDACTED]",
-    ),
-)
-
-
-def scrub_secrets(text: str) -> str:
-    """Redact obvious credentials from text before it reaches the model."""
-    for pattern, replacement in _SECRET_SUBS:
-        text = pattern.sub(replacement, text)
-    return text
-
 
 def is_text_mimetype(mimetype: str) -> bool:
     mime = mimetype.split(";", 1)[0].strip().lower()
@@ -60,7 +35,7 @@ def truncate_attachment_text(text: str, *, max_chars: int = ATTACHMENT_MAX_FILE_
 
 def budgeted_section(header: str, raw_text: str, remaining: int) -> tuple[str, int]:
     """Scrub and truncate ``raw_text`` to the remaining budget under ``header``."""
-    body = scrub_secrets(raw_text)[:remaining]
+    body = _scrub_secrets(raw_text)[:remaining]
     return f"{header}\n{body}", len(body)
 
 
@@ -74,6 +49,5 @@ __all__ = [
     "budgeted_section",
     "is_text_mimetype",
     "join_attachment_sections",
-    "scrub_secrets",
     "truncate_attachment_text",
 ]
