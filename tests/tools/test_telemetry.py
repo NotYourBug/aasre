@@ -812,6 +812,37 @@ def _feishu_read_case() -> ToolFailureCase:
     return ToolFailureCase("feishu_get_message", patch, invoke, "feishu_get_message", "feishu")
 
 
+def _feishu_search_case() -> ToolFailureCase:
+    def patch(mp: pytest.MonkeyPatch) -> None:
+        from integrations.feishu.credentials import FeishuChatCredentials
+        from integrations.feishu.tools.feishu_search_messages_tool import tool as search_module
+
+        def credentials() -> FeishuChatCredentials:
+            raise RuntimeError("PRIVATE-SEARCH-CANARY")
+
+        mp.setattr(search_module, "load_chat_credentials_from_env", credentials)
+
+    def invoke() -> dict[str, Any]:
+        from core.tool import AgentToolContext
+        from integrations.feishu.tools.feishu_search_messages_tool.tool import (
+            feishu_search_messages,
+        )
+        from tests.integrations.test_feishu_read_scope import valid_view
+        from tests.integrations.test_feishu_search_messages_tool import search_resources
+
+        result = feishu_search_messages.run(
+            start_time=1000,
+            end_time=2000,
+            context=AgentToolContext(valid_view(), search_resources()),
+        )
+        assert "PRIVATE-SEARCH-CANARY" not in repr(result)
+        return json.loads(result.content)
+
+    return ToolFailureCase(
+        "feishu_search_messages", patch, invoke, "feishu_search_messages", "feishu"
+    )
+
+
 def _feishu_write_case(*, reply: bool) -> ToolFailureCase:
     tool_name = "feishu_reply_message" if reply else "feishu_send_message"
 
@@ -864,6 +895,7 @@ def _feishu_write_case(*, reply: bool) -> ToolFailureCase:
 
 
 _TOOL_FAILURE_CASES: list[ToolFailureCase] = [
+    _feishu_search_case(),
     _feishu_read_case(),
     _feishu_write_case(reply=False),
     _feishu_write_case(reply=True),
@@ -930,7 +962,7 @@ def test_tool_reports_exactly_one_sentry_event(
     assert event.extras["tag.source"] == case.expected_source
     if case.id.startswith("feishu_"):
         assert "private outbound body" not in str(event.exc)
-    if case.id == "feishu_get_message":
+    if case.id in ("feishu_get_message", "feishu_search_messages"):
         assert event.exc.args == ("RuntimeError",)
         assert event.exc.__context__ is None
 
@@ -1075,6 +1107,7 @@ _MIGRATED_TOOL_NAMES: frozenset[str] = frozenset(
         "get_github_star_history",
         # Feishu tools capture sanitized exceptions on unexpected failures.
         "feishu_get_message",
+        "feishu_search_messages",
         "feishu_reply_message",
         "feishu_send_message",
         # EKS — enumerated in #1463
