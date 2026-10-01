@@ -13,7 +13,7 @@ pytest、Ruff、mypy；PowerShell，Python 通过 uv run。
 
 **Spec:** [已批准设计](2026-10-01-feishu-s8b2-message-search-design.md)
 
-**Status:** 用户于 2026-10-01 批准设计并选择 Native，授权执行本计划；五个实施任务已提交，本地验证通过，独立整分支审查与 PR 门禁待完成。
+**Status:** 用户于 2026-10-01 批准设计并选择 Native，授权执行本计划；五个实施任务、本地验证和独立整分支审查完成，PR 门禁待完成。
 **Worktree / branch:** `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback` /
 `codex/feishu-s8b2-search-spec`；规划开始时干净 HEAD `52419c3`，
 基于 main `837124ae5ee83b51b6e70e90ba38b891dff4cf3f`。
@@ -357,7 +357,7 @@ uv run --no-sync python .github/ci/check_imports.py
 比较基线并准确记录，不能修 unrelated 以扩大本项范围，也不能绕过门禁。
 
 - [x] 五个任务完成后跑上述 local gate，记录准确 HEAD、命令和结果。
-- [ ] 按用户选择执行方式完成独立审查并修复。推荐 Native：当前会话逐项实现，
+- [x] 按用户选择执行方式完成独立审查并修复。推荐 Native：当前会话逐项实现，
   末尾一次新鲜独立整分支审查；比逐任务重新传递这些紧密依赖的接口更直接。
   独立 reviewer 遵循执行技能的能力要求，审查输入类型、数据边界、预算、取消和真实 runner。
 - [ ] 更新 spec/plan/路线与 PR 描述，只勾选真实完成项；记录 live 结果或未执行状态。
@@ -408,8 +408,13 @@ uv run --no-sync python .github/ci/check_imports.py
 避免客户端反向导入会注册 tool 的 package。
 
 用户已选择 Native；Task 1–5 分别提交为 22bfb14、eaf6d19、1ec6c32、0b76821、168ea94。
-最终 focused 检查为 662 passed、41 skipped；lint、格式及导入边界通过。
+最终 focused 检查为 662 passed、41 skipped（既有描述契约隔离项 #5498）；lint、格式及导入边界通过。
 mypy 初次报告两处 Any | None 不能传入 str 的错误，显式类型收窄后复验 2014 个源文件通过。
 账户额度曾阻止 GitHub 只读查询和独立审查启动；用户指示继续后额度恢复，main 仍为 837124a。
-独立整分支审查、PR、CI 和 Greptile 尚待完成；未运行真实 API、网关或合并。
+独立整分支审查覆盖 837124a..6879e27，未发现 Critical/Important 运行时问题。
+两处文档事实纠正随本次计划内状态更新完成；PR、CI 和 Greptile 尚待完成，未运行真实 API、网关或合并。
 真实验收和合并保留各自授权边界，不重复请求已批准的设计和实施。
+
+审查暂未判断的边界已裁决：真实权限与部署只能现场建立；SDK 解析前的响应分配不受本项正文预算限制；
+全局搜索/OAuth/索引/话题展开/成员/reaction 继续留给独立子项；既有同聊天进度提示可能显示关键词，
+本项省略 query 的契约适用于工具结果、日志和错误，不扩展修改通用 observer。
