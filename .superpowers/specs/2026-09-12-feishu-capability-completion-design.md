@@ -480,8 +480,9 @@ Agent 添加 reaction 分别推进独立 spec/plan/实现/PR，不捆绑无关�
 官方文档核实原生消息搜索要求用户身份；用户随后选定推荐的机器人当前聊天有界历史搜索方式。
 独立 [S8b-2 消息搜索设计](2026-10-01-feishu-s8b2-message-search-design.md) 已写为待审阅稿，
 用户随后于同日明确“批准”该书面设计；独立
-[S8b-2 实施计划](2026-10-01-feishu-s8b2-message-search-implementation-plan.md) 已写并待单独确认执行方式。
-尚未修改产品、注册新工具、执行真实搜索或创建 PR。
+[S8b-2 实施计划](2026-10-01-feishu-s8b2-message-search-implementation-plan.md) 已获 Native 执行授权。
+五个实施任务已提交，当前聊天有界搜索工具已注册；662 项本地 focused 测试通过、41 项既有 optional 测试跳过，
+lint、格式、mypy 与导入边界通过。独立整分支审查及 PR/CI 门禁待完成；尚未执行真实搜索或合并。
 S8b-3/4 仅完成公开 API 初步调研，编号与具体实施方案仍待各自设计，不能勾选完成。
 
 后续每个项目的现场验收除自身退出标准外，共用以下门禁：不提交 `.env` 或凭据；测试 chat 的外部发送

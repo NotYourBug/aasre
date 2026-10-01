@@ -13,7 +13,7 @@ pytest、Ruff、mypy；PowerShell，Python 通过 uv run。
 
 **Spec:** [已批准设计](2026-10-01-feishu-s8b2-message-search-design.md)
 
-**Status:** Written plan for review；设计已于 2026-10-01 获用户“批准”，本计划及执行方式尚待确认。
+**Status:** 用户于 2026-10-01 批准设计并选择 Native，授权执行本计划；五个实施任务已提交，本地验证通过，独立整分支审查与 PR 门禁待完成。
 **Worktree / branch:** `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback` /
 `codex/feishu-s8b2-search-spec`；规划开始时干净 HEAD `52419c3`，
 基于 main `837124ae5ee83b51b6e70e90ba38b891dff4cf3f`。
@@ -132,12 +132,12 @@ Input 只在本次调用局部使用，由 normalize_search_input 构造；客�
 `normalize_search_input(*, start_time: object, end_time: object, query: object = "",
 limit: object = 10, now: int) -> FeishuSearchInput`，无 I/O，失败只抛 validation。
 
-- [ ] 写 `test_search_input_rejects_non_integer_and_unbounded_windows` 的规范化/边界断言。
+- [x] 写 `test_search_input_rejects_non_integer_and_unbounded_windows` 的规范化/边界断言。
   UTF-8 与 C0/C1 控制字符检查在 trim 前，trim 后校验长度；只接收真正 int，拒绝 bool，
   无隐式转换；未来时间或窗口 >604800 秒失败。同一 bug class 用参数组。
-- [ ] 将接口最小可导入，运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_search_input.py -q`；
+- [x] 将接口最小可导入，运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_search_input.py -q`；
   取得行为 RED，不能把 module 不存在当验证。
-- [ ] 实现记录、常量及 normalizer，保证如下断言并为无效值抛 code-only 错误：
+- [x] 实现记录、常量及 normalizer，保证如下断言并为无效值抛 code-only 错误：
 
 ```python
 inputs = normalize_search_input(
@@ -149,9 +149,9 @@ assert inputs == FeishuSearchInput("故障", 1000, 2000, 10)
 assert FEISHU_SEARCH_PAGE_SIZE * FEISHU_SEARCH_MAX_PAGES == 150
 ```
 
-- [ ] 重跑该文件与 `tests/config/test_feishu_card_constants.py`，期望 GREEN；
+- [x] 重跑该文件与 `tests/config/test_feishu_card_constants.py`，期望 GREEN；
   facade 新名字可导入，旧常量值不变。
-- [ ] 仅提交上述文件：`feat(feishu): define bounded search input contracts`。
+- [x] 仅提交上述文件：`feat(feishu): define bounded search input contracts`。
 
 ### Task 2: 安全字符串投影与命中预览
 
@@ -163,7 +163,7 @@ assert FEISHU_SEARCH_PAGE_SIZE * FEISHU_SEARCH_MAX_PAGES == 150
 `make_search_preview(content: FeishuSearchContent, query: str) -> tuple[str, bool] | None`。
 返回 None 表示无完整可搜索文本或非空 query 不命中；空 query 对完整文本返回头部预览。
 
-- [ ] 写 `test_search_matches_only_sanitized_values_and_not_resource_keys`、
+- [x] 写 `test_search_matches_only_sanitized_values_and_not_resource_keys`、
   `test_casefold_preview_keeps_the_original_unicode_match`、
   `test_incomplete_or_invalid_json_never_becomes_searchable`，明确断言：
 
@@ -180,16 +180,16 @@ assert "Straße" in preview and len(preview) <= 600 and shortened
 assert normalize_search_content('{"text":"' + "x" * 13000 + '"}').text is None
 ```
 
-- [ ] 最小可导入后运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_search_content.py -q`，
+- [x] 最小可导入后运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_search_content.py -q`，
   取得上述行为 RED。
-- [ ] 复用 normalize_read_content。只有 body_format=json、未 truncated 才解码已安全 JSON。
+- [x] 复用 normalize_read_content。只有 body_format=json、未 truncated 才解码已安全 JSON。
   以迭代 stack 保持字符串值原出现顺序，跳过 resource keys 及其子树；用 list + join 一次形成文本。
   安全类别的正文失败转成 text=None，不保存原异常；意外失败交给客户端安全边界。
-- [ ] 匹配 casefold 后文本。一次建立 folded 字符到原字符下标的映射，正确处理长度变化；
+- [x] 匹配 casefold 后文本。一次建立 folded 字符到原字符下标的映射，正确处理长度变化；
   预览从命中前最多 120 原字符开始，取最多 600 原字符。只要裁掉头或尾，preview_truncated=true。
-- [ ] 重跑新测试与 `tests/integrations/test_feishu_message_content.py`，期望 GREEN；
+- [x] 重跑新测试与 `tests/integrations/test_feishu_message_content.py`，期望 GREEN；
   同时 pin decoded escaped secret、CJK UTF-8 边界和 per-call masking 不串用，不重复写旧解析器测试。
-- [ ] 提交：`feat(feishu): build sanitized search previews`。
+- [x] 提交：`feat(feishu): build sanitized search previews`。
 
 ### Task 3: 当前聊天历史客户端和局部分页
 
@@ -206,44 +206,44 @@ inputs: FeishuSearchInput, cancel_requested: Callable[[], bool]) -> FeishuSearch
 responder: Callable[[ListMessageRequest], dict[str, Any]]) -> SearchTransportProbe`，
 通过 TokenManager.cache/Transport.execute 拦截真实 SDK，不复制旧 read helper 或改其类型。
 
-- [ ] 写 `test_history_scan_freezes_request_and_stops_after_three_pages`：
+- [x] 写 `test_history_scan_freezes_request_and_stops_after_three_pages`：
   三个响应各 50 个已验证项、has_more=true，断言数据请求数 3、scanned_count=150、
   stop_reason=page_limit、scan_complete=false；请求均为同一 chat、start/end、降序、
   page_size=50、card_msg_content_type=user_card_content、TENANT，HTTP timeout=10.0；
   中途修改 session/config 值不改变捕获的请求。
-- [ ] 写 `test_whole_page_identity_gate_precedes_every_body_access`：
+- [x] 写 `test_whole_page_identity_gate_precedes_every_body_access`：
   本页首项和第二项 body 均为会触发 canary 的 property，第二项 foreign chat；
   断言 touched=[]、history_unavailable、无 canary/foreign metadata/异常链。
-- [ ] 写 `test_pagination_failure_discards_earlier_page_without_retry`：
+- [x] 写 `test_pagination_failure_discards_earlier_page_without_retry`：
   第二页上游失败/重复 token/has_more 缺 token 的 bug class 参数组；
   断言无成功结果、无 retry、请求数量准确，__context__/__cause__ 为 None，caplog 无 canary。
-- [ ] 写 `test_discovery_counts_deleted_duplicate_unsupported_and_empty_pages`：
+- [x] 写 `test_discovery_counts_deleted_duplicate_unsupported_and_empty_pages`：
   删除项不读 body；重复 ID 只处理一次；已知资源在空 query 下可提供无预览 ID；
   未知 type 不释放原 type，计 unsearchable；空页 has_more=true 仍在三页预算内前进。
   断言各计数和 content coverage，不能借未知类型增加检索。
-- [ ] 写 `test_budget_and_cancellation_do_not_release_partial_work`：
+- [x] 写 `test_budget_and_cancellation_do_not_release_partial_work`：
   多字节正文累计越过 2 MiB 时不再处理后续项，stop_reason=work_limit/scan_complete=false；
   预算恰好等于总工作且末页耗尽时为 source_exhausted/true。
   取消使用 Event：请求前、响应后及页间触发均丢弃结果且不继续分页。
-- [ ] 写 `test_history_error_classification_is_safe`：
+- [x] 写 `test_history_error_classification_is_safe`：
   真实 RawResponse 的 HTTPStatus.TOO_MANY_REQUESTS 和业务限流 ->rate_limited；
   既有授权代码及 230073/231203/231204 ->history_unavailable；
   坏 envelope、超 50 项、坏 has_more/token、其他上游或 transport 异常 ->upstream_error。
   身份/时间/deleted/msg_type 类型错误 ->history_unavailable。
-- [ ] 最小可导入后运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_message_search.py -q`，
+- [x] 最小可导入后运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_message_search.py -q`，
   取得行为 RED。
-- [ ] 实现单次 client 构造、固定 ListMessageRequest，限制 token_types 为 TENANT；
+- [x] 实现单次 client 构造、固定 ListMessageRequest，限制 token_types 为 TENANT；
   取消检查、应用身份匹配与有效 UTF-8 scope 在请求前完成。局部 set 管 token/ID。
   每页先验证所有身份与闭合毫秒边界 start*1000 <= create_time <= end*1000，再逐项处理。
   未知类型计不可搜索但不返回；已知资源/merge_forward/system 不访问 body。
-- [ ] raw 是 str 且字符数 <= 单条字节上限才编码 UTF-8，避免超大字符串的额外完整编码；
+- [x] raw 是 str 且字符数 <= 单条字节上限才编码 UTF-8，避免超大字符串的额外完整编码；
   单条不合规计不可搜索。合规 raw 按实际 UTF-8 字节扣累计预算，normalize 之前先检查预算。
   首次可见的 live known 类型在空 query 下计 matched；非空只对安全全文命中计 matched；
   最多保留 inputs.limit 个 Item，但继续有界扫描以得到真实 matched_count。
-- [ ] 完全完成所有项且 has_more=false 时 source_exhausted；预算阻止剩余工作时才 work_limit，
+- [x] 完全完成所有项且 has_more=false 时 source_exhausted；预算阻止剩余工作时才 work_limit，
   三页仍 has_more 时 page_limit。scanned_count 只统计逐项处理阶段已到达的项。
   每次正文处理前和最终释放前复核取消，任何后续页失败不返回早先暂存结果。
-- [ ] 新测试及 S8b-1 `test_feishu_message_read.py`/`test_feishu_message_lookup.py` GREEN 后提交：
+- [x] 新测试及 S8b-1 `test_feishu_message_read.py`/`test_feishu_message_lookup.py` GREEN 后提交：
   `feat(feishu): search guarded current-chat history`。
 
 ### Task 4: 注册工具、受控结果与安全遥测
@@ -263,39 +263,39 @@ responder: Callable[[ListMessageRequest], dict[str, Any]]) -> SearchTransportPro
 query: str = "", limit: int = 10, context: AgentToolContext) -> ToolExecutionResult`。
 入口 `feishu_search_messages = tool(FeishuSearchMessagesTool(), surfaces=(ToolSurface.ACTION,))`。
 
-- [ ] 写 `test_real_executor_rejects_injected_authority_before_credentials`：
+- [x] 写 `test_real_executor_rejects_injected_authority_before_credentials`：
   真实 RegisteredTool/execute_tool_calls 覆盖额外 target/chat/token/page 参数、bool/future window、
   未验证配置、其他平台、shell/缺失 context。断言 credential/data GET 调用为零；
   direct run 同样拒绝。校验先 input/runtime scope，后 cancel/credentials/client。
-- [ ] 写 `test_search_result_bounds_escaped_json_and_keeps_details_identical`：
+- [x] 写 `test_search_result_bounds_escaped_json_and_keeps_details_identical`：
   20 个包含可转义字符的安全 600 字符 Item 触发编码裁剪；
   断言 len(content)<=20000、json.loads(content)==details、所有项完整、
   returned_count==len(items)、results_truncated=true、complete=false；
   limit 截断也不隐藏 matched_count。无 page token/query/raw canary。
-- [ ] 写 `test_complete_flags_do_not_turn_an_empty_partial_scan_into_no_matches`：
+- [x] 写 `test_complete_flags_do_not_turn_an_empty_partial_scan_into_no_matches`：
   complete 精确由 scan_complete、unsearchable_count==0 和 !results_truncated 合取；
   0 items、扫描未耗尽或跳过正文均不得宣称完整。
-- [ ] 写 `test_unexpected_tool_failure_reports_only_an_unchained_exception_type`：
+- [x] 写 `test_unexpected_tool_failure_reports_only_an_unchained_exception_type`：
   credentials 抛含 canary 的 RuntimeError，输出 code-only upstream_error，
   report_run_error 收到 RuntimeError("RuntimeError")，无敏感 context/cause。
-- [ ] 运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_search_messages_tool.py -q`，取得行为 RED。
-- [ ] 实现 metadata：name/source/requires/surfaces/tags、requires_approval=false、parallel_safe=true、
+- [x] 运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_search_messages_tool.py -q`，取得行为 RED。
+- [x] 实现 metadata：name/source/requires/surfaces/tags、requires_approval=false、parallel_safe=true、
   accepts_runtime_context=true、非空用例及准确 schema；只 required start_time/end_time，
   additionalProperties=false。log_omitted_input_fields=("query","start_time","end_time")。
   声明 TOOL_MODULES=("tool",)，facade 只导出 TOOL_MODULES/feishu_search_messages。
-- [ ] prepare 使用 normalizer 和既有 scope candidacy；run 重新捕获 UTC 秒并规范输入，
+- [x] prepare 使用 normalizer 和既有 scope candidacy；run 重新捕获 UTC 秒并规范输入，
   冻结 inputs/scope 后不再读可变 session。既有 FeishuReadError 的授权失败映射 authorization；
   凭据 app_id 与 scope 一致性由 client 再核对，不注入 model 可控秘密。
-- [ ] 实现设计 §8 的全部成功字段。每个安全 Item JSON 编码一次；
+- [x] 实现设计 §8 的全部成功字段。每个安全 Item JSON 编码一次；
   固定 metadata JSON 编码一次，并为动态 returned_count/results_truncated/complete 及括号逗号
   预留最长形式的空间。选可容纳的完整 item 前缀，join 编码片段形成最终 JSON；
   不反复编码同一个完整 payload，不截断外层 JSON。固定 metadata 已超预算或编码失败时安全失败。
   details 使用完全相同值；content_complete=(unsearchable_count==0)。
-- [ ] 六类失败使用固定文案，只有 source/status/error_type/error；意外异常在 except 后只以
+- [x] 六类失败使用固定文案，只有 source/status/error_type/error；意外异常在 except 后只以
   安全 type name 报告，不把原 exc 附到 Sentry。正常权限/取消/上游失败不报原始 SDK 异常。
-- [ ] 新增 _feishu_search_case()、_TOOL_FAILURE_CASES 项和 _MIGRATED_TOOL_NAMES 项；
+- [x] 新增 _feishu_search_case()、_TOOL_FAILURE_CASES 项和 _MIGRATED_TOOL_NAMES 项；
   延用正常遥测断言，对新 search case 增加安全 type/无链断言，不降低既有覆盖门禁。
-- [ ] 运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_search_messages_tool.py tests/tools/test_telemetry.py tests/tools/test_description_contract.py -q -k "feishu or coverage or ratchets or registry_floor"`；
+- [x] 运行 `uv run --no-sync python -m pytest tests/integrations/test_feishu_search_messages_tool.py tests/tools/test_telemetry.py tests/tools/test_description_contract.py -q -k "feishu or coverage or ratchets or registry_floor"`；
   另运行 `uv run --no-sync python -m pytest tests/tools/test_registry.py tests/tools/test_registry_index.py -q`，GREEN 后提交：
   `feat(feishu): expose bounded message search action`。
 
@@ -309,33 +309,33 @@ query: str = "", limit: int = 10, context: AgentToolContext) -> ToolExecutionRes
 **Interfaces:** 保持 `feishu_action_prompt_fragment(context: ActionPromptContext) -> str` 签名；
 复用 ActionTurnRunner/TurnSnapshot/DefaultToolProvider，无 core/harness 产品改动。
 
-- [ ] 写 `test_search_prompt_describes_only_offered_bounded_current_chat_search`：
+- [x] 写 `test_search_prompt_describes_only_offered_bounded_current_chat_search`：
   search offered 才出现；说明 window、limited scan、untrusted、complete=false 不能作无匹配结论、
   thread replies/resources 不覆盖、找到 ID 后只能在 reader offered 时调用 reader。
   只有旧 write/read offered 时输出保持旧测试期望，shell/非 Feishu 不出现 search；
   不提前提及未实现 members/reaction。
-- [ ] 扩展真实发现与 provider runner：normal/precomputed/custom 均按冻结 surface/platform
+- [x] 扩展真实发现与 provider runner：normal/precomputed/custom 均按冻结 surface/platform
   限制 search；仅 ACTION，不在 INVESTIGATION；强行工具调用且坏 chat scope 时无 credential/GET。
   新工具是已存在 integrations.feishu.tools 下面的包，不修改 registry root/发现算法。
-- [ ] 写 `test_search_scope_and_window_are_frozen_across_session_reuse` 和
+- [x] 写 `test_search_scope_and_window_are_frozen_across_session_reuse` 和
   `test_concurrent_searches_do_not_share_windows_or_previews`：
   ScriptedLLM 实际发工具调用，经 runner + 新 offline SDK probe；
   同一 session 两个顺序 turn、两个并发聊天的 app/chat/window 和安全预览保持各自值。
   中途修改 session cache 不改变已捕获输入，shared resources 不被写回。
   并发使用 Barrier(timeout=10)、future.result(timeout=30)、finally abort/cancel，不用 sleep。
-- [ ] 运行 `uv run --no-sync python -m pytest tests/core/agent/prompts/test_gateway_channel_prompt.py tests/core/agent_harness/test_gateway_channel_tools.py tests/core/agent_harness/test_channel_turn_isolation.py -q`，取得新行为 RED。
-- [ ] 增加包内独立搜索 prompt 片段，按精确 offered 名判断；不修改通用渠道门禁、写审批、
+- [x] 运行 `uv run --no-sync python -m pytest tests/core/agent/prompts/test_gateway_channel_prompt.py tests/core/agent_harness/test_gateway_channel_tools.py tests/core/agent_harness/test_channel_turn_isolation.py -q`，取得新行为 RED。
+- [x] 增加包内独立搜索 prompt 片段，按精确 offered 名判断；不修改通用渠道门禁、写审批、
   S8b-1 文案或 morning-report。有限扫描不足时可在用户请求范围内缩小窗口，
   不自动扩大窗口或改用跨聊天/全局检索。
-- [ ] 用户文档添加自然语言查找示例、空关键词 ID 发现、最多 7 天/150 条的范围、
+- [x] 用户文档添加自然语言查找示例、空关键词 ID 发现、最多 7 天/150 条的范围、
   脱敏预览、不包含话题回复和权限失败前置。已知 ID 读取的原行为说明保持；
   把旧“没有搜索能力”句改成单条读取和新搜索各自职责。不写内部模块/端点/历史 bug。
-- [ ] 运行 `uv run --no-sync python -m pytest tests/core/agent/prompts/test_gateway_channel_prompt.py tests/core/agent_harness/test_gateway_channel_tools.py tests/core/agent_harness/test_channel_turn_isolation.py -q`，
+- [x] 运行 `uv run --no-sync python -m pytest tests/core/agent/prompts/test_gateway_channel_prompt.py tests/core/agent_harness/test_gateway_channel_tools.py tests/core/agent_harness/test_channel_turn_isolation.py -q`，
   GREEN 后提交：`feat(feishu): guide and isolate offered message search`。
 
 ## 3. 最终本地检查、独立审查与交付
 
-以下是未来执行命令，尚未运行。按 CI.md 与现有 PathRule，
+以下命令已完成本地检查；mypy 的两处字符串类型收窄问题已修复并复验通过。按 CI.md 与现有 PathRule，
 integrations 运行 focused Feishu 包；改动测试同时直接运行。静态命令是 Makefile 的 Windows 等价：
 
 ```powershell
@@ -356,7 +356,7 @@ uv run --no-sync python .github/ci/check_imports.py
 不把收集/权限错误当行为失败或成功。仅 format 触及文件；如有非本项既有静态失败，
 比较基线并准确记录，不能修 unrelated 以扩大本项范围，也不能绕过门禁。
 
-- [ ] 五个任务完成后跑上述 local gate，记录准确 HEAD、命令和结果。
+- [x] 五个任务完成后跑上述 local gate，记录准确 HEAD、命令和结果。
 - [ ] 按用户选择执行方式完成独立审查并修复。推荐 Native：当前会话逐项实现，
   末尾一次新鲜独立整分支审查；比逐任务重新传递这些紧密依赖的接口更直接。
   独立 reviewer 遵循执行技能的能力要求，审查输入类型、数据边界、预算、取消和真实 runner。
@@ -407,7 +407,9 @@ uv run --no-sync python .github/ci/check_imports.py
 没有扩大聊天、内容、权限或共享接口。新增 search_input.py 是输入职责拆分，
 避免客户端反向导入会注册 tool 的 package。
 
-当前只完成书面设计批准和实施计划编写；所有实现/验证/审查/PR 步骤保持未勾选。
-计划及 Native/Subagent-driven 执行方式尚待用户确认。没有实施新产品、运行产品测试、
-真实 API、网关、push、PR 或 merge。批准计划后读取对应执行技能并持续推进，
-不要重复请求已经批准的设计。
+用户已选择 Native；Task 1–5 分别提交为 22bfb14、eaf6d19、1ec6c32、0b76821、168ea94。
+最终 focused 检查为 662 passed、41 skipped；lint、格式及导入边界通过。
+mypy 初次报告两处 Any | None 不能传入 str 的错误，显式类型收窄后复验 2014 个源文件通过。
+账户额度曾阻止 GitHub 只读查询和独立审查启动；用户指示继续后额度恢复，main 仍为 837124a。
+独立整分支审查、PR、CI 和 Greptile 尚待完成；未运行真实 API、网关或合并。
+真实验收和合并保留各自授权边界，不重复请求已批准的设计和实施。

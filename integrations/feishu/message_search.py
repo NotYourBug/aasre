@@ -143,6 +143,7 @@ def _page(
         deleted = getattr(item, "deleted", None)
         if (
             getattr(item, "chat_id", None) != scope.chat_id
+            or not isinstance(message_id, str)
             or not _identifier(message_id)
             or type(deleted) is not bool
             or not isinstance(msg_type, str)
@@ -178,7 +179,7 @@ def _scan_item(item: _VerifiedItem, inputs: FeishuSearchInput, scan: _Scan) -> b
     if item.msg_type in FEISHU_SEARCH_TEXT_TYPES:
         raw = getattr(getattr(item.source, "body", None), "content", None)
         size = _body_size(raw)
-        if size is not None:
+        if size is not None and isinstance(raw, str):
             if scan.body_bytes + size > FEISHU_SEARCH_MAX_BODY_BYTES:
                 return False
             scan.body_bytes += size
