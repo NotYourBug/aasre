@@ -1,7 +1,7 @@
 # Feishu S8b-1 Single-Message Read Design
 
 - Date: 2026-09-30
-- Status: Approved and implemented; product commit `6d609e0` passed PR CI and Greptile 5/5 with zero unresolved threads (2026-09-30). Final delivery records require latest-head rechecks; live acceptance and merge remain unauthorized.
+- Status: Approved and implemented; PR #44 HEAD `57762cd` passed CI and Greptile 5/5. Separately authorized current-chat text acceptance passed on 2026-10-01; see §13 for scope and untested cases. This record update requires latest-head rechecks. Merge remains unauthorized.
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
 - Implementation plan: [Independent plan](2026-09-30-feishu-s8b1-read-message-implementation-plan.md), approved for Native execution on 2026-09-30
 - Scope: One read-only ACTION tool, `feishu_get_message`, for a known message ID in the current Feishu chat
@@ -370,3 +370,41 @@ This refinement enforces the approved no-shell contract without broadening
 access. The user explicitly approved the plan, this gate extension and the
 runner supplement in this continuation. Live operations and merging remain
 subject to separate authorization.
+
+## 13. Bounded live text acceptance (2026-10-01)
+
+The user separately authorized using the repository-root `.env`, obtaining a
+message ID, and a temporary receive-only connection while they sent a test
+message. This supersedes the earlier no-live-operation boundary only for this
+bounded acceptance. It does not authorize ordinary gateway dispatch, additional
+reads, permission changes, deployment, or merge.
+
+At clean PR HEAD `57762cdf5edec8a212938fd7c9fc78932411c76d`, the temporary
+connection captured one allowlisted user's new text message in the configured
+current chat, acknowledged the event, and disconnected. The real registered
+`feishu_get_message` tool then ran through the normal executor with frozen
+Feishu gateway authority. Exactly **one message GET** and one tenant-token
+acquisition attempt produced a passing safe result: matching current chat and
+message identity, `body_format="json"`, 28 body characters, no truncation or
+redaction, `resource_content_included=false`, and `content_trust="untrusted"`.
+The local report retains identity metadata and contract checks, without body,
+credentials, or raw provider response. No test identifiers are committed here.
+
+An earlier separately bounded one-page history lookup failed with code `230027`
+after one token acquisition and one list GET; it captured no IDs and performed
+no message GET. The receive-only method avoided that discovery prerequisite.
+Two sequential WS endpoint connections were made: the first captured no ID and
+was stopped; a string-timestamp correction in the local harness was reproduced
+offline, verified, and used for the replacement. No automatic retries or
+overlapping listeners occurred. The replacement preserved the original
+10:06:08–10:21:08 Asia/Shanghai window and one-message-GET budget. Both listener
+processes exited. Product code did not change during this acceptance.
+
+This proves the checkout's current-chat text tool/API path. It does not prove
+that an ordinary deployed gateway has loaded this branch. Original card
+content, controlled foreign-chat rejection, and unavailable/deleted messages
+remain untested live; their offline results are not promoted to live results.
+No chat reply, approval, reaction, resource download, permission modification,
+application publishing, deployment, or merge occurred. The original ID-only
+API and finite-secret-detection limitations still apply. See implementation
+plan §10 for delivery follow-through.

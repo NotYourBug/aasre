@@ -11,7 +11,7 @@
 **Spec:** [S8b-1 design](2026-09-30-feishu-s8b1-read-message-design.md): core design and §12 gate refinement, including explicit frozen runner host authority, approved by the user on 2026-09-30.
 
 - Date: 2026-09-30
-- Status: All six tasks implemented and independently reviewed on 2026-09-30; see the pre-PR checkpoint below. PR CI/Greptile follow-through is required. Live acceptance and merge remain unauthorized.
+- Status: All six tasks implemented and independently reviewed; PR #44 HEAD `57762cd` passed CI and Greptile 5/5. Separately authorized current-chat text acceptance passed on 2026-10-01; see §10 for actual scope and remaining live cases. This record update requires latest-head CI/Greptile follow-through. Merge remains unauthorized.
 - Worktree: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`
 - Branch: `codex/feishu-s8b1-read-message-spec`
 - Planning baseline: `7bd738090d98f20a8fbe39cedc0ece487d5a35ee`; clean before this plan/approval record
@@ -563,3 +563,48 @@ real message reads, gateway operations, deployment or merge occurred. There is
 no merge authorization and therefore no merge-commit/main/CodeQL/release result
 for this feature. This record is a docs-only update; after pushing it, recheck
 CI and Greptile on the final HEAD rather than reusing this product-head result.
+
+## 10. Bounded live acceptance checkpoint (2026-10-01)
+
+The user authorized reading credentials from the repository-root `.env`, asked
+the agent to obtain a message ID, and proposed a temporary Feishu connection
+while they sent a test message. The agreed execution remained confined to the
+configured app/current chat and existing user allowlist. The capture/read
+window was 10:06:08–10:21:08 Asia/Shanghai, with at most one message GET after
+capture. Foreign-chat reads were not authorized.
+
+The earlier independent discovery attempt used one tenant-token acquisition
+and one current-chat list GET (at most five items, no paging/retry). It failed
+with code `230027`, returned no usable IDs, and performed zero message GETs.
+The subsequent event path used two sequential endpoint-discovery POSTs, with
+no automatic reconnect or retry. The first connection captured no ID and was
+stopped. SDK inspection and a failing string-timestamp fixture exposed an
+overly strict local harness check; accepting bounded decimal millisecond
+strings restored the three receive-only tests. Ruff/mypy passed, the old
+process's absence was verified, and the replacement retained the same window
+and one-GET budget. The thirteen acceptance-guard tests had passed separately.
+These local harness files remain outside the product checkout.
+
+At clean HEAD `57762cdf5edec8a212938fd7c9fc78932411c76d`, the replacement captured
+the user's allowlisted current-chat text event, completed the SDK ACK, and
+disconnected before executing the real registered tool through the normal
+executor. The read used one tenant-token acquisition and **one message GET**,
+with zero list requests in that run. The result passed matching-ID/current-chat
+and safe-result checks: JSON body representation, 28 characters,
+`truncated=false`, `redacted=false`, `resource_content_included=false`, and
+`content_trust="untrusted"`. The process exited successfully; both temporary
+listeners were verified absent. Local capture/result/spent files contain only
+identity metadata, safe constants, lengths, and counters. Bodies, credentials,
+raw SDK/provider responses, and test IDs are not committed.
+
+Current-chat text acceptance is complete for this bounded run. Card, controlled
+foreign-chat rejection, and unavailable/deleted-message live cases remain
+unverified; no test message was created or deleted by the agent. This isolated
+tool/API result does not establish that an ordinary deployed gateway uses the
+branch. No LLM turn, chat send/reply, approval, reaction, resource download,
+permission change, application publishing, deployment, or merge occurred.
+
+The spec/plan/roadmap and PR description are updated with this evidence. Only
+non-runtime records change, so CI.md §0 permits the docs-only local check;
+latest-head PR CI, review-thread inspection, and Greptile 5/5 remain required
+after this push. No merge authorization or post-merge validation result exists.
