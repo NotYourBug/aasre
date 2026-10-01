@@ -11,7 +11,7 @@
 **Spec:** [S8b-1 design](2026-09-30-feishu-s8b1-read-message-design.md): core design and §12 gate refinement, including explicit frozen runner host authority, approved by the user on 2026-09-30.
 
 - Date: 2026-09-30
-- Status: All six tasks implemented and independently reviewed; PR #44 HEAD `970dbff` passed CI and Greptile 5/5. Separately authorized current-chat text, original-card and recalled-message acceptance passed on 2026-10-01; see §§10–11. Controlled foreign-chat rejection remains unverified live, without an accepted waiver. This evidence-only update requires latest-head CI/Greptile follow-through before merge.
+- Status: All six tasks implemented and independently reviewed; PR #44 HEAD `7bafdf6` passed CI and Greptile 5/5. Current-chat text, original-card and recalled-message live acceptance passed; controlled foreign-chat rejection remains unverified live. On 2026-10-01 the user explicitly accepted that limitation and instructed merge; see §12. Follow the exact final head and merge commit's checks; actual merge/delivery status is recorded on [PR #44](https://github.com/NotYourBug/aasre/pull/44).
 - Worktree: `C:\Users\23033\Desktop\opensre2\.worktrees\feishu-s5b-feedback`
 - Branch: `codex/feishu-s8b1-read-message-spec`
 - Planning baseline: `7bd738090d98f20a8fbe39cedc0ece487d5a35ee`; clean before this plan/approval record
@@ -651,3 +651,21 @@ limitation before merging. Post-merge main CI/full CodeQL/release have not run.
 This update changes only non-executable design/plan/roadmap records, so the
 CI.md §0 local shortcut applies. After pushing, follow the exact new PR HEAD's
 CI, all review threads and Greptile 5/5; do not reuse `970dbff`'s green result.
+
+## 12. Explicit limitation acceptance and merge authorization (2026-10-01)
+
+At clean `7bafdf6e3d189944430c574f5a1f7378900503c5`, PR CI was complete without
+failure, `gh pr checks --watch` exited 0, Greptile identified the exact head at
+5/5, and all four review threads were resolved. The user then stated:
+“我接收这项已披露限制，请合并吧”. This explicitly authorizes merging with controlled
+foreign-chat rejection still unverified live; it is specific to S8b-1 and does
+not borrow an S8a waiver or authorize additional live requests.
+
+The approval record changes only non-executable Markdown. Follow CI.md §0
+locally and close latest-head CI/Greptile after pushing it. Merge that checked
+head without bypassing branch protections, then monitor the exact merge
+commit's main CI, full Python/JS CodeQL and release workflows. Compare CodeQL
+findings with the current main baseline; fix or revert new delivery failures
+without dismissing alerts or cleaning unrelated warnings. Report guard skips
+as skips. Merge and post-merge workflow evidence are retained in PR #44's final
+delivery record, rather than treating this pre-merge approval as completion.

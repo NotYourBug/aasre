@@ -1,7 +1,7 @@
 # Feishu S8b-1 Single-Message Read Design
 
 - Date: 2026-09-30
-- Status: Approved and implemented; PR #44 HEAD `970dbff` passed CI and Greptile 5/5. Separately authorized current-chat text, original-card and recalled-message acceptance passed on 2026-10-01; see §§13–14. Controlled foreign-chat rejection remains unverified live, without an accepted waiver. This evidence-only update requires latest-head rechecks before merge.
+- Status: Approved and implemented; PR #44 HEAD `7bafdf6` passed CI and Greptile 5/5. Current-chat text, original-card and recalled-message live acceptance passed; controlled foreign-chat rejection remains unverified live. On 2026-10-01 the user explicitly accepted that limitation and instructed merge; see §15. Follow the exact final head and merge commit's checks; actual merge/delivery status is recorded on [PR #44](https://github.com/NotYourBug/aasre/pull/44).
 - Parent roadmap: [`2026-09-12-feishu-capability-completion-design.md`](2026-09-12-feishu-capability-completion-design.md)
 - Implementation plan: [Independent plan](2026-09-30-feishu-s8b1-read-message-implementation-plan.md), approved for Native execution on 2026-09-30
 - Scope: One read-only ACTION tool, `feishu_get_message`, for a known message ID in the current Feishu chat
@@ -442,3 +442,14 @@ that a deployed gateway loaded this branch. Controlled foreign-chat rejection
 remains unverified live and must be completed or explicitly accepted as a
 limitation before merge. The upstream SDK-memory and finite-masking limits
 remain unchanged. See implementation plan §11 for delivery follow-through.
+
+## 15. Explicit foreign-live waiver and merge instruction (2026-10-01)
+
+After `7bafdf6` passed CI and Greptile 5/5 with all four review threads resolved,
+the user explicitly accepted the disclosed lack of controlled foreign-chat
+live verification and instructed merge. That acceptance satisfies the specific
+live-limitation gate; it does not claim that case passed or authorize new live
+reads. Recheck this records-only update's final head, then merge and follow the
+exact merge commit's main CI, full Python/JS CodeQL and release workflows.
+Deployment and loading the branch into an ordinary live gateway remain outside
+this acceptance. Implementation plan §12 records the authorization.
