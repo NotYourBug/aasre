@@ -1,7 +1,7 @@
 # 飞书通讯能力补全设计（Feishu Capability Completion）
 
-- Date: 2026-09-12（2026-09-18 修订后续路线）
-- Status: Revision approved by user（2026-09-18）；S1–S6（含 S5a–S5c）、S8a 及 S7 已交付；S7 经 PR #41（d03ddad）及告警修复 PR #42（1cee42f）完成合并后验收，main CI 与完整 CodeQL 成功、新增告警归零，Release 按原 guard 跳过；S8b-1 已实现并独立审查，PR #44 HEAD 7bafdf6 的 CI 与 Greptile 5/5 通过；当前聊天文本、原始卡片、撤回后不可用现场通过，受控跨聊天未现场验证；用户于 2026-10-01 明确接受该限制并指示合并，最终合并/交付状态见 [PR #44](https://github.com/NotYourBug/aasre/pull/44)，须跟进准确提交的检查
+- Date: 2026-09-12（2026-09-18 修订后续路线；2026-10-02 裁剪 S8b 剩余范围）
+- Status: S1–S8 按当前选定范围已交付；S8b-1 经 [PR #44](https://github.com/NotYourBug/aasre/pull/44) 合并为 `837124a`，S8b-2 经 [PR #45](https://github.com/NotYourBug/aasre/pull/45) 合并为 `d8598c2`，均完成合并后检查。用户于 2026-10-02 明确取消 S8b-3／4；已有现场限制继续保留，普通网关运行验收进入后续配置可靠性工作，尚未通过。
 - 上游 spec: [`2026-08-30-feishu-comms-replacement-design.md`](2026-08-30-feishu-comms-replacement-design.md)
 - Ledger: `.superpowers/sdd/2026-08-30-feishu-comms-replacement/progress.md` — a local-only working
   artifact (gitignored, so not rendered as a link), holding the full R-decision history this spec
@@ -213,7 +213,7 @@ S5c/S8b 需要独立核实 reaction 标识与客户端能力，不能假定 S5b 
 | **S5c** | 重试与 reaction 捷径 | 🔄重试按钮；`THUMBSUP`/`CrossMark` reaction 映射；处理流式中、过期、重复与删除事件 | S5b；订阅 `im.message.reaction.created_v1` / `deleted_v1` 并具备相应权限 | 只有原请求者可触发；一次用户意图最多启动一个可计费 turn；流式中/旧卡/会话轮换行为确定；删除 reaction 不撤销动作 | 已完成 |
 | **S8a** | Agent 发送/回复工具 | `integrations/feishu/tools/` 中提供主动发送与线程回复；复用凭据和 S4 回复语义 | S1、S4 | agent 可向获准目标发送或回复飞书消息；目标校验、审批、失败结果和内容分页均有契约测试 | 已合并 PR #38；真实发送/回复/拒绝审批已验收，真实多页投递未验收（离线测试通过，用户同意带此限制合并） |
 | **S7** | 运行时渠道感知 prompt | 基于当前 turn 的 platform/chat context 生成实际运行的 action/persona 片段及能力视图；历史 gather/assistant 注册表保留且无新增消费者 | S8a | 飞书 turn 使用飞书语义与工具；其他 transport 不出现飞书 persona 或不可用工具；本地 surface 行为不回退 | 已交付：PR #41（d03ddad）及修复 PR #42（1cee42f）；main CI、完整 Python/JS CodeQL 成功，Greptile 5/5，无新增告警；Release 按原 guard 跳过；未做真实飞书验收 |
-| **S8b** | Agent 读取类工具 | 读消息、搜消息、列成员、加 reaction 逐项调研、逐项 spec/PR，不以工具集合打包 | S1、S7；加 reaction 复用 S5b/S5c 客户端能力 | 每项工具分别定义权限、分页、目标范围与跨聊天授权；只注册已完成且可验收的能力 | S8b-1 已实现、独立审查；当前聊天文本、原始卡片、撤回后不可用现场读取通过，受控跨聊天未现场验证；用户明确接受该限制并批准合并，准确 CI/CodeQL/release 交付状态见 PR #44；其余待逐项调研 |
+| **S8b** | Agent 读取类工具 | 已知 ID 读消息、有界消息发现/搜索；成员列表与 Agent 主动 reaction 已由用户取消 | S1、S7 | 选定工具分别定义权限、分页、目标范围与跨聊天授权；准确提交检查完成，现场验收或逐项接受的限制有记录 | S8b-1（PR #44 / `837124a`）和 S8b-2（PR #45 / `d8598c2`）已交付，保留已接受现场限制；S8b-3／4 取消，不标为已实现 |
 
 **依赖与节奏**：S5a 只迁移审批；S6 不等待反馈状态机；S5b 不包含重试；S5c 才允许产生新 turn。
 S8a 先提供 prompt 可引用的最小工具面，S7 再按运行时 surface 暴露它，S8b 的研究型能力逐项推进。
@@ -282,7 +282,7 @@ R27 让卡片按钮取代文本审批，那就必须把文本审批的授权校�
 **→ S3 的退出标准“达到工程预算或平台拒绝时不丢内容”覆盖级 0–3；级 4 已由 S4 的纯文本
 分片补齐。**
 
-**当前顺序（R33）**：S1–S4、S5a–S5c、S6、S8a、S7 已完成；后续为 **S8b**，仍须逐项研究、spec、plan 和授权。
+**当前顺序（R33，2026-10-02 裁剪）**：S1–S4、S5a–S5c、S6、S8a、S7、S8b-1／2 已交付；S8b-3／4 取消。后续为配置解析修复和普通飞书网关运行验收，属于交付后的可靠性工作。
 不得再以“S7/S8 无依赖、可随时插入”为由提前全局改 prompt 或一次性铺开未调研工具。
 
 ## 5. 明确排除（YAGNI）
@@ -297,6 +297,8 @@ R27 让卡片按钮取代文本审批，那就必须把文本审批的授权校�
 | HTTP events 接收 + 签名校验 | slack `transport/events_api/` | WS 长连接已满足；设计 §3 明确无公网端点 |
 | `getChat` 目标解析 / `getMe` 验证 | telegram | S1 的 verifier 覆盖验证；目标解析飞书侧用 `receive_id` |
 | thread 历史回填 | slack / discord | S4 已实现 outbound 回复线程；把既有 thread 历史回填进 session 仍非当前工作流 |
+| S8b-3 当前群用户成员列表 | S8b 后续 API 调研 | 用户于 2026-10-02 明确取消，对当前调查工作流帮助有限 |
+| S8b-4 Agent 主动添加 reaction 工具 | S8b 后续 API 调研 | 用户于 2026-10-02 明确取消；不影响 S5b／S5c 已交付的用户反馈、重试按钮及 reaction 捷径 |
 | DM / 群区分与 open-workspace 模式 | slack / discord | 飞书 `chat_id`(群) 与 `open_id`(人) 已天然区分 |
 | ~~消息反应（reactions）~~ | slack / discord | **已移出排除项** —— R28 裁决纳入范围，见 §2.6 与 S5b/S5c |
 
@@ -510,6 +512,38 @@ token POST 1 次、历史 GET 2 次、单条 GET 1 次，全部 HTTP 200 / code 
 CI、Greptile 5/5 和零未解决线程，再合并并跟踪准确 merge SHA 的 main CI、完整 CodeQL 与 release。
 合并后失败仍是未完成交付，须修复或回滚；S8b-3/4 不因此自动完成。
 S8b-3/4 仅完成公开 API 初步调研，编号与具体实施方案仍待各自设计，不能勾选完成。
+
+### 2026-10-02：S8b-2 交付闭环与剩余范围取消
+
+PR #45 最终 HEAD `f3836aeb39a00c9d519fbcdfafc842186c1bc53f` 满足 CI、Greptile 5/5 与零未解决线程，
+合并为 `d8598c2bfda86e1b858e283ce58ae604b1482b51`。准确 merge SHA 的
+[main CI](https://github.com/NotYourBug/aasre/actions/runs/36871864633) 与
+[完整 Python/JavaScript CodeQL](https://github.com/NotYourBug/aasre/actions/runs/36871864781) 成功；
+CodeQL 既有 38 条 open 告警的编号集合不变，零新增；
+[Release](https://github.com/NotYourBug/aasre/actions/runs/36871864886) 按原 guard 跳过，未发布。
+第三轮文本发现 → 同 ID 单条读取 → 关键词命中现场通过；真实多页、跨聊天/操作者、post/卡片搜索
+及普通网关配置解析/部署的限制仍按 PR #45 的逐项接受记录保留。
+
+用户明确决定取消 S8b-3 当前群成员列表与 S8b-4 Agent 主动 reaction 工具；本决定取代上述
+“尚待设计”的后续安排。它们是排除项，不是实现完成项；不得自动恢复实施，也不移除 S5b／S5c。
+S1–S8 按修订后的选定能力范围闭环，下一步是 `.env` 与有效配置解析问题和普通网关运行验收。
+
+零网络只读诊断已复现：主仓库 `.env` 的 Feishu 字段通过正常 bootstrap 后与 dotenv 解析一致；
+本机非组织作用域 store 有一条 active Feishu 记录，其唯一凭据字段为 `identity_policy`。
+整条记录覆盖 env 记录后不能分类，导致默认有效 catalog 缺少 Feishu；凭据 leaf 却回退到 env。
+组织作用域没有该 store 记录时，默认 catalog 可解析同一应用。身份策略必须保留，不能删除记录规避。
+干净工作树没有 `.env`，后续正常入口应显式指定 `OPENSRE_PROJECT_ENV_PATH` 指向既有文件。
+这些是诊断事实，尚不代表配置修复或普通网关验收成功；本轮未启动网关、模型或发送消息。
+
+用户随后批准有限修复设计，并明确“计划写好即停，暂不要执行”。
+[配置解析与普通网关验收实施计划](2026-10-02-feishu-config-gateway-acceptance-implementation-plan.md)
+已写为待执行状态；不把设计批准视为实施、现场窗口或合并授权，恢复前不修改产品代码或运行测试。
+
+2026-10-02 用户随后明确恢复上述实施计划，选择 Native，授权常规实现、验证、提交、PR/CI
+及零网络现场准备，完成后一次独立全分支评审；上段暂停记录被本轮授权取代。
+有限配置修复和真实持久化/作用域回归现已实现，本地 scoped suite 695 passed，完整静态检查通过。
+真实 store 和 `.env` 保留；默认 catalog、凭据和 settings 在 unbound/实际 org 作用域解析一致。
+普通网关现场和合并仍须分别明确批准，尚未启动；不将配置解析通过升级为普通网关运行通过。
 
 后续每个项目的现场验收除自身退出标准外，共用以下门禁：不提交 `.env` 或凭据；测试 chat 的外部发送
 必须取得当轮授权；PR 必须满足 `CI.md §8` 的绿色检查与 Greptile 5/5；合并后继续观察 main CI、
