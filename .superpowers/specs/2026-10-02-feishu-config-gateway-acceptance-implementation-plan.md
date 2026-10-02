@@ -10,7 +10,7 @@
 
 **Spec:** 用户于 2026-10-02 批准的会话内有限修复设计，冻结于本文 §1；诊断与路线背景见[能力路线](2026-09-12-feishu-capability-completion-design.md)及[S8b-2 已批准设计](2026-10-01-feishu-s8b2-message-search-design.md)。本项不另建架构设计。
 
-**Status:** **2026-10-02 实现与零网络准备已执行；首次获批窗口在 CLI 前拒绝并已撤销，等待新窗口授权。** 用户解除此前实施暂停，并已另行明确批准临时监督器的零网络实现与验证；没有自动重试现场。合并尚未批准。执行步骤按实际证据更新。
+**Status:** **2026-10-02 配置实现与验证已完成，两次获批窗口已结束，普通运行未验成；建议配置单独交付、运行验收延期，待用户决定。** 两次窗口授权均已撤销，不自动重试或扩预算；本项新限制尚未接受，合并尚未批准。执行步骤按实际证据更新。
 **Baseline:** `d8598c2bfda86e1b858e283ce58ae604b1482b51`（PR #45 merge）；执行前重新核对 main。
 **Worktree / branch:** `C:/Users/23033/Desktop/opensre2/.worktrees/feishu-s5b-feedback` / `codex/feishu-config-gateway-acceptance`。
 **Execution method:** Native：主代理实施；完成后进行一次独立全分支评审，不新建工作树或用户会话。
@@ -149,16 +149,16 @@ assert "app_secret" not in stored["credentials"]
 - [x] **Step 5: 完成审查。** 检查人类/自动评论和 unresolved threads；逐条验证、修复或说明并关闭。仅按 CONTRIBUTING 的现有方法触发 Greptile，运行中不重复触发，直至准确 HEAD 的 5/5、零未解决 actionable 线程。未经授权不向其他人发送消息；仓库明确要求的审查触发遵守其规则。
 - [x] **Step 6: 进入现场准备门禁。** 报告准确 PR HEAD、本地/CI/Greptile 结果和限制，继续 Task 4 的零网络准备；获得当轮现场窗口授权前保持网关关闭。代码变更后需重新核对 HEAD 和预检，不能沿用旧窗口证据。
 
-## Task 4: 普通飞书网关实际运行验收（单独窗口，尚未授权）
+## Task 4: 普通飞书网关实际运行验收（两次窗口已结束，尚未验成）
 
 **Files:** 不预定产品改动；执行时可编写 git 外的临时观测/预算脚本及安全结果摘要。它们不是已实现能力，不随 PR 提交。
 
 **Interfaces:** 使用 `uv run opensre gateway start --foreground` 的正常 CLI composition、真实 TurnRunner/SessionAgentPool、现有模型 provider、实际 offered 工具和 Feishu 回包。产出现场证据及清理证明。
 
-- [x] **Step 1: 完成零网络启动预检。** 确认准确 HEAD、原 env 路径、应用/群/允许用户及 org 匹配；读取真正的 `GATEWAY_PID_FILE`（host root 下的 `gateway/gateway.pid`）并核对存活进程，不依据文件不存在宣称无其他消费者，不停止既有用户进程。解析实际模型 provider、认证、预加载、embedding/CLI 路径及 credits/vault 是否启用，不能把旧探针未识别的 provider 判为未配置。
-- [x] **Step 2: 明确副作用并证明预算守卫。** 用现有部署 knob 在子进程里设 `OPENSRE_GATEWAY_HOST_SCHEDULER=0`、`OPENSRE_SENTRY_DISABLED=1`、`OPENSRE_ANALYTICS_DISABLED=1`，记录这些差异；不写 env 文件。列出普通 registry 会启动的所有 transport。若其他 transport 已配置、存在第二个 Feishu 消费者、metering/vault 的请求未纳入预算或无法可靠观测模型底层尝试，则不启动，先提交具体隔离/计数方案。不得通过 patch TRANSPORTS、换假 handler/model 或给 resolver 注入 env 来宣称普通网关验收。
+- [ ] **Step 1: 完成零网络启动预检。** 配置、作用域、身份、模型、进程和 transport 项已核对；第二次窗口证明临时写入被拒绝时没有覆盖真实能力探针的子进程路径，因此重新标记完整启动预检未完成。恢复前须补该路径的独立方案，不能以原 boot 成功替代。确认准确 HEAD、原 env 路径、应用/群/允许用户及 org 匹配；读取真正的 `GATEWAY_PID_FILE`（host root 下的 `gateway/gateway.pid`）并核对存活进程，不停止既有用户进程。解析实际模型 provider、认证、预加载、embedding/CLI 路径及 credits/vault 是否启用。
+- [ ] **Step 2: 明确副作用并证明可执行预算。** 原 39 项守卫边界测试通过且现场成功拒绝子进程，但普通启动所需沙箱能力探针与零子进程预算冲突，当前方案不能继续标记可执行。恢复前先设计明确的探针进程/脚本/环境及预算，不增加无约束豁免。继续使用现有 scheduler/Sentry/analytics 子进程 knob，保留正常 registry、授权和模型；不通过替换 TRANSPORTS、handler/model 或注入 env records 宣称普通网关验收。
 - [x] **Step 3: 预检额外入站。** 当前 worker 注释依赖 mention-only，而应用已开群读权限；把这一假设不匹配当作现场风险，不声称已证明自动启动 turn。窗口必须限制测试群/操作者/预定消息和最多一个模型 turn；额外入站、重试按钮或 reaction 导致另一 turn 时应在模型调用前拒绝并停止。若必须绕过正常授权/dispatch 才能保证预算，停止并提出独立行为修复设计；不暗中扩大本项。
-- [x] **Step 4: 形成具体窗口并取得首次当轮授权。** 用户审阅具体窗口后批准下一步；首次授权在启动拒绝后已撤销。再次运行须重新取得当轮授权，不能复用首次记录。两阶段共不超过 15 分钟，其余预算见下表和具体窗口：
+- [x] **Step 4: 形成具体窗口并取得两次当轮授权。** 用户审阅后批准首次窗口，随后重新授权并要求复核必要性；两次失败后授权均已撤销。下表为已结束窗口的预算记录，不是第三次启动授权或提案：
 
 | 项目 | 提议上限与条件 |
 | --- | --- |
@@ -174,7 +174,7 @@ assert "app_secret" not in stored["credentials"]
 
 - [ ] **Step 5: 阶段 A 启动和命令。** 正常 bootstrap 从原 env 读取，运行实际 CLI gateway；确认 Feishu 连接 ready、监督器已启用、scheduler 已关闭及其他 transport 未连接。本地 health 按当轮窗口的 0 次预算延期，保持未验，不发送 health 请求。请用户在测试群 @bot 发 `/help`；确认一次普通命令回复，模型/历史 GET 计数均为 0。仅 ready 日志不算通过。
 - [ ] **Step 6: 阶段 B 一个模型驱动读消息 turn。** 预检通过后给用户一条包含当轮唯一标记的完整 prompt：声明标记 `FEISHU_CONFIG_VERIFY_<UTC秒>_<nonce>`，请在当前聊天过去 5 分钟内搜索该标记、读取最新匹配 ID，再给一句简短结果，不运行其他工具或额外发送。用户只发送这一条并 @bot；其文本同时是待发现的测试消息，避免额外普通群消息意外启动 turn。观测实际 offered 的 `feishu_search_messages` 和 `feishu_get_message`、真实调用次序与相同 ID 匹配、最终卡片及流式完成状态。不用临时执行器直接调用这两个工具来替代 Agent 路径；若模型没按要求调用，报告链路未验成，窗口内不追加新 turn。
-- [x] **Step 7: 首次尝试清理并回写证据。** CLI 在网关启动前退出 78；临时授权撤销、本机消费者/端口无残留、原 env/store 摘要未变。首次未进入请求计数阶段，后续实际运行仍须重新完成连接/线程及真实计数的清理核对。用该进程的正常停止机制关闭，不 kill 无关进程；不删除聊天消息。
+- [x] **Step 7: 两次尝试清理并回写证据。** 首次在授权解码阶段退出 78；第二次在能力探针的子进程创建前被拒绝，退出 1。两次临时授权均撤销，本机消费者/端口无残留，原 env/store 未变。第二次模型/Feishu/API/WS/入站计数均 0，未建立飞书连接；不 kill 无关进程或删除聊天消息。
 - [ ] **Step 8: 处理结果。** 普通入口配置 → 授权入站 → 模型 offered/call → 搜索/读取同一 ID → 卡片回答 → 清理全部成功，才标记本轮通过。分页、跨聊天/操作者、post/卡片搜索及 S8a 多页投递未在本轮完成的继续记录为未验，不自动解除旧限制。失败定位根因；产品修复按 scoped checks 和 PR/CI 闭环，权限或预算不足停在窗口边界，不自行提权或重试。
 
 ## Task 5: 交付决定与合并后验证（另行批准）
@@ -183,7 +183,7 @@ assert "app_secret" not in stored["credentials"]
 
 **Interfaces:** 消费准确 HEAD 的 CI/Greptile 和 Task 4 现场结果；仅在用户明确批准合并后产出 merge SHA 与 post-merge 结果。
 
-- [ ] **Step 1: 汇报可审查结果。** 区分配置回归通过、普通网关实际通过和未验项目；提交准确 HEAD 的安全证据。若现场失败或受限，让用户基于具体结果决定补验或接受限制；本计划不预先接受新限制。
+- [x] **Step 1: 汇报可审查结果。** 已提供配置回归/CI、两次实际窗口失败和清理证据，提出配置修复单独交付、普通运行延期的可审阅安排；普通网关未通过。限制是否接受、是否补验和是否合并仍由用户分别决定，本计划不预先接受。
 - [ ] **Step 2: 获得合并批准后复核并合并。** 再确认准确 HEAD 绿色、Greptile 5/5、零未解决线程；新增变更后重做对应门禁。不把设计批准、执行批准或现场窗口批准当成合并批准。
 - [ ] **Step 3: 跟踪准确 merge SHA。** 等 main CI、完整 Python/JavaScript CodeQL 和 release workflow；Release 按 guard 跳过可记 skipped，不能写已发布；新增 CodeQL 告警须修复，不清理无关旧告警。
 - [ ] **Step 4: 闭环失败并回写。** 合并后失败必须修复或回滚并复验；最终文档说明配置修复、现场结果与限制、准确 merge SHA 和检查链接。取消项保持取消，不新增 S8b-5 来包装后续可靠性工作。
@@ -217,3 +217,9 @@ PR [#46](https://github.com/NotYourBug/aasre/pull/46) 已创建、推送并 atta
 首次窗口随后获用户明确批准。准确 HEAD `fd96db7066ea4ed1c877fceaa2db214b0897e9ed` 的 CI 为 29 success / 7 skipped，Greptile 5/5、零未解决线程；刷新原 env/store 和依赖指纹一致，本机消费者和端口为 0。2026-10-02 09:15:27 UTC 建立 900 秒一次性授权，正常 CLI 约 1.9 秒后在授权 JSON 解码时拒绝，退出 78，尚未进入 `prepare`、gateway composition 或请求计数阶段。没有让用户发送测试消息；09:17:09 UTC 核对授权撤销、消费者/8000 监听为 0，原 stale PID 不存活。授权撤销后的原指纹相同，env/store 未变。
 
 根因是 Windows `opensre.exe` 的 cp936 默认编码与 UTF-8 中文授权记录不一致，临时监督器显式 UTF-8 读取后修复；产品未改。真实 Windows console-script 时机的完整离线 `prepare` 通过（网络闸保持关闭并在 CLI 前退出）；编码回归取得 RED→GREEN，39 项离线守卫测试通过（18.03s），进程退出 external attempts 0，临时脚本 lint/format 通过。Task 4 Step 4 的首次授权和 Step 7 的首次清理完成，Steps 5/6 仍未通过，Step 8 继续等待新窗口的真实结果，Task 5 未完成。再次运行须刷新新 HEAD/指纹并单独授权，预算和行为不扩展；首次现场及合并授权均不可复用。
+
+用户随后重新授权并要求复核必要性。配置选择修复已有充分回归/CI 证据；剩余普通入口、真实会话/授权、实际模型 offered search/get 和卡片组合仍缺真实证明，因此只再尝试一次，约定若无法进入该链则停止当前现场方案并提出拆分交付。
+
+第二次在准确 HEAD `4479363`、CI 29 success / 7 skipped、Greptile 5/5/零未解决线程及原配置指纹一致后，于 2026-10-02 22:12:20（Asia/Shanghai）建立授权。普通 CLI 进入 GATEWAY_PROFILE 能力探针，沙箱 Python 子进程创建被预算 0 在发起前拒绝，退出 1，原因为 `unscoped_network_or_subprocess`。模型/turn、所有 Feishu/API/出站、DNS/TCP/WS 和入站计数均 0，stdlib IPC 1；env/store 不变。22:14:13 核对授权撤销、消费者/Docker/WSL/8000 监听为 0，旧 PID 不存活，没有通知用户发消息或自行重试。
+
+原零网络预检拒绝临时文件写入，能力探针因此提前返回不可用；原非致命捕获让 boot 继续，未触及实际 subprocess。现场允许必要临时写入后触及该路径，暴露预检覆盖不足与普通启动/零子进程预算冲突。现停止当前方案，不增加豁免或修改共享启动。建议 PR #46 先作为有限配置修复独立交付候选，Task 4 普通运行保留未验；若继续须独立设计能力探针子进程预算和完整预检，再单独窗口授权。Task 4 Steps 5/6/8 和 Task 5 的限制/合并决定仍未完成，详见[可审阅交付安排](2026-10-02-feishu-gateway-live-window.md)。这只是建议，用户尚未接受本项新限制或批准合并。
