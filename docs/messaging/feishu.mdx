@@ -53,6 +53,11 @@ FEISHU_ALLOWED_OUTBOUND_TARGETS=chat_id:oc_ops,open_id:ou_owner
 ORGANIZATION_ID=org_...
 ```
 
+App configuration saved by setup takes precedence over environment values.
+An identity policy saved by pairing or `messaging allow` alone keeps an
+environment-configured app available and continues to control who can use it.
+Keep saved identity policies when changing how you provide app credentials.
+
 `FEISHU_ALLOWED_OPEN_IDS` must contain at least one member for immediate inbound
 access. Only listed members can start turns or decide their own write-tool
 approvals. `ORGANIZATION_ID` names the organization that owns Feishu sessions and
@@ -157,6 +162,17 @@ Use `opensre gateway start -f` to run attached to the terminal, and
 `opensre gateway logs -f` to follow startup and callback errors. A successful
 credential verification does not prove that permissions, subscriptions, the
 published version, or chat membership are correct.
+
+When developing in a worktree without its own `.env`, point to the existing
+file instead of copying credentials. In PowerShell:
+
+```powershell
+$env:OPENSRE_PROJECT_ENV_PATH = 'C:/path/to/original/.env'
+uv run opensre gateway start --foreground
+```
+
+The path must name the existing file. Values already set in the process
+environment take precedence over that file.
 
 ## Document delivery
 

@@ -1,12 +1,21 @@
 import json
+from pathlib import Path
 
 import pytest
 
+import config.constants.paths as paths
 from config.constants import INTEGRATIONS_STORE_PATH_ENV
+from config.principal import Actor, Principal, StorageScope
+from config.scope_context import bound_storage_scope, current_scope
 from gateway.core.lifecycle.errors import GatewayConfigurationError
+from gateway.core.middleware.identity_policy import load_identity_policy, save_identity_policy
 from gateway.transports.feishu import settings
+from gateway.transports.feishu.inbound_security import is_feedback_actor_authorized
 from gateway.transports.feishu.settings import load_feishu_gateway_settings
+from integrations import catalog
 from integrations.feishu.credentials import FeishuChatCredentials, load_chat_credentials_from_env
+from integrations.messaging_security import MessagingIdentityPolicy, authorize_inbound_message
+from integrations.store import resolve_store_path
 
 
 def test_missing_credentials_raises(monkeypatch):
@@ -150,3 +159,103 @@ def test_a_store_record_alone_starts_the_worker_end_to_end(monkeypatch, tmp_path
     assert loaded.app_id == "cli_from_store"
     assert loaded.app_secret == "s_from_store"
     assert loaded.allowed_open_ids == ["ou_from_store"]
+
+
+def _set_chat_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_env")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "s_env")
+    monkeypatch.setenv("FEISHU_CHAT_RECEIVE_ID", "oc_env")
+    monkeypatch.setenv("FEISHU_ALLOWED_OPEN_IDS", "ou_env")
+
+
+def _assert_env_policy_resolution(user_id: str, *, inbound_enabled: bool = True) -> None:
+    store_path = resolve_store_path()
+    before = store_path.read_bytes()
+    effective = catalog.resolve_effective_integrations()["feishu"]
+    creds = load_chat_credentials_from_env()
+    loaded = load_feishu_gateway_settings()
+    _, policy = load_identity_policy("feishu")
+
+    assert effective["source"] == "local env"
+    assert effective["config"]["app_id"] == creds.app_id == loaded.app_id == "cli_env"
+    assert effective["config"]["app_secret"] == creds.app_secret == loaded.app_secret == "s_env"
+    assert effective["config"]["receive_id"] == creds.receive_id == "oc_env"
+    assert loaded.allowed_open_ids == ["ou_env"]
+    assert policy.allowed_user_ids == [user_id]
+    assert policy.inbound_enabled is inbound_enabled
+    assert authorize_inbound_message(policy=policy, user_id=user_id).allowed is inbound_enabled
+    assert (
+        is_feedback_actor_authorized(
+            open_id=user_id, chat_id="oc_env", env_allowed_open_ids=loaded.allowed_open_ids
+        )
+        is inbound_enabled
+    )
+    for denied in ("ou_env", "ou_stranger"):
+        assert not authorize_inbound_message(policy=policy, user_id=denied).allowed
+        assert not is_feedback_actor_authorized(
+            open_id=denied, chat_id="oc_env", env_allowed_open_ids=loaded.allowed_open_ids
+        )
+    assert store_path.read_bytes() == before
+
+
+def test_policy_only_store_and_env_resolve_through_gateway_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("integrations.store.STORE_PATH", tmp_path / "integrations.json")
+    _set_chat_env(monkeypatch)
+    policy = MessagingIdentityPolicy(inbound_enabled=True, allowed_user_ids=["ou_policy"])
+    save_identity_policy("feishu", None, policy)
+
+    _assert_env_policy_resolution("ou_policy")
+
+    record, policy = load_identity_policy("feishu")
+    policy.inbound_enabled = False
+    save_identity_policy("feishu", record, policy)
+    _assert_env_policy_resolution("ou_policy", inbound_enabled=False)
+
+
+def test_policy_only_resolution_respects_bound_org_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(paths, "OPENSRE_HOME_DIR", tmp_path / "opensre-home")
+    monkeypatch.setattr("integrations.store.STORE_PATH", None)
+    monkeypatch.delenv(INTEGRATIONS_STORE_PATH_ENV, raising=False)
+    monkeypatch.delenv("OPENSRE_CONTEXT_ROOT", raising=False)
+    _set_chat_env(monkeypatch)
+    scope_before = current_scope()
+    assert scope_before is None
+    save_identity_policy(
+        "feishu",
+        None,
+        MessagingIdentityPolicy(inbound_enabled=True, allowed_user_ids=["ou_unbound"]),
+    )
+    unbound_path = resolve_store_path()
+    unbound_before = unbound_path.read_bytes()
+    scopes = [
+        StorageScope(principal=Principal.org("org_a"), actor=Actor("ou_a")),
+        StorageScope(principal=Principal.org("org_b"), actor=Actor("ou_b")),
+    ]
+    snapshots: dict[Path, bytes] = {}
+    for scope in scopes:
+        with bound_storage_scope(scope):
+            assert resolve_store_path() == (
+                tmp_path / "opensre-home" / "orgs" / scope.principal.id / "integrations.json"
+            )
+            save_identity_policy(
+                "feishu",
+                None,
+                MessagingIdentityPolicy(inbound_enabled=True, allowed_user_ids=[scope.actor.id]),
+            )
+            snapshots[resolve_store_path()] = resolve_store_path().read_bytes()
+    for scope in scopes:
+        with bound_storage_scope(scope):
+            _assert_env_policy_resolution(scope.actor.id)
+            _, policy = load_identity_policy("feishu")
+            other = "ou_b" if scope.actor.id == "ou_a" else "ou_a"
+            assert not authorize_inbound_message(policy=policy, user_id=other).allowed
+            assert not authorize_inbound_message(policy=policy, user_id="ou_unbound").allowed
+    assert current_scope() is scope_before
+    assert resolve_store_path() == unbound_path
+    assert unbound_path.read_bytes() == unbound_before
+    _assert_env_policy_resolution("ou_unbound")
+    assert all(path.read_bytes() == snapshot for path, snapshot in snapshots.items())
