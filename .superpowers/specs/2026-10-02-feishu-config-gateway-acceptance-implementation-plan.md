@@ -10,7 +10,7 @@
 
 **Spec:** 用户于 2026-10-02 批准的会话内有限修复设计，冻结于本文 §1；诊断与路线背景见[能力路线](2026-09-12-feishu-capability-completion-design.md)及[S8b-2 已批准设计](2026-10-01-feishu-s8b2-message-search-design.md)。本项不另建架构设计。
 
-**Status:** **2026-10-02 实现与零网络准备已执行，等待当轮现场授权。** 用户解除此前实施暂停，并已另行明确批准临时监督器的零网络实现与验证；真实网关连接、模型、外部消息读取/发送和合并仍须各自授权。执行步骤按实际证据更新。
+**Status:** **2026-10-02 实现与零网络准备已执行；首次获批窗口在 CLI 前拒绝并已撤销，等待新窗口授权。** 用户解除此前实施暂停，并已另行明确批准临时监督器的零网络实现与验证；没有自动重试现场。合并尚未批准。执行步骤按实际证据更新。
 **Baseline:** `d8598c2bfda86e1b858e283ce58ae604b1482b51`（PR #45 merge）；执行前重新核对 main。
 **Worktree / branch:** `C:/Users/23033/Desktop/opensre2/.worktrees/feishu-s5b-feedback` / `codex/feishu-config-gateway-acceptance`。
 **Execution method:** Native：主代理实施；完成后进行一次独立全分支评审，不新建工作树或用户会话。
@@ -158,7 +158,7 @@ assert "app_secret" not in stored["credentials"]
 - [x] **Step 1: 完成零网络启动预检。** 确认准确 HEAD、原 env 路径、应用/群/允许用户及 org 匹配；读取真正的 `GATEWAY_PID_FILE`（host root 下的 `gateway/gateway.pid`）并核对存活进程，不依据文件不存在宣称无其他消费者，不停止既有用户进程。解析实际模型 provider、认证、预加载、embedding/CLI 路径及 credits/vault 是否启用，不能把旧探针未识别的 provider 判为未配置。
 - [x] **Step 2: 明确副作用并证明预算守卫。** 用现有部署 knob 在子进程里设 `OPENSRE_GATEWAY_HOST_SCHEDULER=0`、`OPENSRE_SENTRY_DISABLED=1`、`OPENSRE_ANALYTICS_DISABLED=1`，记录这些差异；不写 env 文件。列出普通 registry 会启动的所有 transport。若其他 transport 已配置、存在第二个 Feishu 消费者、metering/vault 的请求未纳入预算或无法可靠观测模型底层尝试，则不启动，先提交具体隔离/计数方案。不得通过 patch TRANSPORTS、换假 handler/model 或给 resolver 注入 env 来宣称普通网关验收。
 - [x] **Step 3: 预检额外入站。** 当前 worker 注释依赖 mention-only，而应用已开群读权限；把这一假设不匹配当作现场风险，不声称已证明自动启动 turn。窗口必须限制测试群/操作者/预定消息和最多一个模型 turn；额外入站、重试按钮或 reaction 导致另一 turn 时应在模型调用前拒绝并停止。若必须绕过正常授权/dispatch 才能保证预算，停止并提出独立行为修复设计；不暗中扩大本项。
-- [ ] **Step 4: 形成具体窗口并取得当轮授权。** 建议两阶段共不超过 15 分钟，预算是提案而非当前授权：
+- [x] **Step 4: 形成具体窗口并取得首次当轮授权。** 用户审阅具体窗口后批准下一步；首次授权在启动拒绝后已撤销。再次运行须重新取得当轮授权，不能复用首次记录。两阶段共不超过 15 分钟，其余预算见下表和具体窗口：
 
 | 项目 | 提议上限与条件 |
 | --- | --- |
@@ -174,7 +174,7 @@ assert "app_secret" not in stored["credentials"]
 
 - [ ] **Step 5: 阶段 A 启动和命令。** 正常 bootstrap 从原 env 读取，运行实际 CLI gateway；确认 Feishu 连接 ready、监督器已启用、scheduler 已关闭及其他 transport 未连接。本地 health 按当轮窗口的 0 次预算延期，保持未验，不发送 health 请求。请用户在测试群 @bot 发 `/help`；确认一次普通命令回复，模型/历史 GET 计数均为 0。仅 ready 日志不算通过。
 - [ ] **Step 6: 阶段 B 一个模型驱动读消息 turn。** 预检通过后给用户一条包含当轮唯一标记的完整 prompt：声明标记 `FEISHU_CONFIG_VERIFY_<UTC秒>_<nonce>`，请在当前聊天过去 5 分钟内搜索该标记、读取最新匹配 ID，再给一句简短结果，不运行其他工具或额外发送。用户只发送这一条并 @bot；其文本同时是待发现的测试消息，避免额外普通群消息意外启动 turn。观测实际 offered 的 `feishu_search_messages` 和 `feishu_get_message`、真实调用次序与相同 ID 匹配、最终卡片及流式完成状态。不用临时执行器直接调用这两个工具来替代 Agent 路径；若模型没按要求调用，报告链路未验成，窗口内不追加新 turn。
-- [ ] **Step 7: 清理并回写证据。** 用该进程的正常停止机制关闭，确认线程/连接/子进程退出，且无新消费者残留；不 kill 无关进程。只记录 window 起止、准确 HEAD、步骤结果、请求/模型/出站计数、相同 ID 的布尔证明与通用错误码；确认 env 与既有身份策略未改。正常会话/绑定等运行状态写入须在窗口授权中披露，保留必要结果，不删除聊天消息。
+- [x] **Step 7: 首次尝试清理并回写证据。** CLI 在网关启动前退出 78；临时授权撤销、本机消费者/端口无残留、原 env/store 摘要未变。首次未进入请求计数阶段，后续实际运行仍须重新完成连接/线程及真实计数的清理核对。用该进程的正常停止机制关闭，不 kill 无关进程；不删除聊天消息。
 - [ ] **Step 8: 处理结果。** 普通入口配置 → 授权入站 → 模型 offered/call → 搜索/读取同一 ID → 卡片回答 → 清理全部成功，才标记本轮通过。分页、跨聊天/操作者、post/卡片搜索及 S8a 多页投递未在本轮完成的继续记录为未验，不自动解除旧限制。失败定位根因；产品修复按 scoped checks 和 PR/CI 闭环，权限或预算不足停在窗口边界，不自行提权或重试。
 
 ## Task 5: 交付决定与合并后验证（另行批准）
@@ -212,4 +212,8 @@ PR [#46](https://github.com/NotYourBug/aasre/pull/46) 已创建、推送并 atta
 
 真实配置监督器预检安装完整包装后，正常 CLI/GATEWAY_PROFILE boot（不启动服务）通过，live_enabled=false、当轮授权文件不存在，env/store 摘要不变；27 次写入尝试被拒绝、stdlib socketpair IPC 1 次、外部请求尝试 0。normal `uv run opensre --version` 的无授权拒绝演练得到退出码 78，CLI 未继续运行。预检同时固定 HEAD、env/store、脚本和依赖摘要；Windows PID 只读检查使用现有 psutil，避免 POSIX liveness helper 的不适用接口，不改产品进程管理。
 
-[具体当轮窗口](2026-10-02-feishu-gateway-live-window.md)已经形成：最多 900 秒、1 turn/6 model HTTP、history 6/get 1、消息/CardKit 写 60、独立 WS/DNS/TCP 上限、计量/vault/health 为 0、关闭后清理最多 30 秒。普通 Web 仍绑定 0.0.0.0，额外 HTTP 入站拒绝，health 继续未验。启动前刷新本机进程/端口和准确 HEAD 指纹；当前只有配置/离线回归证据，不声称现场通过。Task 4 Step 4 授权及 Steps 5–8、Task 5 均未完成，合并未批准。
+[具体当轮窗口](2026-10-02-feishu-gateway-live-window.md)已经形成：最多 900 秒、1 turn/6 model HTTP、history 6/get 1、消息/CardKit 写 60、独立 WS/DNS/TCP 上限、计量/vault/health 为 0、关闭后清理最多 30 秒。普通 Web 仍绑定 0.0.0.0，额外 HTTP 入站拒绝，health 继续未验。在首次批准前，Task 4 Step 4 授权及 Steps 5–8、Task 5 均未完成；这段为窗口提交时记录，后续实际结果见下文，不能声称现场通过。
+
+首次窗口随后获用户明确批准。准确 HEAD `fd96db7066ea4ed1c877fceaa2db214b0897e9ed` 的 CI 为 29 success / 7 skipped，Greptile 5/5、零未解决线程；刷新原 env/store 和依赖指纹一致，本机消费者和端口为 0。2026-10-02 09:15:27 UTC 建立 900 秒一次性授权，正常 CLI 约 1.9 秒后在授权 JSON 解码时拒绝，退出 78，尚未进入 `prepare`、gateway composition 或请求计数阶段。没有让用户发送测试消息；09:17:09 UTC 核对授权撤销、消费者/8000 监听为 0，原 stale PID 不存活。授权撤销后的原指纹相同，env/store 未变。
+
+根因是 Windows `opensre.exe` 的 cp936 默认编码与 UTF-8 中文授权记录不一致，临时监督器显式 UTF-8 读取后修复；产品未改。真实 Windows console-script 时机的完整离线 `prepare` 通过（网络闸保持关闭并在 CLI 前退出）；编码回归取得 RED→GREEN，39 项离线守卫测试通过（18.03s），进程退出 external attempts 0，临时脚本 lint/format 通过。Task 4 Step 4 的首次授权和 Step 7 的首次清理完成，Steps 5/6 仍未通过，Step 8 继续等待新窗口的真实结果，Task 5 未完成。再次运行须刷新新 HEAD/指纹并单独授权，预算和行为不扩展；首次现场及合并授权均不可复用。

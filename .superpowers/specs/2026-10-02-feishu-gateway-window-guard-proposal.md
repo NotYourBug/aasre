@@ -63,6 +63,6 @@
 - 真实正常授权器和 runner 的正向路径未替换；另一条合法群消息、重试按钮、reaction、其他群/用户、重复相同消息、附件均在模型/计量/出站前停；不把 synthetic 回答当现场结果。
 - 原 schemas/registry/composition 与无守卫时一致；允许消息继续调用原函数一次且传参不改。
 - help/message/CardKit 实际 request shape、card/message ID 来源、WS endpoint/握手/heartbeat/ACK/pong、跨线程取消和 stop 全部覆盖；任何未覆盖路径继续阻塞现场。
-- 本清单的离线守卫已实施并通过 39 项验证；真实普通 gateway 入口、授权/会话、实际 offered 模型调用和卡片回包须现场验证。Task 4 Step 4 的当轮批准及 Steps 5–8 仍未完成。
+- 本清单的离线守卫已实施并通过 39 项验证；真实普通 gateway 入口、授权/会话、实际 offered 模型调用和卡片回包须现场验证。首次窗口已获批准，但临时监督器在读取中文授权 JSON 时因 Windows 默认编码而拒绝；授权已撤销。显式 UTF-8 修正经 RED→GREEN 和完整离线套件验证，普通入口尚未通过，重新运行须取得新窗口授权。详细结果见[现场窗口记录](2026-10-02-feishu-gateway-live-window.md)。
 
 现场通过仍须真实普通入口 → 授权/会话 → 正常 offered search/get → 同一实际 ID → 正常卡片输出 → 清理的完整证据。仅一名参与者；跨操作者、分页、跨聊天和既有未验项目继续如实标注。现场通过或限制接受之后，再等待用户独立决定合并。
