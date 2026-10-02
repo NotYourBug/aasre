@@ -204,4 +204,6 @@ assert "app_secret" not in stored["credentials"]
 - 探针禁止外部 socket/DNS、子进程和文件写入：外部网络及子进程尝试均 0，20 个目录/写入尝试被拒绝。Windows SDK 导入所需 stdlib socketpair 的精确 loopback listener tuple 仅作为进程内事件循环 IPC 放行一次；未连接飞书。
 - 执行裁定：CI.md 与用户指令优先于技能默认全套本地测试，采用 scoped tests 并以 PR 全仓 CI 闭环；Windows bash bookkeeping helper 不兼容本机路径，改用本机 ledger 与逐任务 BASE/输出记录，已停止自己的 helper，未动用户进程。若判断错误，分别由 PR CI 和计划/提交对照捕获。
 
-独立整分支评审、PR/CI/Greptile 与现场启动/计量/预算证据仍待本轮后续更新。真实验收窗口和合并均未批准。
+独立整分支评审已完成（base `d8598c2` 至 `adc0106`，只读）。一个 Important：带空白的 service 名称不符合身份策略 reader 的精确名称契约；一个 Minor：筛选 helper 调用分类器时可能触发上报副作用。两项均有独立回归 RED（2 failed），已收紧 canonical service 并提取纯校验；25 项 catalog focused GREEN，最终 scoped suite 697 passed（25.92s），完整 lint/format/typecheck 重新通过。无延期 Minor；授权算法和 worker 保持不变。评审未判断的现场预算与既有 leaf/空 allowlist/重复身份策略行为仍不据此宣称修复。
+
+PR/CI/Greptile 与现场启动/计量/预算证据仍待本轮后续更新。真实验收窗口和合并均未批准。

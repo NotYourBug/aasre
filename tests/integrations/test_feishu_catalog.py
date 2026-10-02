@@ -113,6 +113,28 @@ def test_policy_only_store_preserves_env_config_without_mutation() -> None:
     assert (store_records, env_records) == before
 
 
+def test_noncanonical_service_keeps_store_precedence() -> None:
+    record = _policy_record()
+    record["service"] = " feishu "
+
+    assert catalog.merge_local_integrations([record], [_env_record()]) == [record]
+
+
+def test_invalid_env_selection_does_not_report_classification_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_record = _env_record()
+    env_record["credentials"]["receive_id_type"] = "invalid"
+
+    def unexpected_report(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("credential selection must not report classification failures")
+
+    monkeypatch.setattr("integrations.feishu.classify.report_classify_failure", unexpected_report)
+    record = _policy_record()
+
+    assert catalog.merge_local_integrations([record], [env_record]) == [record]
+
+
 def test_explicit_store_config_and_empty_targets_still_win(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

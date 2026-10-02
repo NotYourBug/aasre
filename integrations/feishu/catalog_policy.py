@@ -6,12 +6,16 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from integrations.feishu.classify import classify
+from integrations.feishu.classify import validate_chat_config
 from integrations.messaging_security import MessagingIdentityPolicy
 
 
 def _is_policy_only_default(record: dict[str, Any]) -> bool:
-    if set(record) != {"id", "service", "status", "instances"} or record["status"] != "active":
+    if (
+        set(record) != {"id", "service", "status", "instances"}
+        or record["service"] != "feishu"
+        or record["status"] != "active"
+    ):
         return False
     instances = record["instances"]
     if not isinstance(instances, list) or len(instances) != 1:
@@ -59,8 +63,11 @@ def feishu_credential_records(
     credentials = env_record.get("credentials")
     if not isinstance(credentials, dict):
         return list(store_records)
-    config, _service = classify(credentials, str(env_record.get("id", "")))
-    if config is None or not config["app_id"] or not config["app_secret"]:
+    try:
+        config = validate_chat_config(credentials)
+    except ValidationError:
+        return list(store_records)
+    if config is None or not config.app_id or not config.app_secret:
         return list(store_records)
     return [r for r in store_records if r is not feishu_records[0]]
 
