@@ -19,6 +19,7 @@ from integrations.feishu.card_document import (
     spec_bytes,
     table_count,
 )
+from integrations.feishu.catalog_policy import feishu_credential_records
 from integrations.feishu.credentials import (
     FeishuAlarmCredentials,
     FeishuChatCredentials,
@@ -45,6 +46,7 @@ __all__ = [
     "ResourceRef",
     "TRACKED_MESSAGE_TYPES",
     "classify_file",
+    "feishu_credential_records",
     "flatten_post",
     "is_known_text_file",
     "load_chat_credentials_from_env",

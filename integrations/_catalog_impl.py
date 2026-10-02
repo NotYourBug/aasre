@@ -304,6 +304,7 @@ from integrations.dagster import classify as _classify_dagster
 from integrations.datadog import classify as _classify_datadog
 from integrations.discord import classify as _classify_discord
 from integrations.effective_models import EffectiveIntegrations
+from integrations.feishu import feishu_credential_records
 from integrations.feishu.classify import classify as _classify_feishu
 from integrations.github.mcp import build_github_mcp_config
 from integrations.github.mcp import classify as _classify_github
@@ -2142,7 +2143,9 @@ def merge_local_integrations(
     env_integrations: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Merge local store and env integrations, preferring store entries by service."""
-    return merge_integrations_by_service(env_integrations, store_integrations)
+    return merge_integrations_by_service(
+        env_integrations, feishu_credential_records(store_integrations, env_integrations)
+    )
 
 
 def merge_integrations_by_service(
@@ -2287,9 +2290,12 @@ def resolve_effective_integrations(
     env_records = (
         list(env_integrations) if env_integrations is not None else load_env_integrations()
     )
-    merged_integrations = merge_local_integrations(store_records, env_records)
+    credential_records = feishu_credential_records(store_records, env_records)
+    merged_integrations = merge_integrations_by_service(env_records, credential_records)
     classified_integrations = classify_integrations(merged_integrations)
-    source_by_service, store_integration_by_service = _service_metadata(store_records, env_records)
+    source_by_service, store_integration_by_service = _service_metadata(
+        credential_records, env_records
+    )
 
     effective: dict[str, dict[str, Any]] = {}
 
