@@ -8,7 +8,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from integrations import catalog
 from integrations.messaging_security import verify_pairing_code
+from integrations.store import get_integration
 from surfaces.cli.commands.messaging import messaging
 
 
@@ -19,6 +21,29 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     store_path.write_text(json.dumps({"version": 2, "integrations": []}))
     monkeypatch.setattr("integrations.store.STORE_PATH", store_path)
     return store_path
+
+
+def test_feishu_allow_preserves_env_catalog_and_policy(
+    _isolated_store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FEISHU_APP_ID", "cli_env")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "s_env")
+    monkeypatch.setenv("FEISHU_CHAT_RECEIVE_ID", "oc_env")
+
+    result = CliRunner().invoke(messaging, ["allow", "-p", "feishu", "-u", "ou_allowed"])
+
+    assert result.exit_code == 0
+    before = _isolated_store.read_bytes()
+    effective = catalog.resolve_effective_integrations()
+    assert effective["feishu"]["config"]["app_id"] == "cli_env"
+    assert effective["feishu"]["config"]["app_secret"] == "s_env"
+    assert effective["feishu"]["source"] == "local env"
+    assert _isolated_store.read_bytes() == before
+    stored = get_integration("feishu")
+    assert stored is not None
+    assert stored["credentials"]["identity_policy"]["allowed_user_ids"] == ["ou_allowed"]
+    assert "app_id" not in stored["credentials"]
+    assert "app_secret" not in stored["credentials"]
 
 
 class TestMessagingPairCommand:
